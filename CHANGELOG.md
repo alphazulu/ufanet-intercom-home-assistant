@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.19.2
+
+- Hardened call-history response validation: malformed object responses without a `results` field now raise `UfanetResponseError` instead of being treated as an empty history.
+- Added regression coverage for Ufanet/UCAMS authentication, archive handling, call autosave, MP4 export and cleanup, privacy diagnostics, integration lifecycle and coordinators.
+- Added atomic MP4 export/deduplication tests, path-safety and retention tests, and explicit diagnostics redaction checks.
+- CI now enforces at least 85% coverage across critical backend modules; the release suite contains 140 tests and currently exceeds 93% coverage.
+- No Ufanet endpoint contract, door-control behavior, or user configuration migration is required from 0.19.1.
+
 ## 0.19.1
 
 - Added the MIT License.
