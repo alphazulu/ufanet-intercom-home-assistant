@@ -39,6 +39,7 @@ jobs:
             --cov=custom_components.ufanet_intercom.config_flow \
             --cov=custom_components.ufanet_intercom.archive \
             --cov=custom_components.ufanet_intercom.auto_export \
+            --cov=custom_components.ufanet_intercom.coordinator \
             --cov=custom_components.ufanet_intercom.diagnostics \
             --cov-report=term-missing \
             --cov-fail-under=85 \
