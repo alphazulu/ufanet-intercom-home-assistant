@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ufanet_intercom.const import (
     CONF_EXPORT_AUTO_CLEANUP,
@@ -22,8 +23,15 @@ from custom_components.ufanet_intercom.services import async_setup_services
 
 def _install_runtime(hass, tmp_path: Path):
     hass.config.media_dirs = {"local": str(tmp_path)}
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Export test",
+        data={},
+        unique_id="export-test",
+    )
+    entry.add_to_hass(hass)
     device = dr.async_get(hass).async_get_or_create(
-        config_entry_id="entry-1",
+        config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, "7")},
         name="Door",
     )
@@ -43,7 +51,7 @@ def _install_runtime(hass, tmp_path: Path):
     coordinator = SimpleNamespace(
         data={7: {"id": 7, "cctv_number": "CAM/1"}},
     )
-    hass.data.setdefault(DOMAIN, {})["entry-1"] = {
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "api": api,
         "coordinator": coordinator,
         "options": {CONF_EXPORT_AUTO_CLEANUP: False},
