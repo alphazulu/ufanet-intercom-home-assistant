@@ -1,13 +1,10 @@
 {
   "domain": "ufanet_intercom",
   "name": "Ufanet Intercom",
-  "version": "0.19.1",
-  "config_flow": true,
-  "integration_type": "hub",
-  "iot_class": "cloud_polling",
   "codeowners": [
     "@alphazulu"
   ],
+  "config_flow": true,
   "dependencies": [
     "frontend",
     "http",
@@ -15,5 +12,8 @@
     "stream"
   ],
   "documentation": "https://github.com/alphazulu/ufanet-intercom-home-assistant",
-  "issue_tracker": "https://github.com/alphazulu/ufanet-intercom-home-assistant/issues"
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/alphazulu/ufanet-intercom-home-assistant/issues",
+  "version": "0.19.1"
 }
