@@ -1,5 +1,7 @@
 # Ufanet Intercom for Home Assistant
 
+**English** | [Русский](README_RU.md)
+
 Custom Home Assistant integration for Ufanet / «Умный дом» intercoms using the cloud APIs used by the official mobile application.
 
 > This is an independent community integration. It is not affiliated with or supported by Ufanet.
