@@ -1,0 +1,245 @@
+"""Ufanet Intercom integration."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from pathlib import Path
+from typing import Any
+
+from homeassistant.components import frontend
+from homeassistant.components.http import StaticPathConfig
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.typing import ConfigType
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+from .api import UfanetApi, UfanetAuthError, UfanetConnectionError, UfanetResponseError
+from .archive import UfanetArchiveController
+from .auto_export import UfanetCallAutoSaveManager
+from .const import (
+    CONF_ARCHIVE_DEFAULT_DURATION,
+    CONF_ARCHIVE_DEFAULT_STEP,
+    CONF_CALL_SCAN_INTERVAL,
+    CONF_MEDIA_REFRESH_INTERVAL,
+    CONF_PASSWORD,
+    CONF_SKUD_SCAN_INTERVAL,
+    CONF_USERNAME,
+    DOMAIN,
+    EVENT_INTERCOM_CALL,
+)
+from .coordinator import UfanetCallCoordinator, UfanetCoordinator
+from .entity import device_name
+from .guest_store import UfanetGuestInviteStore
+from .options import effective_options
+from .services import async_setup_services
+
+_LOGGER = logging.getLogger(__name__)
+
+_FRONTEND_DIR = Path(__file__).parent / "frontend"
+_ARCHIVE_CARD_PATH = _FRONTEND_DIR / "ufanet-archive-card.js"
+_ARCHIVE_CARD_URL = "/ufanet_intercom/ufanet-archive-card.js"
+_ARCHIVE_CARD_MODULE_URL = f"{_ARCHIVE_CARD_URL}?v=0.19.1"
+
+PLATFORMS = [
+    Platform.BUTTON,
+    Platform.CAMERA,
+    Platform.DATETIME,
+    Platform.NUMBER,
+    Platform.SENSOR,
+]
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Set up integration-level service actions and archive dashboard card."""
+    guest_invite_store = UfanetGuestInviteStore(hass)
+    await guest_invite_store.async_load()
+
+    # Keep hass.data[DOMAIN] reserved for config-entry runtime dictionaries.
+    # Service handlers retain this Store instance through their closures.
+    async_setup_services(hass, guest_invite_store)
+
+    if _ARCHIVE_CARD_PATH.exists():
+        await hass.http.async_register_static_paths(
+            [
+                StaticPathConfig(
+                    _ARCHIVE_CARD_URL,
+                    str(_ARCHIVE_CARD_PATH),
+                    False,
+                )
+            ]
+        )
+        # Fallback only. The reliable/supported path for a Lovelace custom card
+        # is to add _ARCHIVE_CARD_MODULE_URL as a JavaScript Module resource.
+        # add_extra_js_url can race dashboard construction on current HA frontend.
+        frontend.add_extra_js_url(hass, _ARCHIVE_CARD_MODULE_URL)
+        _LOGGER.info("Ufanet archive card resource URL: %s", _ARCHIVE_CARD_MODULE_URL)
+    else:
+        _LOGGER.warning(
+            "Ufanet archive Lovelace card was not found at %s",
+            _ARCHIVE_CARD_PATH,
+        )
+
+    return True
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up Ufanet Intercom from a config entry."""
+    api = UfanetApi(
+        async_get_clientsession(hass),
+        entry.data[CONF_USERNAME],
+        entry.data[CONF_PASSWORD],
+    )
+    try:
+        await api.async_login()
+    except UfanetAuthError as err:
+        raise ConfigEntryAuthFailed from err
+    except (UfanetConnectionError, UfanetResponseError) as err:
+        raise ConfigEntryNotReady(str(err)) from err
+
+    options = effective_options(entry)
+
+    coordinator = UfanetCoordinator(
+        hass,
+        api,
+        scan_interval_seconds=int(options[CONF_SKUD_SCAN_INTERVAL]),
+    )
+    await coordinator.async_config_entry_first_refresh()
+
+    call_coordinator = UfanetCallCoordinator(
+        hass,
+        api,
+        scan_interval_seconds=int(options[CONF_CALL_SCAN_INTERVAL]),
+        media_refresh_seconds=int(options[CONF_MEDIA_REFRESH_INTERVAL]),
+    )
+    # Call history is an enhancement. A temporary failure of this endpoint must
+    # not prevent door opening/live camera from loading.
+    await call_coordinator.async_refresh()
+    if call_coordinator.data is None:
+        call_coordinator.data = {}
+
+    archive_controllers = {
+        int(skud["id"]): UfanetArchiveController(
+            api,
+            skud,
+            default_duration=int(options[CONF_ARCHIVE_DEFAULT_DURATION]),
+            default_step=int(options[CONF_ARCHIVE_DEFAULT_STEP]),
+        )
+        for skud in coordinator.data.values()
+        if skud.get("cctv_number")
+    }
+    if archive_controllers:
+        # Archive metadata is optional. Individual initialization failures are
+        # handled inside each controller and must not block the intercom.
+        await asyncio.gather(
+            *(controller.async_initialize() for controller in archive_controllers.values())
+        )
+
+    auto_save_manager = UfanetCallAutoSaveManager(hass, options)
+
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        "api": api,
+        "coordinator": coordinator,
+        "call_coordinator": call_coordinator,
+        "archive_controllers": archive_controllers,
+        "entry": entry,
+        "options": options,
+        "auto_save_manager": auto_save_manager,
+    }
+
+    device_registry = dr.async_get(hass)
+
+    def _handle_call_update() -> None:
+        """Publish newly detected Ufanet calls on the Home Assistant event bus."""
+        for call in call_coordinator.new_calls:
+            event_data = _call_event_data(call)
+
+            camera_number = call.get("camera_number")
+            skud = next(
+                (
+                    item
+                    for item in coordinator.data.values()
+                    if str(item.get("cctv_number") or "") == str(camera_number or "")
+                ),
+                None,
+            )
+            if skud is not None:
+                skud_id = int(skud["id"])
+                event_data["skud_id"] = skud_id
+                event_data["device_name"] = device_name(skud)
+                device = device_registry.async_get_device_by_identifier(
+                    (DOMAIN, str(skud_id)),
+                    entry.entry_id,
+                )
+                if device is not None:
+                    event_data["device_id"] = device.id
+                    auto_save_manager.schedule(call, device.id)
+
+            hass.bus.async_fire(EVENT_INTERCOM_CALL, event_data)
+
+    # This listener also keeps the call coordinator polling even if the user
+    # disables the Last call sensor entity.
+    entry.async_on_unload(call_coordinator.async_add_listener(_handle_call_update))
+    entry.async_on_unload(auto_save_manager.cancel_all)
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Recover a very recent call after a Home Assistant/integration restart.
+    # Duplicate export is prevented by the hashed call marker in the filename.
+    if auto_save_manager.enabled and isinstance(call_coordinator.data, dict):
+        for recent_call in call_coordinator.data.values():
+            camera_number = recent_call.get("camera_number")
+            skud = next(
+                (
+                    item
+                    for item in coordinator.data.values()
+                    if str(item.get("cctv_number") or "")
+                    == str(camera_number or "")
+                ),
+                None,
+            )
+            if skud is None:
+                continue
+            device = device_registry.async_get_device_by_identifier(
+                (DOMAIN, str(int(skud["id"]))),
+                entry.entry_id,
+            )
+            if device is not None:
+                auto_save_manager.schedule(
+                    recent_call,
+                    device.id,
+                    recovery=True,
+                )
+
+    return True
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
+    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unloaded:
+        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    return unloaded
+
+
+def _call_event_data(call: dict[str, Any]) -> dict[str, Any]:
+    """Build serializable event data without empty optional fields."""
+    data: dict[str, Any] = {"type": "call"}
+    for source, target in (
+        ("uuid", "uuid"),
+        ("called_at", "called_at"),
+        ("timezone", "timezone"),
+        ("camera_number", "camera_number"),
+        ("address", "address"),
+        ("porch", "porch"),
+        ("flat", "flat"),
+        ("preview_url", "preview_url"),
+        ("archive_url", "archive_url"),
+    ):
+        value = call.get(source)
+        if value is not None:
+            data[target] = value
+    return data

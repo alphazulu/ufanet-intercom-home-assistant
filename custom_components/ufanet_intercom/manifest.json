@@ -1,0 +1,18 @@
+{
+  "domain": "ufanet_intercom",
+  "name": "Ufanet Intercom",
+  "version": "0.19.1",
+  "config_flow": true,
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "codeowners": [
+    "@alphazulu"
+  ],
+  "dependencies": [
+    "frontend",
+    "media_source",
+    "stream"
+  ],
+  "documentation": "https://github.com/alphazulu/ufanet-intercom-home-assistant",
+  "issue_tracker": "https://github.com/alphazulu/ufanet-intercom-home-assistant/issues"
+}

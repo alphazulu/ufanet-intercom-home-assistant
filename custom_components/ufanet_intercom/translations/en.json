@@ -1,0 +1,113 @@
+{
+  "title": "Ufanet Intercom",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Ufanet SmartHome",
+        "description": "Enter the contract login and password used by the Ufanet SmartHome app.",
+        "data": {
+          "username": "Contract login",
+          "password": "Password"
+        },
+        "data_description": {
+          "username": "For example: vlaM00000000",
+          "password": "Your Ufanet SmartHome password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate Ufanet Intercom",
+        "description": "Enter the current password for {username}.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to Ufanet/UCAMS.",
+      "invalid_auth": "Invalid login or password.",
+      "unknown": "Unexpected response from the service. Check the Home Assistant log."
+    },
+    "abort": {
+      "already_configured": "This Ufanet account is already configured.",
+      "reauth_successful": "Reauthentication was successful."
+    }
+  },
+  "entity": {
+    "button": {
+      "open_door": {
+        "name": "Open door"
+      },
+      "archive_previous": {
+        "name": "Archive back"
+      },
+      "archive_next": {
+        "name": "Archive forward"
+      },
+      "archive_latest": {
+        "name": "Latest archive"
+      }
+    },
+    "camera": {
+      "camera": {
+        "name": "Camera"
+      },
+      "archive_camera": {
+        "name": "Archive"
+      }
+    },
+    "sensor": {
+      "last_call": {
+        "name": "Last call"
+      }
+    },
+    "datetime": {
+      "archive_position": {
+        "name": "Archive time"
+      }
+    },
+    "number": {
+      "archive_duration": {
+        "name": "Archive duration"
+      },
+      "archive_step": {
+        "name": "Archive step"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Ufanet Intercom options",
+        "description": "Changes are applied after the integration reloads automatically. YAML values in custom:ufanet-intercom-card override only that card.",
+        "data": {
+          "skud_scan_interval_seconds": "Intercom list refresh, s",
+          "call_scan_interval_seconds": "New call polling, s",
+          "call_media_refresh_seconds": "Call media URL refresh, s",
+          "call_lead_seconds": "Archive lead before call, s",
+          "archive_default_duration_seconds": "Default archive duration, s",
+          "archive_default_step_seconds": "Default archive step, s",
+          "export_default_duration_seconds": "Default MP4 export duration, s",
+          "export_retention_days": "Keep exported MP4, days",
+          "export_max_total_mb": "Maximum MP4 storage, MB",
+          "export_auto_cleanup": "Auto-clean after export",
+          "call_autosave_enabled": "Automatically save call videos",
+          "call_autosave_after_seconds": "Save after call, s"
+        },
+        "data_description": {
+          "skud_scan_interval_seconds": "How often the available intercom/SKUD list is refreshed.",
+          "call_scan_interval_seconds": "call-history polling interval. Minimum 5 seconds.",
+          "call_media_refresh_seconds": "How long preview/archive media URLs are cached for call history.",
+          "call_lead_seconds": "Start archive playback this many seconds before a call.",
+          "archive_default_duration_seconds": "Used by HA archive entities and the card unless YAML sets duration.",
+          "archive_default_step_seconds": "Used by HA archive entities and the card unless YAML sets step.",
+          "export_default_duration_seconds": "Initial MP4 export duration.",
+          "export_retention_days": "0 disables age-based cleanup.",
+          "export_max_total_mb": "0 disables the total-size cap.",
+          "export_auto_cleanup": "When disabled, post-export cleanup is skipped; manual cleanup remains available.",
+          "call_autosave_enabled": "Automatically export a new call to Home Assistant Media. The pre-call part uses the Archive lead before call option.",
+          "call_autosave_after_seconds": "How many seconds after the call timestamp to include in the automatic MP4."
+        }
+      }
+    }
+  }
+}

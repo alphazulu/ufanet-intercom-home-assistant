@@ -1,0 +1,113 @@
+{
+  "title": "Домофон Ufanet",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Подключение Ufanet SmartHome",
+        "description": "Введите логин договора и пароль, используемые в приложении Ufanet SmartHome.",
+        "data": {
+          "username": "Логин договора",
+          "password": "Пароль"
+        },
+        "data_description": {
+          "username": "Например: vlaM00000000",
+          "password": "Пароль от Ufanet SmartHome"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Повторная авторизация Ufanet",
+        "description": "Введите актуальный пароль для {username}.",
+        "data": {
+          "password": "Пароль"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Не удалось подключиться к Ufanet/UCAMS.",
+      "invalid_auth": "Неверный логин или пароль.",
+      "unknown": "Сервис вернул неожиданный ответ. Проверьте журнал Home Assistant."
+    },
+    "abort": {
+      "already_configured": "Эта учётная запись Ufanet уже настроена.",
+      "reauth_successful": "Повторная авторизация выполнена успешно."
+    }
+  },
+  "entity": {
+    "button": {
+      "open_door": {
+        "name": "Открыть дверь"
+      },
+      "archive_previous": {
+        "name": "Назад"
+      },
+      "archive_next": {
+        "name": "Вперёд"
+      },
+      "archive_latest": {
+        "name": "К последней записи"
+      }
+    },
+    "camera": {
+      "camera": {
+        "name": "Камера"
+      },
+      "archive_camera": {
+        "name": "Архив"
+      }
+    },
+    "sensor": {
+      "last_call": {
+        "name": "Последний вызов"
+      }
+    },
+    "datetime": {
+      "archive_position": {
+        "name": "Время архива"
+      }
+    },
+    "number": {
+      "archive_duration": {
+        "name": "Длительность архива"
+      },
+      "archive_step": {
+        "name": "Шаг архива"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Параметры Ufanet Intercom",
+        "description": "Изменения применяются после автоматической перезагрузки интеграции. Значения YAML в custom:ufanet-intercom-card имеют приоритет только для соответствующей карточки.",
+        "data": {
+          "skud_scan_interval_seconds": "Обновление списка домофонов, с",
+          "call_scan_interval_seconds": "Проверка новых звонков, с",
+          "call_media_refresh_seconds": "Обновление ссылок media звонка, с",
+          "call_lead_seconds": "Начинать архив до звонка, с",
+          "archive_default_duration_seconds": "Длительность архива по умолчанию, с",
+          "archive_default_step_seconds": "Шаг архива по умолчанию, с",
+          "export_default_duration_seconds": "Длительность экспорта MP4 по умолчанию, с",
+          "export_retention_days": "Хранить экспортированные MP4, дней",
+          "export_max_total_mb": "Максимальный объём MP4, МБ",
+          "export_auto_cleanup": "Автоочистка после экспорта",
+          "call_autosave_enabled": "Автоматически сохранять видео звонков",
+          "call_autosave_after_seconds": "Сохранять после звонка, с"
+        },
+        "data_description": {
+          "skud_scan_interval_seconds": "Как часто перечитывать доступные SKUD/домофоны.",
+          "call_scan_interval_seconds": "Интервал polling call-history. Минимум 5 секунд.",
+          "call_media_refresh_seconds": "Через сколько обновлять preview/archive URL для истории звонков.",
+          "call_lead_seconds": "При переходе к звонку начать запись на указанное число секунд раньше.",
+          "archive_default_duration_seconds": "Используется HA archive entities и карточкой, если YAML не задаёт duration.",
+          "archive_default_step_seconds": "Используется HA archive entities и карточкой, если YAML не задаёт step.",
+          "export_default_duration_seconds": "Начальное значение длительности при сохранении MP4.",
+          "export_retention_days": "0 отключает удаление по возрасту.",
+          "export_max_total_mb": "0 отключает лимит общего объёма.",
+          "export_auto_cleanup": "Если выключено, автоматическая очистка после экспорта не запускается; ручная кнопка очистки остаётся.",
+          "call_autosave_enabled": "При новом звонке автоматически сохранять MP4 в Home Assistant Media. До звонка используется параметр «Начинать архив до звонка».",
+          "call_autosave_after_seconds": "Сколько секунд после момента звонка включить в автоматически сохраняемый ролик."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,301 @@
+get_settings:
+  name: Get integration settings
+  description: Return the effective Ufanet Intercom Options Flow values for the selected device. Read-only.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+
+get_runtime_status:
+  name: Get runtime diagnostics
+  description: Return token-free technical runtime state for the selected Ufanet intercom. Intended for the custom card diagnostics tab.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+
+get_archive_ranges:
+  name: Get archive ranges
+  description: Return contiguous recorded archive ranges for a Ufanet intercom camera.
+  fields:
+    device_id:
+      name: Intercom
+      description: Ufanet Intercom device.
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+
+get_archive_url:
+  name: Get archive URL
+  description: Return a temporary HLS archive URL for the selected date/time and duration.
+  fields:
+    device_id:
+      name: Intercom
+      description: Ufanet Intercom device.
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    start:
+      name: Start time
+      description: Archive start date and time. Naive values use the camera time zone (for example Asia/Vladivostok).
+      required: true
+      selector:
+        datetime:
+    duration:
+      name: Duration
+      description: Requested clip duration in seconds. It is clipped at recording gaps.
+      required: false
+      default: 300
+      selector:
+        number:
+          min: 1
+          max: 21600
+          step: 1
+          unit_of_measurement: s
+          mode: box
+
+
+get_archive_download_url:
+  name: Get archive MP4 download URL
+  description: Export the selected recorded archive interval to a persistent local MP4 file using ffmpeg. The file is stored in Home Assistant Media and can be downloaded through an authenticated media URL.
+  fields:
+    device_id:
+      name: Intercom
+      description: Ufanet Intercom device.
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    start:
+      name: Start time
+      description: Clip start date and time. Naive values use the camera time zone.
+      required: true
+      selector:
+        datetime:
+    duration:
+      name: Duration
+      description: Requested MP4 clip duration in seconds. It is clipped at recording gaps before ffmpeg export.
+      required: false
+      default: 300
+      selector:
+        number:
+          min: 1
+          max: 21600
+          step: 1
+          unit_of_measurement: s
+          mode: box
+    retention_days:
+      name: Retention days
+      description: Optional per-call override. If omitted, the value from the integration Options Flow is used.
+      required: false
+      default: 30
+      selector:
+        number:
+          min: 0
+          max: 3650
+          step: 1
+          unit_of_measurement: d
+          mode: box
+    max_total_mb:
+      name: Maximum total size
+      description: Optional per-call override. If omitted, the value from the integration Options Flow is used.
+      required: false
+      default: 5120
+      selector:
+        number:
+          min: 0
+          max: 1048576
+          step: 1
+          unit_of_measurement: MB
+          mode: box
+
+
+list_archive_exports:
+  name: List archive exports
+  description: List locally saved Ufanet MP4 exports for the selected intercom camera.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+
+delete_archive_export:
+  name: Delete archive export
+  description: Permanently delete one locally saved MP4 export after verifying that its filename belongs to the selected intercom camera.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    filename:
+      name: Filename
+      required: true
+      selector:
+        text:
+
+cleanup_archive_exports:
+  name: Clean up archive exports
+  description: Remove camera exports older than the retention period, then remove oldest exports until the total-size limit is satisfied.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    retention_days:
+      name: Retention days
+      required: false
+      default: 30
+      selector:
+        number:
+          min: 0
+          max: 3650
+          step: 1
+          unit_of_measurement: d
+          mode: box
+    max_total_mb:
+      name: Maximum total size
+      required: false
+      default: 5120
+      selector:
+        number:
+          min: 0
+          max: 1048576
+          step: 1
+          unit_of_measurement: MB
+          mode: box
+
+get_call_events:
+  name: Get call events
+  description: Return intercom call events for one camera-local calendar day.
+  fields:
+    device_id:
+      name: Intercom
+      description: Ufanet Intercom device.
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    date:
+      name: Date
+      description: Calendar date in the camera time zone.
+      required: true
+      selector:
+        date:
+
+
+get_guest_access:
+  name: Get guest access
+  description: Return active temporary guest links and users with shared access for the selected intercom.
+  fields:
+    device_id:
+      name: Intercom
+      description: Ufanet Intercom device.
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+
+create_guest_invite:
+  name: Create guest invite
+  description: Create an invitation URL that another Ufanet user can accept to obtain access to this intercom.
+  fields:
+    device_id:
+      name: Intercom
+      description: Ufanet Intercom device.
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+
+
+forget_guest_invite:
+  name: Forget generated guest invite
+  description: Remove one locally stored generated invitation from Home Assistant. This does not revoke the invitation on the Ufanet server.
+  fields:
+    device_id:
+      name: Intercom
+      description: Ufanet Intercom device.
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    invite_id:
+      name: Local invite ID
+      description: Local Home Assistant ID returned when the invitation was generated.
+      required: true
+      selector:
+        text:
+
+
+revoke_shared_access:
+  name: Revoke shared access
+  description: Revoke one accepted guest/shared access grant after verifying that the access ID belongs to the selected Ufanet intercom.
+  fields:
+    device_id:
+      name: Intercom
+      description: Ufanet Intercom device.
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    access_id:
+      name: Access ID
+      description: Accepted shared-access ID returned by Ufanet shared/users.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+
+
+create_temporary_guest_link:
+  name: Create temporary guest link
+  description: Create a temporary web key for opening the selected Ufanet intercom. Duration is sent to Ufanet in minutes.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    duration_minutes:
+      name: Duration
+      description: Temporary-key lifetime in minutes.
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 10080
+          unit_of_measurement: min
+          mode: box
+
+revoke_temporary_guest_link:
+  name: Revoke temporary guest link
+  description: Revoke one active temporary Ufanet web key after verifying that its token belongs to the selected intercom.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    token:
+      name: Token
+      description: Token extracted from the active temporary guest URL.
+      required: true
+      selector:
+        text:
