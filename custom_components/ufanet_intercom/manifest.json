@@ -10,6 +10,7 @@
   ],
   "dependencies": [
     "frontend",
+    "http",
     "media_source",
     "stream"
   ],
