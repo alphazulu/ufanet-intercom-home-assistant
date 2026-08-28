@@ -15,5 +15,5 @@
   "integration_type": "hub",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/alphazulu/ufanet-intercom-home-assistant/issues",
-  "version": "0.19.1"
+  "version": "0.19.2"
 }

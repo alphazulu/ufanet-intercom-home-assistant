@@ -19,7 +19,7 @@ GitHub Actions also runs the release self-check, HACS validation and Home Assist
 
 ## Release
 
-Use a SemVer tag matching `manifest.json`, for example `v0.19.1`, and publish a GitHub Release rather than only creating a tag.
+Use a SemVer tag matching `manifest.json`, for example `v0.19.2`, and publish a GitHub Release rather than only creating a tag.
 
 For HACS custom-repository installation, users can add this repository as category **Integration**. A separate ZIP is optional for manual installers.
 
