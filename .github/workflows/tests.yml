@@ -38,6 +38,7 @@ jobs:
             --cov=custom_components.ufanet_intercom.api \
             --cov=custom_components.ufanet_intercom.config_flow \
             --cov-report=term-missing \
+            --cov-fail-under=85 \
             2>&1 | tee pytest-output.txt
 
       - name: Upload pytest diagnostics
