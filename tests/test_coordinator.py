@@ -154,25 +154,21 @@ async def test_failed_call_poll_clears_transient_new_calls(hass, error, expected
 
 
 @pytest.mark.asyncio
-async def test_media_cache_reuses_then_refreshes_by_monotonic_age(
-    hass,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_media_cache_reuses_then_refreshes_by_monotonic_age(hass) -> None:
     api = _api()
     api.async_get_call_media.side_effect = [
         {"preview": "preview-1", "url": "archive-1"},
         {"preview": "preview-2", "url": "archive-2"},
     ]
     coordinator = UfanetCallCoordinator(hass, api, media_refresh_seconds=30)
-    times = iter([100.0, 110.0, 140.1])
-    monkeypatch.setattr(
-        "custom_components.ufanet_intercom.coordinator.time.monotonic",
-        lambda: next(times),
-    )
     event = _event("same", "2026-08-28T10:00:00Z")
 
     first = await coordinator._async_enrich_media(event)  # noqa: SLF001
     second = await coordinator._async_enrich_media(event)  # noqa: SLF001
+
+    cached_at, media = coordinator._media_cache["same"]  # noqa: SLF001
+    coordinator._media_cache["same"] = (cached_at - 31, media)  # noqa: SLF001
+
     third = await coordinator._async_enrich_media(event)  # noqa: SLF001
 
     assert first["preview_url"] == "preview-1"
