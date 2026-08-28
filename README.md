@@ -1,0 +1,134 @@
+# Ufanet Intercom for Home Assistant
+
+Custom Home Assistant integration for Ufanet / «Умный дом» intercoms using the cloud APIs used by the official mobile application.
+
+> This is an independent community integration. It is not affiliated with or supported by Ufanet.
+
+## Features
+
+- UI setup with Ufanet contract/login and password.
+- Door opening through Home Assistant `button` entities.
+- Live UCAMS camera stream and snapshots.
+- Native archive browsing with recording ranges, timeline zoom/pan and call markers.
+- Intercom call history and the `ufanet_intercom_call` Home Assistant event.
+- Temporary guest keys and accepted shared-access management.
+- Manual archive export to MP4 using `ffmpeg -c copy` into Home Assistant Media.
+- Persistent export media library with per-camera retention and size cleanup.
+- Optional automatic MP4 saving around new intercom calls.
+- Options Flow and privacy-conscious Home Assistant diagnostics.
+- Unified Lovelace card: `custom:ufanet-intercom-card`.
+
+## Requirements
+
+- Home Assistant **2026.8.0 or newer**.
+- Network access from Home Assistant to `dom.ufanet.ru`, `cloud.ucams.ru` and the UCAMS media servers returned by the API.
+- For MP4 export: `ffmpeg` available in the Home Assistant runtime. Home Assistant OS/Container normally provides it; Core/venv installs may need an OS package.
+- A Ufanet account/contract that already has access to the intercom in the official application.
+
+## Installation
+
+### Manual
+
+1. Copy `custom_components/ufanet_intercom` into your Home Assistant configuration directory:
+   `config/custom_components/ufanet_intercom`.
+2. Restart Home Assistant.
+3. Go to **Settings → Devices & services → Add integration**.
+4. Search for **Ufanet Intercom** and enter the same contract/login and password used by the official application.
+
+### HACS custom repository
+
+The repository is HACS-compatible and already contains finalized GitHub metadata for `alphazulu/ufanet-intercom-home-assistant`.
+
+To install it as a HACS custom repository:
+
+1. HACS → **Custom repositories**.
+2. Add the GitHub repository URL as category **Integration**.
+3. Install **Ufanet Intercom**.
+4. Restart Home Assistant and add the integration from **Settings → Devices & services**.
+
+## Lovelace card
+
+Add the resource as a JavaScript module:
+
+```text
+/ufanet_intercom/ufanet-archive-card.js?v=0.19.1
+```
+
+Minimal card:
+
+```yaml
+type: custom:ufanet-intercom-card
+entity: camera.YOUR_UFANET_CAMERA
+default_tab: live
+```
+
+The card contains four tabs:
+
+- **LIVE** — video, door button, latest call and jump-to-call recording.
+- **АРХИВ** — timeline, call markers, MP4 export and export media library.
+- **ГОСТИ** — shared invitations, accepted guest access, temporary keys and revoke actions.
+- **ДИАГНОСТИКА** — token-free runtime health, polling, UCAMS/archive status and autosave state.
+
+## Options
+
+Open **Settings → Devices & services → Ufanet Intercom → Configure**.
+
+Important options include call polling, call archive lead, archive duration/step, MP4 retention/size limits and automatic call-video saving. YAML values on a particular card remain local overrides where supported.
+
+## Automatic call recording
+
+Disabled by default. When enabled, a new call is exported asynchronously after the requested post-call interval has entered the UCAMS archive. For example:
+
+- archive lead: 15 seconds;
+- save after call: 45 seconds;
+- resulting requested clip: 60 seconds.
+
+The call UUID is hashed before it is used for deduplication in the local filename; the raw UUID is not stored in the filename.
+
+## Local media
+
+Manual and automatic MP4 exports are saved under the Home Assistant media directory in `ufanet_intercom/`. The Archive tab lists only exports belonging to the selected camera and supports open/download/delete.
+
+## Security notes
+
+- Ufanet and UCAMS JWTs are kept in runtime memory and are never intentionally exposed by the diagnostics output.
+- Generated guest links are access capabilities: treat them like temporary credentials.
+- Opening the door is a real physical action and requires an explicit button press/confirmation in the custom card.
+- Downloadable diagnostics redact login/password and avoid guest/media URLs and exact camera identifiers.
+
+## Troubleshooting
+
+Run the repository release self-check before reporting a packaging/frontend problem:
+
+```bash
+python scripts/release_check.py
+```
+
+In Home Assistant, use either the **ДИАГНОСТИКА** card tab for live operational state or **Download diagnostics** on the integration/device page for privacy-redacted support data.
+
+## Development / release validation
+
+`python scripts/release_check.py` verifies, among other things:
+
+- Python compilation and JSON validity;
+- JavaScript syntax when Node.js is installed;
+- matching integration/card/cache-bust versions;
+- unresolved custom-card `this._method()` calls;
+- service names referenced by the card;
+- absence of packaged `__pycache__`, `.pyc`, obvious JWTs and live guest links.
+
+See [PUBLISHING.md](PUBLISHING.md) for HACS/GitHub publication steps.
+
+## License
+
+Licensed under the [MIT License](LICENSE).
+
+Copyright © 2026 [alphazulu](https://github.com/alphazulu).
+
+Commercial use, modification, redistribution, sublicensing, and inclusion in
+proprietary products are permitted. The copyright notice and MIT permission
+notice must be retained in copies or substantial portions of the software.
+
+## Repository
+
+https://github.com/alphazulu/ufanet-intercom-home-assistant
