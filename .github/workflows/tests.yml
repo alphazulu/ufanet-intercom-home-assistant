@@ -30,8 +30,23 @@ jobs:
           python -m pip install -r requirements_test.txt
 
       - name: Run pytest with coverage
+        shell: bash
         run: |
+          set -o pipefail
           pytest -vv \
+            --junitxml=pytest-results.xml \
             --cov=custom_components.ufanet_intercom.api \
             --cov=custom_components.ufanet_intercom.config_flow \
-            --cov-report=term-missing
+            --cov-report=term-missing \
+            2>&1 | tee pytest-output.txt
+
+      - name: Upload pytest diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-diagnostics
+          path: |
+            pytest-output.txt
+            pytest-results.xml
+          if-no-files-found: warn
+          retention-days: 14
