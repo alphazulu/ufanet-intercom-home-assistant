@@ -252,8 +252,8 @@ class UfanetApi:
         )
         if isinstance(data, list):
             return [item for item in data if isinstance(item, dict)]
-        if isinstance(data, dict):
-            results = data.get("results", [])
+        if isinstance(data, dict) and "results" in data:
+            results = data["results"]
             if isinstance(results, list):
                 return [item for item in results if isinstance(item, dict)]
         raise UfanetResponseError("Unexpected call-history response")
