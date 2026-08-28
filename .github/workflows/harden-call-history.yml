@@ -23,16 +23,8 @@ jobs:
 
           path = Path("custom_components/ufanet_intercom/api.py")
           text = path.read_text(encoding="utf-8")
-          old = '''        if isinstance(data, dict):
-              results = data.get("results", [])
-              if isinstance(results, list):
-                  return [item for item in results if isinstance(item, dict)]
-          '''
-          new = '''        if isinstance(data, dict) and "results" in data:
-              results = data["results"]
-              if isinstance(results, list):
-                  return [item for item in results if isinstance(item, dict)]
-          '''
+          old = '        if isinstance(data, dict):\n            results = data.get("results", [])\n            if isinstance(results, list):\n                return [item for item in results if isinstance(item, dict)]\n'
+          new = '        if isinstance(data, dict) and "results" in data:\n            results = data["results"]\n            if isinstance(results, list):\n                return [item for item in results if isinstance(item, dict)]\n'
           if old not in text:
               raise SystemExit("Expected call-history block not found; refusing to patch")
           path.write_text(text.replace(old, new, 1), encoding="utf-8")
