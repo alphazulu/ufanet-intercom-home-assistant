@@ -67,6 +67,14 @@ Important distinction:
 - [Errors and unsupported behavior](errors.md)
 - [Security considerations](security.md)
 
+## Verification and examples
+
+- [API verification matrix](STATUS.md) — compact list of tested endpoints and their current evidence status.
+- [curl examples](examples/curl.md) — read-only command-line examples.
+- [Python read-only example](examples/python.md) — minimal authentication/discovery/UCAMS flow.
+
+State-changing examples (door opening, guest creation/revocation) are intentionally kept on the relevant reference pages rather than in the copy/paste examples collection.
+
 ## Contributing new API findings
 
 For every newly tested endpoint, record:
@@ -79,5 +87,7 @@ For every newly tested endpoint, record:
 6. date/conditions of the test when relevant;
 7. known side effects;
 8. any field whose semantics are still uncertain.
+
+Update both the detailed page and [STATUS.md](STATUS.md) in the same change.
 
 Never commit real passwords, JWTs, refresh tokens, guest tokens, tokenized media URLs, exact private addresses, or other account-specific secrets.
