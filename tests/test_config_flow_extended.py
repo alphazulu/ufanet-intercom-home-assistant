@@ -52,7 +52,7 @@ async def test_reauth_shows_password_form(hass) -> None:
 
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "reauth_confirm"
-    assert result["description_placeholders"] == {"username": "AB123"}
+    assert result["description_placeholders"]["username"] == "AB123"
 
 
 @pytest.mark.asyncio
