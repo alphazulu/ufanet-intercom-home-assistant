@@ -1,0 +1,74 @@
+name: Prepare v0.19.2
+
+on:
+  push:
+    paths:
+      - .github/workflows/prepare-v0.19.2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Update release version markers
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              "custom_components/ufanet_intercom/manifest.json": (
+                  '"version": "0.19.1"',
+                  '"version": "0.19.2"',
+              ),
+              "custom_components/ufanet_intercom/const.py": (
+                  'INTEGRATION_VERSION = "0.19.1"',
+                  'INTEGRATION_VERSION = "0.19.2"',
+              ),
+              "custom_components/ufanet_intercom/__init__.py": (
+                  '?v=0.19.1',
+                  '?v=0.19.2',
+              ),
+              "custom_components/ufanet_intercom/frontend/ufanet-archive-card.js": (
+                  'const CARD_VERSION = "0.19.1";',
+                  'const CARD_VERSION = "0.19.2";',
+              ),
+              "README.md": (
+                  '/ufanet_intercom/ufanet-archive-card.js?v=0.19.1',
+                  '/ufanet_intercom/ufanet-archive-card.js?v=0.19.2',
+              ),
+              "README_RU.md": (
+                  '/ufanet_intercom/ufanet-archive-card.js?v=0.19.1',
+                  '/ufanet_intercom/ufanet-archive-card.js?v=0.19.2',
+              ),
+              "PUBLISHING.md": (
+                  'for example `v0.19.1`',
+                  'for example `v0.19.2`',
+              ),
+          }
+
+          for filename, (old, new) in replacements.items():
+              path = Path(filename)
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(
+                      f"Expected exactly one version marker in {filename}, found {count}"
+                  )
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+
+      - name: Commit release preparation and remove temporary workflow
+        run: |
+          rm .github/workflows/prepare-v0.19.2.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Prepare Ufanet Intercom v0.19.2"
+          git push origin HEAD:main
