@@ -1,2 +1,11 @@
 pytest-homeassistant-custom-component==0.13.355
 pytest-cov>=7.0,<8.0
+
+# Runtime requirements of Home Assistant system integrations declared as hard
+# dependencies in our manifest. pytest-homeassistant-custom-component provides
+# Home Assistant Core itself, but does not automatically install these component
+# requirements while loading the custom integration in config-flow tests.
+home-assistant-frontend==20260729.6
+PyTurboJPEG==1.8.3
+av==17.0.1
+numpy==2.3.2
