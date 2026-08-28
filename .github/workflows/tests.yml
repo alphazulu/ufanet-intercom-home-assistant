@@ -37,6 +37,10 @@ jobs:
             --junitxml=pytest-results.xml \
             --cov=custom_components.ufanet_intercom.api \
             --cov=custom_components.ufanet_intercom.config_flow \
+            --cov=custom_components.ufanet_intercom.archive \
+            --cov=custom_components.ufanet_intercom.auto_export \
+            --cov=custom_components.ufanet_intercom.diagnostics \
+            --cov=custom_components.ufanet_intercom.__init__ \
             --cov-report=term-missing \
             --cov-fail-under=85 \
             2>&1 | tee pytest-output.txt
