@@ -1,0 +1,41 @@
+# API verification matrix
+
+[Русская версия](STATUS_RU.md)
+
+This table is a compact index of what has actually been tested by the project. The detailed pages remain authoritative for caveats.
+
+| Area | Method / endpoint | Status | Notes |
+|---|---|---|---|
+| Auth | `POST /api/v1/auth/auth_by_contract/` | **Confirmed** | Contract/password -> access + refresh JWT |
+| Auth | `POST /api/v1/auth/refresh/` | **Confirmed** | Refresh flow |
+| Auth | `POST cloud.ucams.ru/api/v0/auth/?ttl=20800` | **Confirmed** | Ufanet JWT -> UCAMS token |
+| Account | `GET /api/v0/contract/` | **Confirmed** | Reachability confirmed; schema not documented |
+| Account | `GET /api/v0/object/` | **Confirmed** | Reachability confirmed; schema not documented |
+| FCM | `POST /api/v0/fcm/` | **Confirmed** | Reachability confirmed; semantics pending |
+| SKUD | `GET /api/v0/skud/shared/` | **Confirmed** | Returns tested intercom |
+| SKUD | `GET /api/v0/skud/` | **Observed** | Returned `[]` for tested account |
+| Door | `GET /api/v0/skud/shared/<id>/open/?door=1` | **Confirmed** | Physical side effect; successful `{"result":true}` |
+| UCAMS | `POST /api/v0/cameras/this/` | **Confirmed** | Camera/server/token metadata |
+| Live | `.../<camera>/index.m3u8?...` | **Confirmed** | HTTP 200 |
+| Snapshot | `/api/v0/screenshots/<camera>.jpg?...` | **Confirmed** | Working snapshot |
+| Archive | `recording_status.json?...request=ranges...` | **Confirmed** | `{from,duration}` ranges |
+| Archive | `archive-<start>-<duration>.m3u8` | **Confirmed** | HTTP 200 |
+| Archive | `archive-<start>-<duration>.mp4` with `token_r` | **Not supported** | HTTP 403 in tested form |
+| Calls | `GET /api/v1/skuds/call-history/` | **Confirmed** | Call list with offset-aware `called_at` |
+| Calls | `POST /api/v1/cctv/history/` | **Confirmed** | Tokenized preview/archive MP4 URLs |
+| Shared access | `GET /api/v4/token/shared/users/` | **Confirmed** | Accepted users |
+| Shared access | `POST /api/v4/token/shared/create_token/` | **Confirmed** | Creates invitation token |
+| Shared access | `POST /api/v4/token/shared_device/` | **Confirmed** | Recipient accepts token |
+| Shared access | `POST /api/v4/token/delete/` | **Confirmed** | Revokes accepted access |
+| Temporary guest | `GET /api/v1/skuds/skud_share_open/` | **Confirmed** | Lists links |
+| Temporary guest | `POST /api/v1/skuds/skud_share_open/` | **Confirmed** | `time` is minutes; 3h tested |
+| Temporary guest | `DELETE /api/v1/skuds/skud_share_open/` | **Confirmed** | Revocation tested |
+
+## Update policy
+
+When adding a new finding:
+
+- update this matrix and the detailed page in the same commit;
+- do not mark a behavior **Confirmed** based only on decompiled client code;
+- record tested failures as **Not supported** only for the exact request form that was tested;
+- avoid publishing account-specific data or credentials.

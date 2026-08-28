@@ -20,6 +20,17 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 - Options Flow and privacy-conscious Home Assistant diagnostics.
 - Unified Lovelace card: `custom:ufanet-intercom-card`.
 
+## Unofficial API documentation
+
+The repository also contains a maintained reverse-engineered reference for the Ufanet/UCAMS interfaces used by this integration:
+
+- [API reference](docs/api/README.md)
+- [API verification matrix](docs/api/STATUS.md)
+- [curl examples](docs/api/examples/curl.md)
+- [Python read-only example](docs/api/examples/python.md)
+
+The reference explicitly distinguishes **Confirmed**, **Observed**, **Inferred**, and **Not supported** behavior. It is intended to make interoperability work easier for other developers and will be expanded as new endpoints are tested.
+
 ## Requirements
 
 - Home Assistant **2026.8.0 or newer**.

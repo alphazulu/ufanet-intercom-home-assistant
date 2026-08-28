@@ -20,6 +20,17 @@
 - Options Flow и диагностика Home Assistant с учётом конфиденциальности.
 - Единая Lovelace-карточка: `custom:ufanet-intercom-card`.
 
+## Неофициальная документация API
+
+В репозитории также ведётся reverse-engineered документация интерфейсов Ufanet/UCAMS, которые использует интеграция:
+
+- [Документация API](docs/api/README_RU.md)
+- [Матрица проверки API](docs/api/STATUS_RU.md)
+- [Примеры curl](docs/api/examples/curl.md)
+- [Read-only пример на Python](docs/api/examples/python.md)
+
+В документации явно разделяются статусы **Confirmed**, **Observed**, **Inferred** и **Not supported**. Она предназначена для сторонних разработчиков, которым нужна совместимость с Ufanet/UCAMS, и будет дополняться по мере проверки новых endpoint.
+
 ## Требования
 
 - Home Assistant **2026.8.0 или новее**.
