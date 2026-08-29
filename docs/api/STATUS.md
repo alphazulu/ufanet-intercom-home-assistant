@@ -11,7 +11,12 @@ This table is a compact index of what has actually been tested by the project. T
 | Auth | `POST cloud.ucams.ru/api/v0/auth/?ttl=20800` | **Confirmed** | Ufanet JWT -> UCAMS token |
 | Account | `GET /api/v0/contract/` | **Confirmed** | Reachability confirmed; schema not documented |
 | Account | `GET /api/v0/object/` | **Confirmed** | Reachability confirmed; schema not documented |
-| FCM | `POST /api/v0/fcm/` | **Confirmed** | Reachability confirmed; semantics pending |
+| FCM | `POST /api/v0/fcm/` | **Confirmed** | Android 4.0.14 registration body successfully used by headless Windows/Python client |
+| FCM | Headless FIS/GCM/MCS receive | **Confirmed** | Real Ufanet push received through `mtalk.google.com:5228` without Android/Google Play Services |
+| FCM | `DELETE /api/v0/fcm/` | **Observed** | Android 4.0.14 logout sends `{device_id}` |
+| FCM | `POST /api/v4/fcm_device/authorized_devices/` | **Observed** | Android client consumes device list / call-access metadata |
+| FCM | `POST /api/v4/fcm_device/logout_device/` | **Observed** | Android client sends `{device_id}` to revoke another device/session |
+| Push | `data.reason = "sip"` | **Confirmed** | Real payload carries `username`, `password`, `server`, `skud_id`, `transport`, `contract`, `house_id`, `flat`, `time`, `uuid`; `from=<sender-id>`, priority `normal` |
 | SKUD | `GET /api/v0/skud/shared/` | **Confirmed** | Returns tested intercom |
 | SKUD | `GET /api/v0/skud/` | **Observed** | Returned `[]` for tested account |
 | Door | `GET /api/v0/skud/shared/<id>/open/?door=1` | **Confirmed** | Physical side effect; successful `{"result":true}` |

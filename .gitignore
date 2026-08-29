@@ -14,3 +14,5 @@ ufanet.env
 .DS_Store
 .idea/
 .vscode/
+tools/research/fcm_probe_py/fcm_state.json*
+tools/research/fcm_probe_py/firebase_config.json*

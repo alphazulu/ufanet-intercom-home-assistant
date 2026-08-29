@@ -62,6 +62,7 @@ UCAMS bearer token
 - [UCAMS и live-видео](ucams_RU.md)
 - [Видеоархив](archive_RU.md)
 - [Звонки и история](calls_RU.md)
+- [FCM / push-уведомления](fcm_RU.md)
 - [Гостевой и совместный доступ](guests_RU.md)
 - [Наблюдаемые модели данных](models_RU.md)
 - [Ошибки и неподдерживаемое поведение](errors_RU.md)

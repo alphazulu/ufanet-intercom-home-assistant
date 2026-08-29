@@ -29,6 +29,12 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements_test.txt
 
+      - name: Compile research scripts
+        run: |
+          python -m py_compile \
+            tools/research/fcm_probe_py/probe.py \
+            tools/research/fcm_probe_py/extract_firebase_config.py
+
       - name: Run pytest with coverage
         shell: bash
         run: |
