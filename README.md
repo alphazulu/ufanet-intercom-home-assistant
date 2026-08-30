@@ -12,7 +12,7 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 - Door opening through Home Assistant `button` entities.
 - Live UCAMS camera stream and snapshots.
 - Native archive browsing with recording ranges, timeline zoom/pan and call markers.
-- Intercom call history and the `ufanet_intercom_call` Home Assistant event.
+- Intercom call history, the `ufanet_intercom_call` Home Assistant event and an **Incoming call** device trigger for the visual automation editor.
 - Selectable call updates: polling by default or experimental low-latency FCM with safety polling.
 - Temporary guest keys and accepted shared-access management.
 - Manual archive export to MP4 using `ffmpeg -c copy` into Home Assistant Media.
@@ -66,7 +66,7 @@ To install it as a HACS custom repository:
 Add the resource as a JavaScript module:
 
 ```text
-/ufanet_intercom/ufanet-archive-card.js?v=0.20.1
+/ufanet_intercom/ufanet-archive-card.js?v=0.21.0
 ```
 
 Minimal card:

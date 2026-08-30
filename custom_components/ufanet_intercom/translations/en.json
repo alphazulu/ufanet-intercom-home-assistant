@@ -1,5 +1,10 @@
 {
   "title": "Ufanet Intercom",
+  "device_automation": {
+    "trigger_type": {
+      "incoming_call": "Incoming call"
+    }
+  },
   "config": {
     "step": {
       "user": {

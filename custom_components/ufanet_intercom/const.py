@@ -1,7 +1,7 @@
 """Constants for the Ufanet Intercom integration."""
 
 DOMAIN = "ufanet_intercom"
-INTEGRATION_VERSION = "0.20.1"
+INTEGRATION_VERSION = "0.21.0"
 
 UFANET_BASE_URL = "https://dom.ufanet.ru"
 UCAMS_BASE_URL = "https://cloud.ucams.ru"
@@ -36,6 +36,7 @@ DEFAULT_FCM_CONFIG_PATH = "ufanet_intercom/firebase_config.json"
 FCM_FALLBACK_SCAN_INTERVAL_SECONDS = 300
 
 EVENT_INTERCOM_CALL = "ufanet_intercom_call"
+TRIGGER_INCOMING_CALL = "incoming_call"
 
 PLATFORMS = ["button", "camera", "datetime", "number", "sensor"]
 

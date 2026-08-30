@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.21.0
+
+- Added an **Incoming call** device trigger for every Ufanet intercom in Home Assistant's visual automation editor.
+- The trigger reuses the confirmed, privacy-preserving `ufanet_intercom_call` event and works with both FCM and polling; FCM provides the lower-latency path.
+
 ## 0.20.1
 
 - Added explicit token-free FCM startup diagnostics for Firebase registration, Ufanet device registration and the headless listener.
