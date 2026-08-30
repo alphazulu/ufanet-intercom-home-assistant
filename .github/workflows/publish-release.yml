@@ -1,0 +1,155 @@
+name: Publish release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version without the v prefix (for example, 0.20.0)
+        required: true
+        type: string
+      target:
+        description: Commit SHA or branch to release
+        required: true
+        default: main
+        type: string
+      prerelease:
+        description: Mark the GitHub release as a prerelease
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Validate and publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out release target
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.target }}
+          fetch-depth: 0
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Validate release inputs
+        id: release
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="$RELEASE_VERSION"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version must use X.Y.Z format without a v prefix"
+            exit 1
+          fi
+
+          manifest_version="$(python - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = Path("custom_components/ufanet_intercom/manifest.json")
+          print(json.loads(manifest.read_text(encoding="utf-8"))["version"])
+          PY
+          )"
+          if [[ "$manifest_version" != "$version" ]]; then
+            echo "::error::manifest.json contains $manifest_version, not $version"
+            exit 1
+          fi
+
+          target_sha="$(git rev-parse HEAD)"
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$target_sha" FETCH_HEAD; then
+            echo "::error::Release target $target_sha is not part of the main branch"
+            exit 1
+          fi
+
+          tag="v$version"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "::error::Tag $tag already exists; existing release tags are never moved"
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Run repository release checks
+        run: python scripts/release_check.py --strict-hacs
+
+      - name: Build release notes from changelog
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          version = os.environ["RELEASE_VERSION"]
+          lines = Path("CHANGELOG.md").read_text(encoding="utf-8").splitlines()
+          heading = f"## {version}"
+
+          try:
+              start = lines.index(heading) + 1
+          except ValueError as err:
+              raise SystemExit(f"CHANGELOG.md has no {heading!r} section") from err
+
+          end = next(
+              (index for index in range(start, len(lines)) if lines[index].startswith("## ")),
+              len(lines),
+          )
+          body = lines[start:end]
+          while body and not body[0].strip():
+              body.pop(0)
+          while body and not body[-1].strip():
+              body.pop()
+          if not body:
+              raise SystemExit(f"CHANGELOG.md section {heading!r} is empty")
+
+          notes = [
+              f"## Ufanet Intercom v{version}",
+              "",
+              *body,
+              "",
+              "### Validation",
+              "",
+              "- Repository release checks passed before publication.",
+              "- The release tag points to the validated target commit.",
+              "",
+          ]
+          Path("release-notes.md").write_text("\n".join(notes), encoding="utf-8")
+          PY
+
+      - name: Create tag and GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PRERELEASE: ${{ inputs.prerelease }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_TARGET_SHA: ${{ steps.release.outputs.target_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          args=(
+            gh release create "$RELEASE_TAG"
+            --target "$RELEASE_TARGET_SHA"
+            --title "Ufanet Intercom $RELEASE_TAG"
+            --notes-file release-notes.md
+          )
+          if [[ "$RELEASE_PRERELEASE" == "true" ]]; then
+            args+=(--prerelease)
+          fi
+          "${args[@]}"
