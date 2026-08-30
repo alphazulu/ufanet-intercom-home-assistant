@@ -150,11 +150,15 @@ async def test_options_flow_saves_valid_values(hass) -> None:
     entry.add_to_hass(hass)
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    values = dict(DEFAULT_OPTIONS)
+    values = {
+        key: value
+        for key, value in DEFAULT_OPTIONS.items()
+        if key != CONF_FCM_CONFIG_PATH
+    }
     result = await hass.config_entries.options.async_configure(result["flow_id"], values)
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["data"] == values
+    assert result["data"] == DEFAULT_OPTIONS
 
 
 @pytest.mark.asyncio
@@ -169,7 +173,12 @@ async def test_options_flow_validates_fcm_config_before_saving(hass) -> None:
     entry.add_to_hass(hass)
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    values = {**DEFAULT_OPTIONS, CONF_CALL_UPDATE_MODE: CALL_UPDATE_MODE_FCM}
+    values = {
+        key: value
+        for key, value in DEFAULT_OPTIONS.items()
+        if key != CONF_FCM_CONFIG_PATH
+    }
+    values[CONF_CALL_UPDATE_MODE] = CALL_UPDATE_MODE_FCM
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         values,
@@ -188,7 +197,8 @@ async def test_options_flow_validates_fcm_config_before_saving(hass) -> None:
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"] == {
-        **values,
+        **DEFAULT_OPTIONS,
+        CONF_CALL_UPDATE_MODE: CALL_UPDATE_MODE_FCM,
         CONF_FCM_CONFIG_PATH: "private/firebase_config.json",
     }
     load_config.assert_awaited_once_with(
@@ -211,7 +221,12 @@ async def test_options_flow_reports_missing_fcm_config(hass) -> None:
     result = await hass.config_entries.options.async_init(entry.entry_id)
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        {**DEFAULT_OPTIONS, CONF_CALL_UPDATE_MODE: CALL_UPDATE_MODE_FCM},
+        {
+            key: value
+            for key, value in DEFAULT_OPTIONS.items()
+            if key != CONF_FCM_CONFIG_PATH
+        }
+        | {CONF_CALL_UPDATE_MODE: CALL_UPDATE_MODE_FCM},
     )
     with patch(
         "custom_components.ufanet_intercom.config_flow.async_load_firebase_config",
