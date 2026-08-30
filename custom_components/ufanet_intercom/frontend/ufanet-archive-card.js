@@ -1,4 +1,4 @@
-const CARD_VERSION = "0.19.2";
+const CARD_VERSION = "0.20.0";
 
 class UfanetArchiveCard extends HTMLElement {
   constructor() {
@@ -2144,6 +2144,7 @@ class UfanetArchiveCard extends HTMLElement {
     const auth = status.auth || {};
     const coordinator = status.coordinator || {};
     const calls = status.call_coordinator || {};
+    const fcm = status.fcm || {};
     const archive = status.archive || {};
     const auto = status.auto_save || {};
     const exports = status.exports || {};
@@ -2192,6 +2193,7 @@ class UfanetArchiveCard extends HTMLElement {
     ]);
 
     this._diagnosticSection(host, "Polling / архив", [
+      ["Режим звонков", status.call_update_mode || "polling"],
       [
         "SKUD coordinator",
         `${coordinator.update_interval_seconds ?? "—"} с • ${
@@ -2210,6 +2212,17 @@ class UfanetArchiveCard extends HTMLElement {
       ["Archive controller", archive.ready ? "ready" : "not ready", archive.ready ? "ok" : "warning"],
       ["Archive duration / step", `${archive.duration_seconds ?? "—"} / ${archive.step_seconds ?? "—"} с`],
     ]);
+
+    if (status.call_update_mode === "fcm") {
+      this._diagnosticSection(host, "FCM (экспериментально)", [
+        ["Настроен", fcm.configured ? "да" : "нет", fcm.configured ? "ok" : "error"],
+        ["Активен", fcm.active ? "да" : "нет", fcm.active ? "ok" : "warning"],
+        ["Транспорт", fcm.transport_state],
+        ["Push / SIP", `${fcm.received_push_count ?? 0} / ${fcm.received_sip_push_count ?? 0}`],
+        ["Последний SIP push", fcm.last_sip_push_at],
+        ["Последняя ошибка", fcm.last_error_type, fcm.last_error_type ? "error" : null],
+      ]);
+    }
 
     this._diagnosticSection(host, "Автосохранение звонков", [
       ["Включено", auto.enabled ? "да" : "нет", auto.enabled ? "ok" : "warning"],

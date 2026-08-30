@@ -1,7 +1,7 @@
 """Constants for the Ufanet Intercom integration."""
 
 DOMAIN = "ufanet_intercom"
-INTEGRATION_VERSION = "0.19.2"
+INTEGRATION_VERSION = "0.20.0"
 
 UFANET_BASE_URL = "https://dom.ufanet.ru"
 UCAMS_BASE_URL = "https://cloud.ucams.ru"
@@ -12,6 +12,8 @@ CONF_PASSWORD = "password"
 
 CONF_SKUD_SCAN_INTERVAL = "skud_scan_interval_seconds"
 CONF_CALL_SCAN_INTERVAL = "call_scan_interval_seconds"
+CONF_CALL_UPDATE_MODE = "call_update_mode"
+CONF_FCM_CONFIG_PATH = "fcm_config_path"
 CONF_MEDIA_REFRESH_INTERVAL = "call_media_refresh_seconds"
 CONF_CALL_LEAD_SECONDS = "call_lead_seconds"
 CONF_CALL_AUTOSAVE_ENABLED = "call_autosave_enabled"
@@ -26,6 +28,12 @@ CONF_EXPORT_AUTO_CLEANUP = "export_auto_cleanup"
 DEFAULT_SCAN_INTERVAL_SECONDS = 300
 CALL_SCAN_INTERVAL_SECONDS = 10
 MEDIA_REFRESH_SECONDS = 1800
+
+CALL_UPDATE_MODE_POLLING = "polling"
+CALL_UPDATE_MODE_FCM = "fcm"
+DEFAULT_CALL_UPDATE_MODE = CALL_UPDATE_MODE_POLLING
+DEFAULT_FCM_CONFIG_PATH = "ufanet_intercom/firebase_config.json"
+FCM_FALLBACK_SCAN_INTERVAL_SECONDS = 300
 
 EVENT_INTERCOM_CALL = "ufanet_intercom_call"
 

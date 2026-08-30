@@ -15,5 +15,8 @@
   "integration_type": "hub",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/alphazulu/ufanet-intercom-home-assistant/issues",
-  "version": "0.19.2"
+  "requirements": [
+    "firebase-messaging==0.4.5"
+  ],
+  "version": "0.20.0"
 }

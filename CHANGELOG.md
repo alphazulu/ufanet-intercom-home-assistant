@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.20.0
+
+- Added a selectable call update mode: existing polling remains the default, while advanced users can enable an experimental headless FCM listener.
+- FCM uses a user-owned local `firebase_config.json`, reacts to `reason=sip`, refreshes authoritative `call-history` immediately and retains a 300-second safety poll.
+- The integration does not embed Firebase application values or parse/store APKs; the existing local extraction utility remains the explicit setup path.
+- FCM/Firebase credentials, push payloads and the local config path are excluded from diagnostics and ConfigEntry data.
+- Added token-free FCM health counters to diagnostics and the Lovelace diagnostics tab.
+- Hardened probe sanitization for sender/message/call identifiers, removed brute-forceable hashes of short sensitive values, and documented four first-request call-history correlations (0.446–0.916 seconds).
+
 ## 0.19.2
 
 - Hardened call-history response validation: malformed object responses without a `results` field now raise `UfanetResponseError` instead of being treated as an empty history.

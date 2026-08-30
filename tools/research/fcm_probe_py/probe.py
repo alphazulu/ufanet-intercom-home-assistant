@@ -48,6 +48,10 @@ SENSITIVE_KEYS = {
     "address",
     "skud_mac",
     "api_key",
+    "from",
+    "fcmmessageid",
+    "uuid",
+    "time",
 }
 
 
@@ -58,7 +62,7 @@ def _fingerprint(value: Any) -> str:
 
 def _redacted(value: Any) -> str:
     text = "" if value is None else str(value)
-    return f"<redacted len={len(text)} sha256={_fingerprint(text)}>"
+    return f"<redacted len={len(text)}>"
 
 
 def sanitize(value: Any, key: str | None = None) -> Any:

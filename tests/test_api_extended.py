@@ -94,6 +94,31 @@ async def test_call_media_requires_object(api: UfanetApi) -> None:
 
 
 @pytest.mark.asyncio
+async def test_register_fcm_device_uses_confirmed_contract(api: UfanetApi) -> None:
+    api._async_ufanet_json = AsyncMock(return_value={})  # type: ignore[method-assign]
+
+    await api.async_register_fcm_device(
+        token="fcm-token",
+        device_id="Home Assistant_uuid",
+        title="Home Assistant",
+        application="example.android.app",
+    )
+
+    api._async_ufanet_json.assert_awaited_once_with(  # type: ignore[attr-defined]
+        "POST",
+        "/api/v0/fcm/",
+        json_body={
+            "token": "fcm-token",
+            "device_id": "Home Assistant_uuid",
+            "title": "Home Assistant",
+            "application": "example.android.app",
+            "os": 0,
+            "token_type": 0,
+        },
+    )
+
+
+@pytest.mark.asyncio
 async def test_temporary_guest_list_contract(api: UfanetApi) -> None:
     api._async_ufanet_json = AsyncMock(return_value={"result": [{"token": "one"}, None]})  # type: ignore[method-assign]
     assert await api.async_get_temporary_guest_links() == [{"token": "one"}]

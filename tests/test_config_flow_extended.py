@@ -10,7 +10,14 @@ from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ufanet_intercom.api import UfanetAuthError
-from custom_components.ufanet_intercom.const import CONF_PASSWORD, CONF_USERNAME, DOMAIN
+from custom_components.ufanet_intercom.const import (
+    CALL_UPDATE_MODE_FCM,
+    CONF_CALL_UPDATE_MODE,
+    CONF_FCM_CONFIG_PATH,
+    CONF_PASSWORD,
+    CONF_USERNAME,
+    DOMAIN,
+)
 from custom_components.ufanet_intercom.options import DEFAULT_OPTIONS
 
 
@@ -148,3 +155,73 @@ async def test_options_flow_saves_valid_values(hass) -> None:
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"] == values
+
+
+@pytest.mark.asyncio
+async def test_options_flow_validates_fcm_config_before_saving(hass) -> None:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="AB123",
+        data={CONF_USERNAME: "AB123", CONF_PASSWORD: "secret"},
+        options={},
+        unique_id="ab123",
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    values = {**DEFAULT_OPTIONS, CONF_CALL_UPDATE_MODE: CALL_UPDATE_MODE_FCM}
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        values,
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "fcm"
+
+    with patch(
+        "custom_components.ufanet_intercom.config_flow.async_load_firebase_config",
+        AsyncMock(return_value={"project_id": "example"}),
+    ) as load_config:
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {CONF_FCM_CONFIG_PATH: "private/firebase_config.json"},
+        )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"] == {
+        **values,
+        CONF_FCM_CONFIG_PATH: "private/firebase_config.json",
+    }
+    load_config.assert_awaited_once_with(
+        hass,
+        "private/firebase_config.json",
+    )
+
+
+@pytest.mark.asyncio
+async def test_options_flow_reports_missing_fcm_config(hass) -> None:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="AB123",
+        data={CONF_USERNAME: "AB123", CONF_PASSWORD: "secret"},
+        options={},
+        unique_id="ab123",
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {**DEFAULT_OPTIONS, CONF_CALL_UPDATE_MODE: CALL_UPDATE_MODE_FCM},
+    )
+    with patch(
+        "custom_components.ufanet_intercom.config_flow.async_load_firebase_config",
+        AsyncMock(side_effect=FileNotFoundError),
+    ):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {CONF_FCM_CONFIG_PATH: "missing.json"},
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "fcm"
+    assert result["errors"] == {"base": "fcm_config_not_found"}

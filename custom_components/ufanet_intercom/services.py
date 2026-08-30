@@ -35,6 +35,7 @@ from .const import (
     CONF_CALL_AUTOSAVE_ENABLED,
     CONF_CALL_AUTOSAVE_AFTER_SECONDS,
     CONF_CALL_SCAN_INTERVAL,
+    CONF_CALL_UPDATE_MODE,
     CONF_EXPORT_AUTO_CLEANUP,
     CONF_EXPORT_DEFAULT_DURATION,
     CONF_EXPORT_MAX_TOTAL_MB,
@@ -203,6 +204,7 @@ def async_setup_services(
         """Return effective ConfigEntry options for the selected Ufanet device."""
         runtime, skud = _resolve_device_runtime(hass, call.data[ATTR_DEVICE_ID])
         options = runtime.get("options") or {}
+        fcm_manager = runtime.get("fcm_manager")
         return {
             "device_id": call.data[ATTR_DEVICE_ID],
             "skud_id": int(skud["id"]),
@@ -212,6 +214,8 @@ def async_setup_services(
             "call_scan_interval_seconds": int(
                 options.get(CONF_CALL_SCAN_INTERVAL, CALL_SCAN_INTERVAL_SECONDS)
             ),
+            "call_update_mode": options.get(CONF_CALL_UPDATE_MODE),
+            "fcm_configured": bool(fcm_manager is not None),
             "call_media_refresh_seconds": int(
                 options.get(CONF_MEDIA_REFRESH_INTERVAL, MEDIA_REFRESH_SECONDS)
             ),
@@ -261,6 +265,7 @@ def async_setup_services(
         controllers = runtime.get("archive_controllers") or {}
         options = runtime.get("options") or {}
         auto_manager = runtime.get("auto_save_manager")
+        fcm_manager = runtime.get("fcm_manager")
 
         camera_number = _camera_number(skud)
         camera: dict[str, Any] | None = None
@@ -365,6 +370,21 @@ def async_setup_services(
                     and call_coordinator.data.get(camera_number)
                 ),
             },
+            "call_update_mode": runtime.get("call_update_mode"),
+            "fcm": (
+                fcm_manager.status()
+                if fcm_manager is not None
+                else {
+                    "configured": False,
+                    "active": False,
+                    "transport_state": None,
+                    "last_error_type": runtime.get("fcm_config_error_type"),
+                    "received_push_count": 0,
+                    "received_sip_push_count": 0,
+                    "last_push_at": None,
+                    "last_sip_push_at": None,
+                }
+            ),
             "archive": controller_state,
             "auto_save": (
                 auto_manager.status(include_details=True)

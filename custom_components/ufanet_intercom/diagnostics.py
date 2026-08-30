@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import hashlib
 from pathlib import Path
 from typing import Any
@@ -13,7 +12,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntry
 
 from .api import UfanetApi
-from .const import CONF_PASSWORD, CONF_USERNAME, DOMAIN
+from .const import (
+    CALL_UPDATE_MODE_FCM,
+    CONF_CALL_UPDATE_MODE,
+    CONF_FCM_CONFIG_PATH,
+    CONF_PASSWORD,
+    CONF_USERNAME,
+    DOMAIN,
+)
 from .options import effective_options
 
 _ENTRY_REDACT = {CONF_USERNAME, CONF_PASSWORD}
@@ -44,6 +50,34 @@ def _coordinator_state(coordinator: Any) -> dict[str, Any]:
             type(last_exception).__name__ if last_exception is not None else None
         ),
         "update_interval_seconds": seconds,
+    }
+
+
+def _safe_options(entry: ConfigEntry) -> dict[str, Any]:
+    """Return options without disclosing the local Firebase config path."""
+    options = effective_options(entry)
+    configured_path = options.pop(CONF_FCM_CONFIG_PATH, None)
+    options["fcm_config_path_set"] = bool(
+        options.get(CONF_CALL_UPDATE_MODE) == CALL_UPDATE_MODE_FCM
+        and configured_path
+    )
+    return options
+
+
+def _fcm_state(runtime: dict[str, Any]) -> dict[str, Any]:
+    """Return token-free FCM runtime state, including setup failures."""
+    manager = runtime.get("fcm_manager")
+    if manager is not None:
+        return manager.status()
+    return {
+        "configured": False,
+        "active": False,
+        "transport_state": None,
+        "last_error_type": runtime.get("fcm_config_error_type"),
+        "received_push_count": 0,
+        "received_sip_push_count": 0,
+        "last_push_at": None,
+        "last_sip_push_at": None,
     }
 
 
@@ -147,7 +181,11 @@ async def async_get_config_entry_diagnostics(
     return {
         "config_entry": {
             "data": async_redact_data(dict(entry.data), _ENTRY_REDACT),
-            "options": effective_options(entry),
+            "options": _safe_options(entry),
+        },
+        "call_updates": {
+            "mode": runtime.get("call_update_mode"),
+            "fcm": _fcm_state(runtime),
         },
         "api_auth": api.diagnostic_auth_state() if api is not None else None,
         "coordinator": {
@@ -244,7 +282,11 @@ async def async_get_device_diagnostics(
 
     return {
         "loaded": True,
-        "options": effective_options(entry),
+        "options": _safe_options(entry),
+        "call_updates": {
+            "mode": runtime.get("call_update_mode"),
+            "fcm": _fcm_state(runtime),
+        },
         "intercom": _safe_skud(skud),
         "camera": _safe_camera(camera),
         "camera_fetch_error_type": camera_error_type,

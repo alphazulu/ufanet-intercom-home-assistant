@@ -16,3 +16,5 @@ ufanet.env
 .vscode/
 tools/research/fcm_probe_py/fcm_state.json*
 tools/research/fcm_probe_py/firebase_config.json*
+firebase_config.json*
+ufanet_intercom/firebase_config.json*

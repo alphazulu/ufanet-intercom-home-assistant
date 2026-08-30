@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 import logging
 from pathlib import Path
 from typing import Any
@@ -22,18 +23,24 @@ from .api import UfanetApi, UfanetAuthError, UfanetConnectionError, UfanetRespon
 from .archive import UfanetArchiveController
 from .auto_export import UfanetCallAutoSaveManager
 from .const import (
+    CALL_UPDATE_MODE_FCM,
     CONF_ARCHIVE_DEFAULT_DURATION,
     CONF_ARCHIVE_DEFAULT_STEP,
     CONF_CALL_SCAN_INTERVAL,
+    CONF_CALL_UPDATE_MODE,
+    CONF_FCM_CONFIG_PATH,
     CONF_MEDIA_REFRESH_INTERVAL,
     CONF_PASSWORD,
     CONF_SKUD_SCAN_INTERVAL,
     CONF_USERNAME,
     DOMAIN,
     EVENT_INTERCOM_CALL,
+    FCM_FALLBACK_SCAN_INTERVAL_SECONDS,
 )
 from .coordinator import UfanetCallCoordinator, UfanetCoordinator
 from .entity import device_name
+from .fcm import UfanetFcmManager
+from .firebase_config import UfanetFirebaseConfigError, async_load_firebase_config
 from .guest_store import UfanetGuestInviteStore
 from .options import effective_options
 from .services import async_setup_services
@@ -43,7 +50,7 @@ _LOGGER = logging.getLogger(__name__)
 _FRONTEND_DIR = Path(__file__).parent / "frontend"
 _ARCHIVE_CARD_PATH = _FRONTEND_DIR / "ufanet-archive-card.js"
 _ARCHIVE_CARD_URL = "/ufanet_intercom/ufanet-archive-card.js"
-_ARCHIVE_CARD_MODULE_URL = f"{_ARCHIVE_CARD_URL}?v=0.19.2"
+_ARCHIVE_CARD_MODULE_URL = f"{_ARCHIVE_CARD_URL}?v=0.20.0"
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -104,6 +111,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise ConfigEntryNotReady(str(err)) from err
 
     options = effective_options(entry)
+    call_update_mode = str(options[CONF_CALL_UPDATE_MODE])
+    call_scan_interval = int(options[CONF_CALL_SCAN_INTERVAL])
+    firebase_config: dict[str, str] | None = None
+    fcm_config_error_type: str | None = None
+    if call_update_mode == CALL_UPDATE_MODE_FCM:
+        try:
+            firebase_config = await async_load_firebase_config(
+                hass,
+                str(options[CONF_FCM_CONFIG_PATH]),
+            )
+        except (FileNotFoundError, UfanetFirebaseConfigError) as err:
+            fcm_config_error_type = type(err).__name__
+            _LOGGER.warning(
+                "FCM mode requested but local Firebase configuration is unavailable: %s",
+                type(err).__name__,
+            )
 
     coordinator = UfanetCoordinator(
         hass,
@@ -115,7 +138,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     call_coordinator = UfanetCallCoordinator(
         hass,
         api,
-        scan_interval_seconds=int(options[CONF_CALL_SCAN_INTERVAL]),
+        scan_interval_seconds=(
+            max(call_scan_interval, FCM_FALLBACK_SCAN_INTERVAL_SECONDS)
+            if firebase_config is not None
+            else call_scan_interval
+        ),
         media_refresh_seconds=int(options[CONF_MEDIA_REFRESH_INTERVAL]),
     )
     # Call history is an enhancement. A temporary failure of this endpoint must
@@ -142,6 +169,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
     auto_save_manager = UfanetCallAutoSaveManager(hass, options)
+    fcm_manager: UfanetFcmManager | None = None
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "api": api,
@@ -151,6 +179,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "entry": entry,
         "options": options,
         "auto_save_manager": auto_save_manager,
+        "call_update_mode": call_update_mode,
+        "fcm_manager": None,
+        "fcm_config_error_type": fcm_config_error_type,
     }
 
     device_registry = dr.async_get(hass)
@@ -183,12 +214,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             hass.bus.async_fire(EVENT_INTERCOM_CALL, event_data)
 
+    if firebase_config is not None:
+        fcm_manager = UfanetFcmManager(
+            hass,
+            entry,
+            api,
+            firebase_config,
+            call_coordinator.async_request_refresh,
+        )
+        hass.data[DOMAIN][entry.entry_id]["fcm_manager"] = fcm_manager
+        if not await fcm_manager.async_start():
+            call_coordinator.update_interval = timedelta(
+                seconds=call_scan_interval
+            )
+
     # This listener also keeps the call coordinator polling even if the user
-    # disables the Last call sensor entity.
+    # disables the Last call sensor entity. It is registered after FCM setup so
+    # a failed FCM connection restores the normal interval before scheduling.
     entry.async_on_unload(call_coordinator.async_add_listener(_handle_call_update))
     entry.async_on_unload(auto_save_manager.cancel_all)
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    try:
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    except Exception:
+        if fcm_manager is not None:
+            await fcm_manager.async_stop()
+        raise
 
     # Recover a very recent call after a Home Assistant/integration restart.
     # Duplicate export is prevented by the hashed call marker in the filename.
@@ -224,6 +275,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
+        runtime = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+        fcm_manager = runtime.get("fcm_manager")
+        if fcm_manager is not None:
+            await fcm_manager.async_stop()
         hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
     return unloaded
 

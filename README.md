@@ -13,6 +13,7 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 - Live UCAMS camera stream and snapshots.
 - Native archive browsing with recording ranges, timeline zoom/pan and call markers.
 - Intercom call history and the `ufanet_intercom_call` Home Assistant event.
+- Selectable call updates: polling by default or experimental low-latency FCM with safety polling.
 - Temporary guest keys and accepted shared-access management.
 - Manual archive export to MP4 using `ffmpeg -c copy` into Home Assistant Media.
 - Persistent export media library with per-camera retention and size cleanup.
@@ -35,6 +36,7 @@ The reference explicitly distinguishes **Confirmed**, **Observed**, **Inferred**
 
 - Home Assistant **2026.8.0 or newer**.
 - Network access from Home Assistant to `dom.ufanet.ru`, `cloud.ucams.ru` and the UCAMS media servers returned by the API.
+- Experimental FCM additionally needs outbound HTTPS access to Google Firebase/GCM registration endpoints and TLS access to `mtalk.google.com:5228`.
 - For MP4 export: `ffmpeg` available in the Home Assistant runtime. Home Assistant OS/Container normally provides it; Core/venv installs may need an OS package.
 - A Ufanet account/contract that already has access to the intercom in the official application.
 
@@ -64,7 +66,7 @@ To install it as a HACS custom repository:
 Add the resource as a JavaScript module:
 
 ```text
-/ufanet_intercom/ufanet-archive-card.js?v=0.19.2
+/ufanet_intercom/ufanet-archive-card.js?v=0.20.0
 ```
 
 Minimal card:
@@ -86,7 +88,22 @@ The card contains four tabs:
 
 Open **Settings → Devices & services → Ufanet Intercom → Configure**.
 
-Important options include call polling, call archive lead, archive duration/step, MP4 retention/size limits and automatic call-video saving. YAML values on a particular card remain local overrides where supported.
+Important options include the call update mode, polling interval, call archive lead, archive duration/step, MP4 retention/size limits and automatic call-video saving. YAML values on a particular card remain local overrides where supported.
+
+### Call update modes
+
+- **`polling` (default)** reads `call-history` at the configured interval and needs no additional setup.
+- **`fcm` (experimental)** uses a local headless FCM receiver as a low-latency wake-up signal. `call-history` remains authoritative and is still polled at least every 300 seconds as a safety fallback.
+
+FCM values are not distributed by this repository. Advanced users extract them on their own computer from their own decompiled copy of the official Android app:
+
+```bash
+python tools/research/fcm_probe_py/extract_firebase_config.py /path/to/decompiled-app -o firebase_config.json
+```
+
+Copy the result to `/config/ufanet_intercom/firebase_config.json`, choose `fcm` in the integration options and keep the default relative path `ufanet_intercom/firebase_config.json`. The file must remain inside the Home Assistant configuration directory. The integration reads the JSON but never stores its values in ConfigEntry options or diagnostics.
+
+The extractor accepts a JADX/apktool/decompiled directory (or the relevant resources XML plus an explicit package name); the integration itself does not upload, retain or parse APK files. See [FCM API notes](docs/api/fcm.md) and the [extractor guide](tools/research/fcm_probe_py/README_RU.md).
 
 ## Automatic call recording
 
@@ -108,6 +125,7 @@ Manual and automatic MP4 exports are saved under the Home Assistant media direct
 - Generated guest links are access capabilities: treat them like temporary credentials.
 - Opening the door is a real physical action and requires an explicit button press/confirmation in the custom card.
 - Downloadable diagnostics redact login/password and avoid guest/media URLs and exact camera identifiers.
+- Firebase values, FCM credentials and the local Firebase config path are never included in diagnostics. Do not commit `firebase_config.json`.
 
 ## Troubleshooting
 

@@ -12,6 +12,9 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ufanet_intercom.const import (
+    CALL_UPDATE_MODE_FCM,
+    CONF_CALL_UPDATE_MODE,
+    CONF_FCM_CONFIG_PATH,
     CONF_PASSWORD,
     CONF_USERNAME,
     DOMAIN,
@@ -32,7 +35,10 @@ def _entry() -> MockConfigEntry:
         domain=DOMAIN,
         title="AB123",
         data={CONF_USERNAME: "AB123", CONF_PASSWORD: "top-secret"},
-        options={},
+        options={
+            CONF_CALL_UPDATE_MODE: CALL_UPDATE_MODE_FCM,
+            CONF_FCM_CONFIG_PATH: "private/secret-firebase-config.json",
+        },
         unique_id="ab123",
     )
 
@@ -169,6 +175,8 @@ async def test_config_entry_diagnostics_redacts_credentials_and_private_fields(h
         "call_coordinator": call_coordinator,
         "archive_controllers": {},
         "auto_save_manager": auto_save,
+        "call_update_mode": CALL_UPDATE_MODE_FCM,
+        "fcm_config_error_type": "UfanetFirebaseConfigError",
     }
 
     result = await async_get_config_entry_diagnostics(hass, entry)
@@ -179,6 +187,12 @@ async def test_config_entry_diagnostics_redacts_credentials_and_private_fields(h
     assert "CAMERA-SECRET-123" not in serialized
     assert "Private street" not in serialized
     assert "call-secret" not in serialized
+    assert "secret-firebase-config" not in serialized
+    assert result["config_entry"]["options"]["fcm_config_path_set"] is True
+    assert result["call_updates"]["fcm"]["configured"] is False
+    assert result["call_updates"]["fcm"]["last_error_type"] == (
+        "UfanetFirebaseConfigError"
+    )
     assert result["coordinator"]["intercom_count"] == 1
     assert result["call_coordinator"]["camera_with_latest_call_count"] == 1
     auto_save.status.assert_called_once_with(include_details=False)
@@ -227,6 +241,7 @@ async def test_device_diagnostics_survives_camera_failure_and_hides_details(
         "call_coordinator": call_coordinator,
         "archive_controllers": {7: controller},
         "auto_save_manager": auto_save,
+        "call_update_mode": CALL_UPDATE_MODE_FCM,
     }
 
     device = SimpleNamespace(identifiers={(DOMAIN, "7")})
@@ -242,6 +257,7 @@ async def test_device_diagnostics_survives_camera_failure_and_hides_details(
     assert "secret.invalid" not in serialized
     assert "CAMERA-SECRET-123" not in serialized
     assert "top-secret" not in serialized
+    assert "secret-firebase-config" not in serialized
     auto_save.status.assert_called_once_with(include_details=False)
 
 

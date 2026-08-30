@@ -82,6 +82,7 @@
         "data": {
           "skud_scan_interval_seconds": "Обновление списка домофонов, с",
           "call_scan_interval_seconds": "Проверка новых звонков, с",
+          "call_update_mode": "Режим получения звонков (polling или FCM)",
           "call_media_refresh_seconds": "Обновление ссылок media звонка, с",
           "call_lead_seconds": "Начинать архив до звонка, с",
           "archive_default_duration_seconds": "Длительность архива по умолчанию, с",
@@ -95,7 +96,8 @@
         },
         "data_description": {
           "skud_scan_interval_seconds": "Как часто перечитывать доступные SKUD/домофоны.",
-          "call_scan_interval_seconds": "Интервал polling call-history. Минимум 5 секунд.",
+          "call_scan_interval_seconds": "Интервал polling call-history. В режиме FCM становится резервным опросом не чаще одного раза в 300 секунд.",
+          "call_update_mode": "Polling не требует дополнительной настройки. Экспериментальный FCM использует локально извлечённый Firebase-конфиг для более быстрого обнаружения звонка.",
           "call_media_refresh_seconds": "Через сколько обновлять preview/archive URL для истории звонков.",
           "call_lead_seconds": "При переходе к звонку начать запись на указанное число секунд раньше.",
           "archive_default_duration_seconds": "Используется HA archive entities и карточкой, если YAML не задаёт duration.",
@@ -107,7 +109,21 @@
           "call_autosave_enabled": "При новом звонке автоматически сохранять MP4 в Home Assistant Media. До звонка используется параметр «Начинать архив до звонка».",
           "call_autosave_after_seconds": "Сколько секунд после момента звонка включить в автоматически сохраняемый ролик."
         }
+      },
+      "fcm": {
+        "title": "Настройка экспериментального FCM",
+        "description": "Локально извлеките Firebase-значения утилитой tools/research/fcm_probe_py/extract_firebase_config.py, скопируйте полученный JSON внутрь каталога конфигурации Home Assistant и укажите путь. APK и Firebase-значения не входят в состав интеграции.",
+        "data": {
+          "fcm_config_path": "Путь к Firebase-конфигу"
+        },
+        "data_description": {
+          "fcm_config_path": "Относительно /config; по умолчанию: ufanet_intercom/firebase_config.json"
+        }
       }
+    },
+    "error": {
+      "fcm_config_not_found": "Файл Firebase-конфига не найден.",
+      "invalid_fcm_config": "Firebase-конфиг некорректен либо находится вне каталога конфигурации Home Assistant."
     }
   }
 }

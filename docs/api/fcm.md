@@ -18,6 +18,14 @@ On 2026-08-29 a standalone Windows/Python headless client successfully:
 
 The headless FCM path is therefore **Confirmed**.
 
+## Home Assistant integration mode
+
+Version 0.20.0 exposes `polling` and experimental `fcm` in the integration options. FCM registers a private virtual installation, listens for `data.reason=sip`, and immediately asks the existing call coordinator to refresh `call-history`. Polling remains enabled with a minimum 300-second interval so missed pushes or a broken MCS connection do not silently disable call events.
+
+The required JSON is read from `ufanet_intercom/firebase_config.json` under the Home Assistant configuration directory by default. Only this relative path is stored in the config entry. Firebase values and runtime FCM credentials are kept in the local Home Assistant storage/config area and are excluded from diagnostics.
+
+The component deliberately does not parse or retain APK files. Extraction stays a separate, auditable local step and avoids adding Android resource parsers and an APK upload surface to Home Assistant.
+
 ## Firebase client configuration
 
 The receiver needs values present in the packaged resources of the official Android client:
@@ -235,6 +243,8 @@ After every SIP push, the Windows/Python PoC probes call history at offsets:
 ```
 
 and measures an upper bound on when the matching history record becomes observable. This data is used to choose production retry/backoff behavior.
+
+In four consecutive live test calls on 2026-08-29, the matching row was found by the first request every time. Request completion ranged from 0.446 to 0.916 seconds after the push (median 0.613 seconds), with a push/history timestamp delta of 0–1 second. The push UUID and durable history UUID differed in all four samples. The integration still performs short follow-up refreshes to cover network jitter and slower call-history publication.
 
 ## Security
 

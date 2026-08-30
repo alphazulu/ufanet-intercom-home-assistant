@@ -269,6 +269,28 @@ class UfanetApi:
             raise UfanetResponseError("Unexpected CCTV history response")
         return data
 
+    async def async_register_fcm_device(
+        self,
+        *,
+        token: str,
+        device_id: str,
+        title: str,
+        application: str,
+    ) -> None:
+        """Associate one user-owned virtual FCM installation with Ufanet."""
+        await self._async_ufanet_json(
+            "POST",
+            "/api/v0/fcm/",
+            json_body={
+                "token": token,
+                "device_id": device_id,
+                "title": title,
+                "application": application,
+                "os": 0,
+                "token_type": 0,
+            },
+        )
+
     async def async_get_temporary_guest_links(self) -> list[dict[str, Any]]:
         """Return temporary guest links/keys."""
         data = await self._async_ufanet_json(

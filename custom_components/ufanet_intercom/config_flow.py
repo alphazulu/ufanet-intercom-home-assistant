@@ -13,16 +13,20 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import UfanetApi, UfanetAuthError, UfanetConnectionError, UfanetResponseError
 from .const import (
+    CALL_UPDATE_MODE_FCM,
+    CALL_UPDATE_MODE_POLLING,
     CONF_ARCHIVE_DEFAULT_DURATION,
     CONF_ARCHIVE_DEFAULT_STEP,
     CONF_CALL_LEAD_SECONDS,
     CONF_CALL_AUTOSAVE_ENABLED,
     CONF_CALL_AUTOSAVE_AFTER_SECONDS,
     CONF_CALL_SCAN_INTERVAL,
+    CONF_CALL_UPDATE_MODE,
     CONF_EXPORT_AUTO_CLEANUP,
     CONF_EXPORT_DEFAULT_DURATION,
     CONF_EXPORT_MAX_TOTAL_MB,
     CONF_EXPORT_RETENTION_DAYS,
+    CONF_FCM_CONFIG_PATH,
     CONF_MEDIA_REFRESH_INTERVAL,
     CONF_PASSWORD,
     CONF_SKUD_SCAN_INTERVAL,
@@ -37,6 +41,10 @@ from .const import (
     MIN_CALL_SCAN_INTERVAL_SECONDS,
     MIN_MEDIA_REFRESH_SECONDS,
     MIN_SKUD_SCAN_INTERVAL_SECONDS,
+)
+from .firebase_config import (
+    UfanetFirebaseConfigError,
+    async_load_firebase_config,
 )
 from .options import DEFAULT_OPTIONS
 
@@ -143,6 +151,9 @@ OPTIONS_SCHEMA = vol.Schema(
                 max=MAX_CALL_SCAN_INTERVAL_SECONDS,
             ),
         ),
+        vol.Required(CONF_CALL_UPDATE_MODE): vol.In(
+            [CALL_UPDATE_MODE_POLLING, CALL_UPDATE_MODE_FCM]
+        ),
         vol.Required(CONF_MEDIA_REFRESH_INTERVAL): vol.All(
             vol.Coerce(int),
             vol.Range(
@@ -188,7 +199,15 @@ class UfanetOptionsFlow(config_entries.OptionsFlowWithReload):
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         """Show and save integration options."""
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            pending = dict(user_input)
+            pending[CONF_FCM_CONFIG_PATH] = self.config_entry.options.get(
+                CONF_FCM_CONFIG_PATH,
+                DEFAULT_OPTIONS[CONF_FCM_CONFIG_PATH],
+            )
+            if pending[CONF_CALL_UPDATE_MODE] == CALL_UPDATE_MODE_FCM:
+                self._pending_options = pending
+                return await self.async_step_fcm()
+            return self.async_create_entry(title="", data=pending)
 
         suggested = {**DEFAULT_OPTIONS, **dict(self.config_entry.options)}
         return self.async_show_form(
@@ -197,4 +216,35 @@ class UfanetOptionsFlow(config_entries.OptionsFlowWithReload):
                 OPTIONS_SCHEMA,
                 suggested,
             ),
+        )
+
+    async def async_step_fcm(self, user_input: dict[str, Any] | None = None):
+        """Validate the user-owned local Firebase configuration."""
+        errors: dict[str, str] = {}
+        suggested_path = self.config_entry.options.get(
+            CONF_FCM_CONFIG_PATH,
+            DEFAULT_OPTIONS[CONF_FCM_CONFIG_PATH],
+        )
+        if user_input is not None:
+            config_path = str(user_input[CONF_FCM_CONFIG_PATH]).strip()
+            suggested_path = config_path
+            try:
+                await async_load_firebase_config(self.hass, config_path)
+            except FileNotFoundError:
+                errors["base"] = "fcm_config_not_found"
+            except UfanetFirebaseConfigError:
+                errors["base"] = "invalid_fcm_config"
+            else:
+                pending = dict(getattr(self, "_pending_options", DEFAULT_OPTIONS))
+                pending[CONF_CALL_UPDATE_MODE] = CALL_UPDATE_MODE_FCM
+                pending[CONF_FCM_CONFIG_PATH] = config_path
+                return self.async_create_entry(title="", data=pending)
+
+        return self.async_show_form(
+            step_id="fcm",
+            data_schema=self.add_suggested_values_to_schema(
+                vol.Schema({vol.Required(CONF_FCM_CONFIG_PATH): str}),
+                {CONF_FCM_CONFIG_PATH: suggested_path},
+            ),
+            errors=errors,
         )

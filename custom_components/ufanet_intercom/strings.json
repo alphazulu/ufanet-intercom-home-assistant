@@ -82,6 +82,7 @@
         "data": {
           "skud_scan_interval_seconds": "Intercom list refresh, s",
           "call_scan_interval_seconds": "New call polling, s",
+          "call_update_mode": "Call update mode (polling or FCM)",
           "call_media_refresh_seconds": "Call media URL refresh, s",
           "call_lead_seconds": "Archive lead before call, s",
           "archive_default_duration_seconds": "Default archive duration, s",
@@ -95,7 +96,8 @@
         },
         "data_description": {
           "skud_scan_interval_seconds": "How often the available intercom/SKUD list is refreshed.",
-          "call_scan_interval_seconds": "call-history polling interval. Minimum 5 seconds.",
+          "call_scan_interval_seconds": "call-history polling interval. In FCM mode it becomes a safety fallback of at least 300 seconds.",
+          "call_update_mode": "Polling requires no extra setup. Experimental FCM uses a locally extracted Firebase config for faster call detection.",
           "call_media_refresh_seconds": "How long preview/archive media URLs are cached for call history.",
           "call_lead_seconds": "Start archive playback this many seconds before a call.",
           "archive_default_duration_seconds": "Used by HA archive entities and the card unless YAML sets duration.",
@@ -107,7 +109,21 @@
           "call_autosave_enabled": "Automatically export a new call to Home Assistant Media. The pre-call part uses the Archive lead before call option.",
           "call_autosave_after_seconds": "How many seconds after the call timestamp to include in the automatic MP4."
         }
+      },
+      "fcm": {
+        "title": "Experimental FCM setup",
+        "description": "Extract Firebase values locally with tools/research/fcm_probe_py/extract_firebase_config.py, copy the resulting JSON under the Home Assistant config directory, and enter its path. APK contents and Firebase values are not bundled with this integration.",
+        "data": {
+          "fcm_config_path": "Firebase config path"
+        },
+        "data_description": {
+          "fcm_config_path": "Relative to /config; default: ufanet_intercom/firebase_config.json"
+        }
       }
+    },
+    "error": {
+      "fcm_config_not_found": "The Firebase config file was not found.",
+      "invalid_fcm_config": "The Firebase config is invalid or is outside the Home Assistant config directory."
     }
   }
 }

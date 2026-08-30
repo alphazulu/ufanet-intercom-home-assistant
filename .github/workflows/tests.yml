@@ -47,6 +47,8 @@ jobs:
             --cov=custom_components.ufanet_intercom.auto_export \
             --cov=custom_components.ufanet_intercom.coordinator \
             --cov=custom_components.ufanet_intercom.diagnostics \
+            --cov=custom_components.ufanet_intercom.fcm \
+            --cov=custom_components.ufanet_intercom.firebase_config \
             --cov-report=term-missing \
             --cov-fail-under=85 \
             2>&1 | tee pytest-output.txt
