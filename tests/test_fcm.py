@@ -85,6 +85,9 @@ async def test_fcm_start_registers_and_sip_push_refreshes(hass) -> None:
 
         status = manager.status()
         assert status["active"] is True
+        assert status["firebase_registration_succeeded"] is True
+        assert status["ufanet_registration_succeeded"] is True
+        assert status["listener_started"] is True
         assert status["transport_state"] == "RUNNING"
         assert status["received_push_count"] == 1
         assert status["received_sip_push_count"] == 1
@@ -109,6 +112,7 @@ async def test_fcm_start_registers_and_sip_push_refreshes(hass) -> None:
 
     client.stop.assert_awaited_once()
     assert manager.active is False
+    assert manager.listener_started is False
     assert store.async_save.await_count >= 1
 
 
@@ -141,10 +145,66 @@ async def test_fcm_start_failure_is_non_fatal(hass) -> None:
         )
         assert await manager.async_start() is False
 
-    assert manager.status()["last_error_type"] == "RuntimeError"
+    status = manager.status()
+    assert status["last_error_type"] == "RuntimeError"
+    assert status["firebase_registration_succeeded"] is False
+    assert status["ufanet_registration_succeeded"] is False
+    assert status["listener_started"] is False
     assert manager.active is False
     client.stop.assert_awaited_once()
     api.async_register_fcm_device.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("ufanet_error", "listener_error", "expected"),
+    [
+        (RuntimeError("rejected"), None, (True, False, False)),
+        (None, RuntimeError("listener failed"), (True, True, False)),
+    ],
+)
+@pytest.mark.asyncio
+async def test_fcm_status_identifies_failed_startup_stage(
+    hass,
+    ufanet_error: Exception | None,
+    listener_error: Exception | None,
+    expected: tuple[bool, bool, bool],
+) -> None:
+    store = MagicMock()
+    store.async_load = AsyncMock(return_value=None)
+    store.async_save = AsyncMock()
+    client = MagicMock()
+    client.checkin_or_register = AsyncMock(return_value="fcm-token")
+    client.start = AsyncMock(side_effect=listener_error)
+    client.stop = AsyncMock()
+    api = MagicMock()
+    api.async_register_fcm_device = AsyncMock(side_effect=ufanet_error)
+
+    with (
+        patch("custom_components.ufanet_intercom.fcm.Store", return_value=store),
+        patch(
+            "custom_components.ufanet_intercom.fcm.FcmPushClient",
+            return_value=client,
+        ),
+        patch("custom_components.ufanet_intercom.fcm.FcmRegisterConfig"),
+        patch("custom_components.ufanet_intercom.fcm.async_get_clientsession"),
+    ):
+        manager = UfanetFcmManager(
+            hass,
+            _entry(),
+            api,
+            FIREBASE_CONFIG,
+            AsyncMock(),
+        )
+        assert await manager.async_start() is False
+
+    status = manager.status()
+    assert (
+        status["firebase_registration_succeeded"],
+        status["ufanet_registration_succeeded"],
+        status["listener_started"],
+    ) == expected
+    assert status["active"] is False
+    client.stop.assert_awaited_once()
 
 
 @pytest.mark.asyncio

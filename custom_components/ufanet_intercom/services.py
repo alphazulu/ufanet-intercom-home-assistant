@@ -377,6 +377,9 @@ def async_setup_services(
                 else {
                     "configured": False,
                     "active": False,
+                    "firebase_registration_succeeded": False,
+                    "ufanet_registration_succeeded": False,
+                    "listener_started": False,
                     "transport_state": None,
                     "last_error_type": runtime.get("fcm_config_error_type"),
                     "received_push_count": 0,

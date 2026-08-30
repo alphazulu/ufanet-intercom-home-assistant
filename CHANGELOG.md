@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.20.1
+
+- Added explicit token-free FCM startup diagnostics for Firebase registration, Ufanet device registration and the headless listener.
+- The Lovelace diagnostics tab now shows which FCM startup stage succeeded instead of only reporting a combined active flag.
+
 ## 0.20.0
 
 - Added a selectable call update mode: existing polling remains the default, while advanced users can enable an experimental headless FCM listener.

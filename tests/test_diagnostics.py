@@ -190,6 +190,12 @@ async def test_config_entry_diagnostics_redacts_credentials_and_private_fields(h
     assert "secret-firebase-config" not in serialized
     assert result["config_entry"]["options"]["fcm_config_path_set"] is True
     assert result["call_updates"]["fcm"]["configured"] is False
+    assert (
+        result["call_updates"]["fcm"]["firebase_registration_succeeded"]
+        is False
+    )
+    assert result["call_updates"]["fcm"]["ufanet_registration_succeeded"] is False
+    assert result["call_updates"]["fcm"]["listener_started"] is False
     assert result["call_updates"]["fcm"]["last_error_type"] == (
         "UfanetFirebaseConfigError"
     )

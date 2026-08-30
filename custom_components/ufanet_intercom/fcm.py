@@ -55,6 +55,9 @@ class UfanetFcmManager:
         self._sip_tasks: set[asyncio.Task[None]] = set()
 
         self.active = False
+        self.firebase_registration_succeeded = False
+        self.ufanet_registration_succeeded = False
+        self.listener_started = False
         self.last_error_type: str | None = None
         self.received_push_count = 0
         self.received_sip_push_count = 0
@@ -73,6 +76,11 @@ class UfanetFcmManager:
 
     async def async_start(self) -> bool:
         """Register the virtual device and start the MCS listener."""
+        self.active = False
+        self.firebase_registration_succeeded = False
+        self.ufanet_registration_succeeded = False
+        self.listener_started = False
+
         try:
             stored = await self._store.async_load()
         except Exception as err:  # optional state must not block the integration
@@ -115,13 +123,16 @@ class UfanetFcmManager:
                 http_client_session=async_get_clientsession(self.hass),
             )
             token = await self._client.checkin_or_register()
+            self.firebase_registration_succeeded = True
             await self.api.async_register_fcm_device(
                 token=token,
                 device_id=str(self._state["ufanet_device_id"]),
                 title=str(self._state["ufanet_device_title"]),
                 application=self.firebase_config["package_name"],
             )
+            self.ufanet_registration_succeeded = True
             await self._client.start()
+            self.listener_started = True
         except Exception as err:  # optional transport must not break the intercom
             self.last_error_type = type(err).__name__
             _LOGGER.warning(
@@ -155,6 +166,7 @@ class UfanetFcmManager:
     async def _safe_stop_client(self) -> None:
         client = self._client
         self._client = None
+        self.listener_started = False
         if client is None:
             return
         try:
@@ -242,6 +254,11 @@ class UfanetFcmManager:
         return {
             "configured": True,
             "active": self.active,
+            "firebase_registration_succeeded": (
+                self.firebase_registration_succeeded
+            ),
+            "ufanet_registration_succeeded": self.ufanet_registration_succeeded,
+            "listener_started": self.listener_started,
             "transport_state": (
                 getattr(run_state, "name", str(run_state))
                 if run_state is not None

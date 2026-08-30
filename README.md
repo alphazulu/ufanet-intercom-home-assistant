@@ -66,7 +66,7 @@ To install it as a HACS custom repository:
 Add the resource as a JavaScript module:
 
 ```text
-/ufanet_intercom/ufanet-archive-card.js?v=0.20.0
+/ufanet_intercom/ufanet-archive-card.js?v=0.20.1
 ```
 
 Minimal card:

@@ -1,4 +1,4 @@
-const CARD_VERSION = "0.20.0";
+const CARD_VERSION = "0.20.1";
 
 class UfanetArchiveCard extends HTMLElement {
   constructor() {
@@ -2216,8 +2216,26 @@ class UfanetArchiveCard extends HTMLElement {
     if (status.call_update_mode === "fcm") {
       this._diagnosticSection(host, "FCM (экспериментально)", [
         ["Настроен", fcm.configured ? "да" : "нет", fcm.configured ? "ok" : "error"],
-        ["Активен", fcm.active ? "да" : "нет", fcm.active ? "ok" : "warning"],
-        ["Транспорт", fcm.transport_state],
+        [
+          "Регистрация Firebase/FCM",
+          fcm.firebase_registration_succeeded ? "успешно" : "не выполнена",
+          fcm.firebase_registration_succeeded ? "ok" : "error",
+        ],
+        [
+          "Регистрация в Ufanet",
+          fcm.ufanet_registration_succeeded ? "принята" : "не выполнена",
+          fcm.ufanet_registration_succeeded ? "ok" : "error",
+        ],
+        [
+          "Headless listener",
+          fcm.listener_started ? "запущен" : "не запущен",
+          fcm.listener_started ? "ok" : "error",
+        ],
+        [
+          "Транспорт",
+          fcm.transport_state,
+          fcm.active && fcm.transport_state === "RUNNING" ? "ok" : "warning",
+        ],
         ["Push / SIP", `${fcm.received_push_count ?? 0} / ${fcm.received_sip_push_count ?? 0}`],
         ["Последний SIP push", fcm.last_sip_push_at],
         ["Последняя ошибка", fcm.last_error_type, fcm.last_error_type ? "error" : null],
