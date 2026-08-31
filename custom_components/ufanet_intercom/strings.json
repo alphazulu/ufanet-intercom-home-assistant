@@ -44,6 +44,11 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "incoming_call": {
+        "name": "Incoming call"
+      }
+    },
     "button": {
       "open_door": {
         "name": "Open door"

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.23.0
+
+- Added a native **Incoming call** binary sensor for every intercom with call history.
+- The sensor turns on for 30 seconds after a confirmed `call-history` event and retriggers the timer for a subsequent call.
+- The same entity works with polling and FCM because both paths continue to use authoritative call-history events; no raw FCM payload is exposed.
+
 ## 0.22.0
 
 - Added an FCM watchdog that distinguishes listener task startup from a confirmed MCS connection and recreates terminal or stalled listeners with exponential backoff.

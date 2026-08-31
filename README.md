@@ -12,7 +12,7 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 - Door opening through Home Assistant `button` entities.
 - Live UCAMS camera stream and snapshots.
 - Native archive browsing with recording ranges, timeline zoom/pan and call markers.
-- Intercom call history, the `ufanet_intercom_call` Home Assistant event and an **Incoming call** device trigger for the visual automation editor.
+- Intercom call history, the `ufanet_intercom_call` Home Assistant event, a native **Incoming call** binary sensor and a matching device trigger for the visual automation editor.
 - Selectable call updates: polling by default or experimental low-latency FCM with safety polling.
 - Temporary guest keys and accepted shared-access management.
 - Manual archive export to MP4 using `ffmpeg -c copy` into Home Assistant Media.
@@ -66,7 +66,7 @@ To install it as a HACS custom repository:
 Add the resource as a JavaScript module:
 
 ```text
-/ufanet_intercom/ufanet-archive-card.js?v=0.22.0
+/ufanet_intercom/ufanet-archive-card.js?v=0.23.0
 ```
 
 Minimal card:
@@ -96,6 +96,10 @@ Important options include the call update mode, polling interval, call archive l
 - **`fcm` (experimental)** uses a local headless FCM receiver as a low-latency wake-up signal. `call-history` remains authoritative. Normal configured polling stays active until the listener confirms its MCS connection and is restored automatically on disconnect; while FCM is healthy, a 300-second safety poll remains active.
 
 The FCM watchdog distinguishes launched listener tasks from an established transport, lets the FCM library handle short reconnects, and recreates a terminal or stalled listener with exponential backoff. A Home Assistant Repair warning appears after a prolonged outage and closes automatically after recovery. The diagnostics tab shows listener health, watchdog state, fallback polling, reconnects and connection timestamps without exposing push payloads or credentials.
+
+### Incoming-call automations
+
+Every intercom with call history has an **Incoming call** binary sensor. It turns on for 30 seconds after a new call is confirmed by `call-history`; another call restarts the timer. Use it directly in dashboards and state automations, or select the matching **Incoming call** device trigger in the visual automation editor. Both interfaces work identically with polling and FCM.
 
 FCM values are not distributed by this repository. Advanced users extract them on their own computer from their own decompiled copy of the official Android app:
 
