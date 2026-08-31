@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
 import json
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -140,7 +140,9 @@ def test_export_stats_returns_counts_only(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_config_entry_diagnostics_redacts_credentials_and_private_fields(hass) -> None:
+async def test_config_entry_diagnostics_redacts_credentials_and_private_fields(
+    hass,
+) -> None:
     entry = _entry()
     entry.add_to_hass(hass)
 
@@ -201,10 +203,7 @@ async def test_config_entry_diagnostics_redacts_credentials_and_private_fields(h
     assert "secret-firebase-config" not in serialized
     assert result["config_entry"]["options"]["fcm_config_path_set"] is True
     assert result["call_updates"]["fcm"]["configured"] is False
-    assert (
-        result["call_updates"]["fcm"]["firebase_registration_succeeded"]
-        is False
-    )
+    assert result["call_updates"]["fcm"]["firebase_registration_succeeded"] is False
     assert result["call_updates"]["fcm"]["ufanet_registration_succeeded"] is False
     assert result["call_updates"]["fcm"]["listener_started"] is False
     assert result["call_updates"]["fcm"]["listener_running"] is False
@@ -263,6 +262,8 @@ async def test_device_diagnostics_survives_camera_failure_and_hides_details(
         "ffmpeg_available": True,
         "ready": False,
         "preview_https_upgraded": True,
+        "preview_payload_kind": "unknown",
+        "retry_suppressed": True,
         "last_error_code": "decode_error",
         "last_error_type": "UfanetPreviewFrameError",
     }
@@ -286,11 +287,11 @@ async def test_device_diagnostics_survives_camera_failure_and_hides_details(
     assert result["camera_fetch_error_type"] == "RuntimeError"
     assert result["archive_controller"]["last_archive_loaded"] is True
     assert result["call_coordinator"]["latest_call_present"] is True
-    assert result["last_call_image"]["last_error_type"] == (
-        "UfanetPreviewFrameError"
-    )
+    assert result["last_call_image"]["last_error_type"] == ("UfanetPreviewFrameError")
     assert result["last_call_image"]["last_error_code"] == "decode_error"
     assert result["last_call_image"]["preview_https_upgraded"] is True
+    assert result["last_call_image"]["preview_payload_kind"] == "unknown"
+    assert result["last_call_image"]["retry_suppressed"] is True
     assert "VERY-SECRET" not in serialized
     assert "secret.invalid" not in serialized
     assert "CAMERA-SECRET-123" not in serialized

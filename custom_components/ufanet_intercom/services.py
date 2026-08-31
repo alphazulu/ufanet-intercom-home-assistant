@@ -393,6 +393,8 @@ def async_setup_services(
                     "loading": False,
                     "preview_available": False,
                     "preview_https_upgraded": False,
+                    "preview_payload_kind": None,
+                    "retry_suppressed": False,
                     "success_count": 0,
                     "failure_count": 0,
                     "consecutive_failures": 0,

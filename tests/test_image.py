@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 import logging
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -16,12 +16,13 @@ from custom_components.ufanet_intercom.api import (
 )
 from custom_components.ufanet_intercom.const import DOMAIN
 from custom_components.ufanet_intercom.image import (
-    UfanetLastCallImage,
     UfanetFfmpegUnavailableError,
+    UfanetLastCallImage,
     UfanetPreviewFrameError,
     _async_extract_preview_frame,
     _preview_download_error_code,
     _preview_extract_error_code,
+    _preview_payload_kind,
     async_setup_entry,
 )
 
@@ -85,6 +86,24 @@ def test_preview_extract_failures_have_fixed_safe_codes(
     assert _preview_extract_error_code(error) == expected
 
 
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        (b"\xff\xd8jpeg", "jpeg"),
+        (b"\x89PNG\r\n\x1a\nimage", "png"),
+        (b"GIF89aimage", "gif"),
+        (b"\x1aE\xdf\xa3webm", "webm"),
+        (b"\x00\x00\x00\x18ftypisom", "mp4"),
+        (b"<!doctype html><title>not media</title>", "unknown"),
+    ],
+)
+def test_preview_payload_kind_is_fixed_and_content_free(
+    payload: bytes,
+    expected: str,
+) -> None:
+    assert _preview_payload_kind(payload) == expected
+
+
 @pytest.mark.asyncio
 async def test_setup_creates_image_only_for_intercoms_with_camera(hass) -> None:
     entry = MockConfigEntry(domain=DOMAIN, data={})
@@ -134,7 +153,7 @@ async def test_refresh_caches_only_jpeg_and_rotates_proxy_token(hass) -> None:
         "custom_components.ufanet_intercom.image._async_extract_preview_frame",
         AsyncMock(return_value=jpeg),
     ):
-        await entity._async_refresh_image(  # noqa: SLF001
+        await entity._async_refresh_image(
             event["uuid"],
             event["preview_url"],
             event["called_at"],
@@ -153,9 +172,7 @@ async def test_refresh_caches_only_jpeg_and_rotates_proxy_token(hass) -> None:
 @pytest.mark.asyncio
 async def test_refresh_upgrades_http_preview_before_download(hass) -> None:
     event = _call()
-    event["preview_url"] = (
-        "http://media.example/private-preview.mp4?token=secret"
-    )
+    event["preview_url"] = "http://media.example/private-preview.mp4?token=secret"
     call_coordinator = MagicMock()
     call_coordinator.data = {"CAM-7": event}
     api = MagicMock()
@@ -174,7 +191,7 @@ async def test_refresh_upgrades_http_preview_before_download(hass) -> None:
         "custom_components.ufanet_intercom.image._async_extract_preview_frame",
         AsyncMock(return_value=b"\xff\xd8jpeg\xff\xd9"),
     ):
-        await entity._async_refresh_image(  # noqa: SLF001
+        await entity._async_refresh_image(
             event["uuid"],
             event["preview_url"],
             event["called_at"],
@@ -208,7 +225,7 @@ async def test_refresh_discards_frame_if_latest_call_changed(hass) -> None:
         "custom_components.ufanet_intercom.image._async_extract_preview_frame",
         AsyncMock(return_value=b"\xff\xd8jpeg\xff\xd9"),
     ):
-        await entity._async_refresh_image(  # noqa: SLF001
+        await entity._async_refresh_image(
             old["uuid"],
             old["preview_url"],
             old["called_at"],
@@ -226,9 +243,7 @@ async def test_refresh_failure_logs_only_safe_exception_type(hass, caplog) -> No
     call_coordinator.data = {"CAM-7": event}
     api = MagicMock()
     api.async_get_call_preview = AsyncMock(
-        side_effect=RuntimeError(
-            "https://media.example/private.mp4?token=VERY-SECRET"
-        )
+        side_effect=RuntimeError("https://media.example/private.mp4?token=VERY-SECRET")
     )
     status_manager = MagicMock()
     entity = UfanetLastCallImage(
@@ -243,7 +258,7 @@ async def test_refresh_failure_logs_only_safe_exception_type(hass, caplog) -> No
         logging.WARNING,
         logger="custom_components.ufanet_intercom.image",
     ):
-        await entity._async_refresh_image(  # noqa: SLF001
+        await entity._async_refresh_image(
             event["uuid"],
             event["preview_url"],
             event["called_at"],
@@ -288,7 +303,7 @@ async def test_refresh_propagates_fixed_preview_reason_without_message(
         logging.WARNING,
         logger="custom_components.ufanet_intercom.image",
     ):
-        await entity._async_refresh_image(  # noqa: SLF001
+        await entity._async_refresh_image(
             event["uuid"],
             event["preview_url"],
             event["called_at"],
@@ -324,7 +339,7 @@ async def test_refresh_decode_failure_reports_fixed_safe_reason(hass) -> None:
         "custom_components.ufanet_intercom.image._async_extract_preview_frame",
         AsyncMock(side_effect=UfanetPreviewFrameError("private decoder text")),
     ):
-        await entity._async_refresh_image(  # noqa: SLF001
+        await entity._async_refresh_image(
             event["uuid"],
             event["preview_url"],
             event["called_at"],
@@ -336,6 +351,13 @@ async def test_refresh_decode_failure_reports_fixed_safe_reason(hass) -> None:
         error_code="decode_error",
         ffmpeg_available=True,
     )
+    assert entity._terminal_failure_uuid == event["uuid"]
+    status_manager.set_retry_suppressed.assert_any_call(7, True)
+
+    entity.async_write_ha_state = MagicMock()
+    entity._handle_call_update()
+    assert entity._load_task is None
+    entity.async_write_ha_state.assert_called_once_with()
 
 
 @pytest.mark.asyncio
@@ -359,6 +381,31 @@ async def test_ffmpeg_extracts_one_jpeg_from_private_stdin() -> None:
 
 
 @pytest.mark.asyncio
+async def test_ffmpeg_falls_back_to_first_frame_after_seek_failure() -> None:
+    failed = MagicMock()
+    failed.returncode = 1
+    failed.communicate = AsyncMock(return_value=(b"", b"private detail"))
+    recovered = MagicMock()
+    recovered.returncode = 0
+    recovered.communicate = AsyncMock(
+        return_value=(b"\xff\xd8first-frame\xff\xd9", b"")
+    )
+
+    with patch(
+        "custom_components.ufanet_intercom.image.asyncio.create_subprocess_exec",
+        AsyncMock(side_effect=(failed, recovered)),
+    ) as create_process:
+        result = await _async_extract_preview_frame(b"private-mp4")
+
+    assert result == b"\xff\xd8first-frame\xff\xd9"
+    assert create_process.await_count == 2
+    first_args = create_process.await_args_list[0].args
+    fallback_args = create_process.await_args_list[1].args
+    assert "-ss" in first_args
+    assert "-ss" not in fallback_args
+
+
+@pytest.mark.asyncio
 async def test_ffmpeg_failure_does_not_include_private_media_data() -> None:
     process = MagicMock()
     process.returncode = 1
@@ -366,12 +413,14 @@ async def test_ffmpeg_failure_does_not_include_private_media_data() -> None:
         return_value=(b"", b"https://media.example/video.mp4?token=secret")
     )
 
-    with patch(
-        "custom_components.ufanet_intercom.image.asyncio.create_subprocess_exec",
-        AsyncMock(return_value=process),
+    with (
+        patch(
+            "custom_components.ufanet_intercom.image.asyncio.create_subprocess_exec",
+            AsyncMock(return_value=process),
+        ),
+        pytest.raises(UfanetPreviewFrameError) as err,
     ):
-        with pytest.raises(UfanetPreviewFrameError) as err:
-            await _async_extract_preview_frame(b"private-mp4")
+        await _async_extract_preview_frame(b"private-mp4")
 
     assert "secret" not in str(err.value)
     assert "media.example" not in str(err.value)

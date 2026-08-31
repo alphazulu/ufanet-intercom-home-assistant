@@ -97,6 +97,8 @@ async def test_repeated_safe_failures_open_issue_and_recovery_closes_it(hass) ->
 
     manager.set_preview_available(7, True)
     manager.set_preview_https_upgraded(7, True)
+    manager.set_preview_payload_kind(7, "unknown")
+    manager.set_retry_suppressed(7, True)
 
     status = manager.status(7)
     serialized = json.dumps(status)
@@ -105,7 +107,10 @@ async def test_repeated_safe_failures_open_issue_and_recovery_closes_it(hass) ->
     assert status["last_error_code"] == "decode_error"
     assert status["last_error_type"] == "UfanetPreviewFrameError"
     assert status["preview_https_upgraded"] is True
+    assert status["preview_payload_kind"] == "unknown"
+    assert status["retry_suppressed"] is True
     assert manager.summary()["preview_https_upgraded_count"] == 1
+    assert manager.summary()["retry_suppressed_count"] == 1
     assert "CAMERA-SECRET" not in serialized
     assert "token" not in serialized.lower()
 
@@ -114,4 +119,5 @@ async def test_repeated_safe_failures_open_issue_and_recovery_closes_it(hass) ->
     assert registry.async_get_issue(DOMAIN, issue_id) is None
     assert manager.summary()["consecutive_failures"] == 0
     assert manager.summary()["success_count"] == 1
+    assert manager.status(7)["retry_suppressed"] is False
     assert manager.summary()["last_error_code"] is None

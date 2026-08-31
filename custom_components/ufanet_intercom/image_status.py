@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Iterable
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -24,6 +25,8 @@ class _ImageStatus:
 
     preview_available: bool = False
     preview_https_upgraded: bool = False
+    preview_payload_kind: str | None = None
+    retry_suppressed: bool = False
     ready: bool = False
     loading: bool = False
     success_count: int = 0
@@ -74,6 +77,8 @@ class UfanetLastCallImageStatusManager:
                 "loading": False,
                 "preview_available": False,
                 "preview_https_upgraded": False,
+                "preview_payload_kind": None,
+                "retry_suppressed": False,
                 "success_count": 0,
                 "failure_count": 0,
                 "consecutive_failures": 0,
@@ -90,6 +95,8 @@ class UfanetLastCallImageStatusManager:
             "loading": value.loading,
             "preview_available": value.preview_available,
             "preview_https_upgraded": value.preview_https_upgraded,
+            "preview_payload_kind": value.preview_payload_kind,
+            "retry_suppressed": value.retry_suppressed,
             "success_count": value.success_count,
             "failure_count": value.failure_count,
             "consecutive_failures": value.consecutive_failures,
@@ -118,17 +125,14 @@ class UfanetLastCallImageStatusManager:
             "camera_count": len(values),
             "ready_count": sum(value.ready for value in values),
             "loading_count": sum(value.loading for value in values),
-            "preview_available_count": sum(
-                value.preview_available for value in values
-            ),
+            "preview_available_count": sum(value.preview_available for value in values),
             "preview_https_upgraded_count": sum(
                 value.preview_https_upgraded for value in values
             ),
+            "retry_suppressed_count": sum(value.retry_suppressed for value in values),
             "success_count": sum(value.success_count for value in values),
             "failure_count": sum(value.failure_count for value in values),
-            "consecutive_failures": sum(
-                value.consecutive_failures for value in values
-            ),
+            "consecutive_failures": sum(value.consecutive_failures for value in values),
             "last_success_at": latest_success,
             "last_error_at": (
                 latest_error.last_error_at if latest_error is not None else None
@@ -150,6 +154,8 @@ class UfanetLastCallImageStatusManager:
             value.preview_available = bool(available)
             if not available:
                 value.preview_https_upgraded = False
+                value.preview_payload_kind = None
+                value.retry_suppressed = False
 
     @callback
     def set_preview_https_upgraded(self, skud_id: int, upgraded: bool) -> None:
@@ -157,6 +163,24 @@ class UfanetLastCallImageStatusManager:
         value = self._statuses.get(int(skud_id))
         if value is not None:
             value.preview_https_upgraded = bool(upgraded)
+
+    @callback
+    def set_preview_payload_kind(self, skud_id: int, kind: str | None) -> None:
+        """Record only a fixed media-signature class, never response data."""
+        value = self._statuses.get(int(skud_id))
+        if value is not None:
+            value.preview_payload_kind = (
+                kind
+                if kind in {"jpeg", "png", "gif", "webm", "mp4", "mpeg_ts", "unknown"}
+                else None
+            )
+
+    @callback
+    def set_retry_suppressed(self, skud_id: int, suppressed: bool) -> None:
+        """Record whether a permanent failure is suppressed for this call."""
+        value = self._statuses.get(int(skud_id))
+        if value is not None:
+            value.retry_suppressed = bool(suppressed)
 
     @callback
     def mark_loading(self, skud_id: int) -> None:
@@ -182,6 +206,7 @@ class UfanetLastCallImageStatusManager:
         value.loading = False
         value.success_count += 1
         value.consecutive_failures = 0
+        value.retry_suppressed = False
         value.last_success_at = _now_iso()
         value.last_error_at = None
         value.last_error_code = None

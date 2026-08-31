@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 CARD_PATH = (
     Path(__file__).resolve().parents[1]
     / "custom_components"
@@ -25,4 +24,6 @@ def test_last_call_button_uses_ha_image_proxy_not_ufanet_state_url() -> None:
     assert "invalid_url" in source
     assert "size_limit" in source
     assert "image.preview_https_upgraded" in source
+    assert "image.preview_payload_kind" in source
+    assert "image.retry_suppressed" in source
     assert "embedded_credentials" in source

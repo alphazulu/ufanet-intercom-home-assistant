@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.25.3
+
+- Added a first-decodable-frame fallback when the preferred one-second preview frame is unavailable.
+- Stopped repeating permanent validation/decoding failures for the same call every five minutes; transient download failures retain their bounded retry behavior.
+- Added token-free payload-signature and retry-suppression diagnostics so invalid HTTPS media responses can be distinguished without exposing response bodies or URLs.
+
 ## 0.25.2
 
 - Securely rewrote provider-issued HTTP call-preview URLs to HTTPS before any network request, without permitting an HTTP fallback.

@@ -1,4 +1,4 @@
-const CARD_VERSION = "0.25.2";
+const CARD_VERSION = "0.25.3";
 
 class UfanetArchiveCard extends HTMLElement {
   constructor() {
@@ -2309,6 +2309,8 @@ class UfanetArchiveCard extends HTMLElement {
       ["JPEG готов", image.ready ? "да" : "нет", image.ready ? "ok" : "warning"],
       ["Preview доступен", image.preview_available ? "да" : "нет"],
       ["HTTP → HTTPS", image.preview_https_upgraded ? "применено" : "не требовалось", image.preview_https_upgraded ? "warning" : "ok"],
+      ["Формат preview", image.preview_payload_kind],
+      ["Повтор для звонка", image.retry_suppressed ? "остановлен" : "разрешён", image.retry_suppressed ? "warning" : null],
       ["Извлечение", image.loading ? "выполняется" : "ожидание", image.loading ? "warning" : null],
       ["Успешно / ошибок", `${image.success_count ?? 0} / ${image.failure_count ?? 0}`],
       ["Ошибок подряд", image.consecutive_failures ?? 0, Number(image.consecutive_failures || 0) > 0 ? "warning" : null],

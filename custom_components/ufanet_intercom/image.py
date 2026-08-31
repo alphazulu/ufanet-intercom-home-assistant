@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 import logging
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 from homeassistant.components.image import ImageEntity
@@ -50,9 +50,7 @@ async def async_setup_entry(
     coordinator: UfanetCoordinator = runtime["coordinator"]
     call_coordinator: UfanetCallCoordinator = runtime["call_coordinator"]
     api: UfanetApi = runtime["api"]
-    status_manager: UfanetLastCallImageStatusManager = runtime[
-        "image_status_manager"
-    ]
+    status_manager: UfanetLastCallImageStatusManager = runtime["image_status_manager"]
 
     async_add_entities(
         UfanetLastCallImage(hass, call_coordinator, api, status_manager, skud)
@@ -89,6 +87,7 @@ class UfanetLastCallImage(ImageEntity):
         self._loaded_uuid: str | None = None
         self._loading_uuid: str | None = None
         self._last_attempted_uuid: str | None = None
+        self._terminal_failure_uuid: str | None = None
         self._last_attempt_at = 0.0
         self._load_task: asyncio.Task[None] | None = None
 
@@ -131,6 +130,10 @@ class UfanetLastCallImage(ImageEntity):
         if uuid == self._loaded_uuid or uuid == self._loading_uuid:
             self.async_write_ha_state()
             return
+        if uuid == self._terminal_failure_uuid:
+            self.status_manager.set_retry_suppressed(self.skud_id, True)
+            self.async_write_ha_state()
+            return
 
         now = time.monotonic()
         if (
@@ -144,6 +147,8 @@ class UfanetLastCallImage(ImageEntity):
         self._loading_uuid = uuid
         self._last_attempted_uuid = uuid
         self._last_attempt_at = now
+        self.status_manager.set_preview_payload_kind(self.skud_id, None)
+        self.status_manager.set_retry_suppressed(self.skud_id, False)
         self.status_manager.mark_loading(self.skud_id)
         self._load_task = self.hass.async_create_task(
             self._async_refresh_image(
@@ -175,11 +180,18 @@ class UfanetLastCallImage(ImageEntity):
                     upgraded,
                 )
                 preview = await self.api.async_get_call_preview(normalized_url)
+                self.status_manager.set_preview_payload_kind(
+                    self.skud_id,
+                    _preview_payload_kind(preview),
+                )
             except asyncio.CancelledError:
                 self.status_manager.mark_cancelled(self.skud_id)
                 raise
             except Exception as err:  # noqa: BLE001 - isolate optional download
                 error_code = _preview_download_error_code(err)
+                if isinstance(err, UfanetCallPreviewError):
+                    self._terminal_failure_uuid = uuid
+                    self.status_manager.set_retry_suppressed(self.skud_id, True)
                 self.status_manager.mark_failure(
                     self.skud_id,
                     type(err).__name__,
@@ -199,6 +211,12 @@ class UfanetLastCallImage(ImageEntity):
                 raise
             except Exception as err:  # noqa: BLE001 - isolate optional ffmpeg
                 error_code = _preview_extract_error_code(err)
+                if isinstance(err, UfanetPreviewFrameError) and not isinstance(
+                    err,
+                    UfanetFfmpegUnavailableError,
+                ):
+                    self._terminal_failure_uuid = uuid
+                    self.status_manager.set_retry_suppressed(self.skud_id, True)
                 self.status_manager.mark_failure(
                     self.skud_id,
                     type(err).__name__,
@@ -207,9 +225,7 @@ class UfanetLastCallImage(ImageEntity):
                         False
                         if isinstance(err, UfanetFfmpegUnavailableError)
                         else (
-                            True
-                            if isinstance(err, UfanetPreviewFrameError)
-                            else None
+                            True if isinstance(err, UfanetPreviewFrameError) else None
                         )
                     ),
                 )
@@ -227,6 +243,8 @@ class UfanetLastCallImage(ImageEntity):
 
             self._image_bytes = image
             self._loaded_uuid = uuid
+            self._terminal_failure_uuid = None
+            self.status_manager.set_retry_suppressed(self.skud_id, False)
             self._attr_image_last_updated = _call_timestamp(called_at)
             self.async_update_token()
             self.status_manager.mark_success(self.skud_id)
@@ -264,24 +282,64 @@ def _preview_extract_error_code(err: Exception) -> str:
     return "unexpected_error"
 
 
+def _preview_payload_kind(preview: bytes) -> str:
+    """Return a fixed, privacy-safe media signature classification."""
+    if preview.startswith(b"\xff\xd8"):
+        return "jpeg"
+    if preview.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if preview.startswith((b"GIF87a", b"GIF89a")):
+        return "gif"
+    if preview.startswith(b"\x1aE\xdf\xa3"):
+        return "webm"
+    if len(preview) >= 12 and preview[4:8] == b"ftyp":
+        return "mp4"
+    if (
+        len(preview) >= 377
+        and preview[0] == 0x47
+        and preview[188] == 0x47
+        and preview[376] == 0x47
+    ):
+        return "mpeg_ts"
+    return "unknown"
+
+
 async def _async_extract_preview_frame(preview: bytes) -> bytes:
-    """Extract one JPEG frame without passing a tokenized URL to ffmpeg."""
-    command = (
+    """Extract a representative JPEG, falling back to the first frame."""
+    try:
+        return await _async_run_preview_ffmpeg(preview, seek_seconds=1)
+    except UfanetFfmpegUnavailableError:
+        raise
+    except UfanetPreviewFrameError:
+        return await _async_run_preview_ffmpeg(preview, seek_seconds=None)
+
+
+async def _async_run_preview_ffmpeg(
+    preview: bytes,
+    *,
+    seek_seconds: int | None,
+) -> bytes:
+    """Run one private byte-stream extraction attempt."""
+    command = [
         "ffmpeg",
         "-hide_banner",
         "-loglevel",
         "error",
         "-i",
         "pipe:0",
-        "-ss",
-        "1",
-        "-frames:v",
-        "1",
-        "-f",
-        "image2pipe",
-        "-vcodec",
-        "mjpeg",
-        "pipe:1",
+    ]
+    if seek_seconds is not None:
+        command.extend(("-ss", str(seek_seconds)))
+    command.extend(
+        (
+            "-frames:v",
+            "1",
+            "-f",
+            "image2pipe",
+            "-vcodec",
+            "mjpeg",
+            "pipe:1",
+        )
     )
     try:
         process = await asyncio.create_subprocess_exec(
@@ -291,9 +349,7 @@ async def _async_extract_preview_frame(preview: bytes) -> bytes:
             stderr=asyncio.subprocess.PIPE,
         )
     except OSError as err:
-        raise UfanetFfmpegUnavailableError(
-            "ffmpeg executable is unavailable"
-        ) from err
+        raise UfanetFfmpegUnavailableError("ffmpeg executable is unavailable") from err
 
     try:
         stdout, _stderr = await asyncio.wait_for(
