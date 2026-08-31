@@ -154,6 +154,7 @@ async def test_runtime_status_includes_only_safe_image_health(
         "consecutive_failures": 0,
         "last_success_at": "2026-08-31T01:00:00+00:00",
         "last_error_at": None,
+        "last_error_code": None,
         "last_error_type": None,
         "repair_issue_active": False,
     }

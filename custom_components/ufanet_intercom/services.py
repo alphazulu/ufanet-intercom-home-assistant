@@ -391,6 +391,7 @@ def async_setup_services(
                     "consecutive_failures": 0,
                     "last_success_at": None,
                     "last_error_at": None,
+                    "last_error_code": None,
                     "last_error_type": None,
                     "repair_issue_active": False,
                 }

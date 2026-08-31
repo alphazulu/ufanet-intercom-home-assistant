@@ -21,3 +21,6 @@ def test_last_call_button_uses_ha_image_proxy_not_ufanet_state_url() -> None:
     assert "attrs.preview_url" not in source
     assert "attributes?.preview_url" not in source
     assert "previewButton.dataset.url" not in source
+    assert "image.last_error_code" in source
+    assert "invalid_url" in source
+    assert "size_limit" in source

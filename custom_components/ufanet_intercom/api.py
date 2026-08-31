@@ -57,6 +57,14 @@ class UfanetResponseError(UfanetApiError):
     """The service returned an unexpected response."""
 
 
+class UfanetCallPreviewError(UfanetResponseError):
+    """A call preview failed a privacy-safe validation or size check."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 def _jwt_exp(token: str | None) -> int | None:
     """Read exp from a JWT without validating its signature.
 
@@ -280,13 +288,22 @@ class UfanetApi:
             or parsed.username is not None
             or parsed.password is not None
         ):
-            raise UfanetResponseError("Call preview must use an absolute HTTPS URL")
+            raise UfanetCallPreviewError(
+                "invalid_url",
+                "Call preview must use an absolute HTTPS URL",
+            )
 
         body = await self._request_bytes(preview_url)
         if not body:
-            raise UfanetResponseError("Call preview is empty")
+            raise UfanetCallPreviewError(
+                "empty_preview",
+                "Call preview is empty",
+            )
         if len(body) > CALL_PREVIEW_MAX_BYTES:
-            raise UfanetResponseError("Call preview exceeds the in-memory size limit")
+            raise UfanetCallPreviewError(
+                "size_limit",
+                "Call preview exceeds the in-memory size limit",
+            )
         return body
 
     async def async_register_fcm_device(

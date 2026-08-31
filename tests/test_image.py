@@ -9,11 +9,19 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.ufanet_intercom.api import (
+    UfanetAuthError,
+    UfanetCallPreviewError,
+    UfanetConnectionError,
+)
 from custom_components.ufanet_intercom.const import DOMAIN
 from custom_components.ufanet_intercom.image import (
     UfanetLastCallImage,
+    UfanetFfmpegUnavailableError,
     UfanetPreviewFrameError,
     _async_extract_preview_frame,
+    _preview_download_error_code,
+    _preview_extract_error_code,
     async_setup_entry,
 )
 
@@ -45,6 +53,36 @@ def _call(uuid: str = "call-1") -> dict:
         "called_at": "2026-08-31T11:22:33+10:00",
         "preview_url": "https://media.example/private-preview.mp4?token=secret",
     }
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (UfanetAuthError("private auth detail"), "download_error"),
+        (UfanetConnectionError("private network detail"), "download_error"),
+        (RuntimeError("private unexpected detail"), "unexpected_error"),
+    ],
+)
+def test_preview_download_failures_have_fixed_safe_codes(
+    error: Exception,
+    expected: str,
+) -> None:
+    assert _preview_download_error_code(error) == expected
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (UfanetFfmpegUnavailableError("private path"), "ffmpeg_unavailable"),
+        (UfanetPreviewFrameError("private decoder detail"), "decode_error"),
+        (RuntimeError("private unexpected detail"), "unexpected_error"),
+    ],
+)
+def test_preview_extract_failures_have_fixed_safe_codes(
+    error: Exception,
+    expected: str,
+) -> None:
+    assert _preview_extract_error_code(error) == expected
 
 
 @pytest.mark.asyncio
@@ -177,7 +215,90 @@ async def test_refresh_failure_logs_only_safe_exception_type(hass, caplog) -> No
     assert "RuntimeError" in caplog.text
     assert "VERY-SECRET" not in caplog.text
     assert "media.example" not in caplog.text
-    status_manager.mark_failure.assert_called_once_with(7, "RuntimeError")
+    assert "reason=unexpected_error" in caplog.text
+    status_manager.mark_failure.assert_called_once_with(
+        7,
+        "RuntimeError",
+        error_code="unexpected_error",
+    )
+
+
+@pytest.mark.asyncio
+async def test_refresh_propagates_fixed_preview_reason_without_message(
+    hass,
+    caplog,
+) -> None:
+    event = _call()
+    call_coordinator = MagicMock()
+    call_coordinator.data = {"CAM-7": event}
+    api = MagicMock()
+    api.async_get_call_preview = AsyncMock(
+        side_effect=UfanetCallPreviewError(
+            "invalid_url",
+            "https://media.example/private.mp4?token=VERY-SECRET",
+        )
+    )
+    status_manager = MagicMock()
+    entity = UfanetLastCallImage(
+        hass,
+        call_coordinator,
+        api,
+        status_manager,
+        _skud(),
+    )
+
+    with caplog.at_level(
+        logging.WARNING,
+        logger="custom_components.ufanet_intercom.image",
+    ):
+        await entity._async_refresh_image(  # noqa: SLF001
+            event["uuid"],
+            event["preview_url"],
+            event["called_at"],
+        )
+
+    assert "reason=invalid_url" in caplog.text
+    assert "VERY-SECRET" not in caplog.text
+    assert "media.example" not in caplog.text
+    status_manager.mark_failure.assert_called_once_with(
+        7,
+        "UfanetCallPreviewError",
+        error_code="invalid_url",
+    )
+
+
+@pytest.mark.asyncio
+async def test_refresh_decode_failure_reports_fixed_safe_reason(hass) -> None:
+    event = _call()
+    call_coordinator = MagicMock()
+    call_coordinator.data = {"CAM-7": event}
+    api = MagicMock()
+    api.async_get_call_preview = AsyncMock(return_value=b"private-mp4")
+    status_manager = MagicMock()
+    entity = UfanetLastCallImage(
+        hass,
+        call_coordinator,
+        api,
+        status_manager,
+        _skud(),
+    )
+
+    with patch(
+        "custom_components.ufanet_intercom.image._async_extract_preview_frame",
+        AsyncMock(side_effect=UfanetPreviewFrameError("private decoder text")),
+    ):
+        await entity._async_refresh_image(  # noqa: SLF001
+            event["uuid"],
+            event["preview_url"],
+            event["called_at"],
+        )
+
+    status_manager.mark_failure.assert_called_once_with(
+        7,
+        "UfanetPreviewFrameError",
+        error_code="decode_error",
+        ffmpeg_available=True,
+    )
 
 
 @pytest.mark.asyncio

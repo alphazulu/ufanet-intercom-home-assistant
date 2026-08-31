@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.25.1
+
+- Added fixed privacy-safe `last_error_code` diagnostics for last-call image failures: `invalid_url`, `empty_preview`, `size_limit`, `download_error`, `decode_error`, `ffmpeg_unavailable` or `unexpected_error`.
+- Displayed the human-readable failure reason separately from the exception type in the custom card, without logging or exposing the tokenized preview URL.
+- Kept the strict absolute-HTTPS requirement unchanged so diagnostic improvements cannot weaken media-token transport security.
+
 ## 0.25.0
 
 - Removed tokenized Ufanet `preview_url` and `archive_url` values from the Last call sensor state and `ufanet_intercom_call` event; capability-only `has_preview` and `has_archive` flags remain.

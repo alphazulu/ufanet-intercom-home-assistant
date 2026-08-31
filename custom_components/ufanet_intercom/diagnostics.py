@@ -108,6 +108,7 @@ def _last_call_image_summary(runtime: dict[str, Any]) -> dict[str, Any]:
         "consecutive_failures": 0,
         "last_success_at": None,
         "last_error_at": None,
+        "last_error_code": None,
         "last_error_type": None,
         "repair_issue_active": False,
     }
@@ -132,6 +133,7 @@ def _last_call_image_state(
         "consecutive_failures": 0,
         "last_success_at": None,
         "last_error_at": None,
+        "last_error_code": None,
         "last_error_type": None,
         "repair_issue_active": False,
     }

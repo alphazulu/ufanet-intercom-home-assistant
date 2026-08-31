@@ -12,7 +12,7 @@
     },
     "last_call_image_unavailable": {
       "title": "Last call image unavailable",
-      "description": "Last-call JPEG generation for {entry_title} is unavailable. Check that ffmpeg is installed and executable in the Home Assistant runtime, then inspect the integration diagnostics and log for the safe error type. Existing call detection, archive playback and door control continue to work. The issue closes automatically after a successful image extraction."
+      "description": "Last-call JPEG generation for {entry_title} is unavailable. Check that ffmpeg is installed and executable in the Home Assistant runtime, then inspect the integration diagnostics for the privacy-safe reason code and exception type. Existing call detection, archive playback and door control continue to work. The issue closes automatically after a successful image extraction."
     }
   },
   "config": {

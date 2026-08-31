@@ -91,6 +91,7 @@ async def test_repeated_safe_failures_open_issue_and_recovery_closes_it(hass) ->
         manager.mark_failure(
             7,
             "UfanetPreviewFrameError",
+            error_code="decode_error",
             ffmpeg_available=True,
         )
 
@@ -98,6 +99,7 @@ async def test_repeated_safe_failures_open_issue_and_recovery_closes_it(hass) ->
     serialized = json.dumps(status)
     assert registry.async_get_issue(DOMAIN, issue_id) is not None
     assert status["consecutive_failures"] == IMAGE_FAILURES_BEFORE_REPAIR
+    assert status["last_error_code"] == "decode_error"
     assert status["last_error_type"] == "UfanetPreviewFrameError"
     assert "CAMERA-SECRET" not in serialized
     assert "token" not in serialized.lower()
@@ -107,3 +109,4 @@ async def test_repeated_safe_failures_open_issue_and_recovery_closes_it(hass) ->
     assert registry.async_get_issue(DOMAIN, issue_id) is None
     assert manager.summary()["consecutive_failures"] == 0
     assert manager.summary()["success_count"] == 1
+    assert manager.summary()["last_error_code"] is None

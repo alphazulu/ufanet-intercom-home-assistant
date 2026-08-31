@@ -1,4 +1,4 @@
-const CARD_VERSION = "0.25.0";
+const CARD_VERSION = "0.25.1";
 
 class UfanetArchiveCard extends HTMLElement {
   constructor() {
@@ -2186,6 +2186,19 @@ class UfanetArchiveCard extends HTMLElement {
     host.appendChild(section);
   }
 
+  _imageErrorReason(code) {
+    const reasons = {
+      invalid_url: "preview URL не прошёл HTTPS-проверку",
+      empty_preview: "получен пустой preview",
+      size_limit: "preview превышает 32 МиБ",
+      download_error: "ошибка загрузки preview",
+      decode_error: "ffmpeg не смог извлечь JPEG",
+      ffmpeg_unavailable: "ffmpeg недоступен",
+      unexpected_error: "непредвиденная ошибка",
+    };
+    return reasons[code] || code || null;
+  }
+
   _renderRuntimeStatus() {
     const host = this.shadowRoot.getElementById("diagnostics-content");
     if (!host) return;
@@ -2296,7 +2309,8 @@ class UfanetArchiveCard extends HTMLElement {
       ["Успешно / ошибок", `${image.success_count ?? 0} / ${image.failure_count ?? 0}`],
       ["Ошибок подряд", image.consecutive_failures ?? 0, Number(image.consecutive_failures || 0) > 0 ? "warning" : null],
       ["Последний JPEG", image.last_success_at],
-      ["Последняя ошибка", image.last_error_type, image.last_error_type ? "error" : null],
+      ["Причина ошибки", this._imageErrorReason(image.last_error_code), image.last_error_code ? "error" : null],
+      ["Тип исключения", image.last_error_type, image.last_error_type ? "error" : null],
       ["Repairs warning", image.repair_issue_active ? "активен" : "нет", image.repair_issue_active ? "error" : "ok"],
     ]);
 

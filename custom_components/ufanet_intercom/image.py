@@ -13,7 +13,12 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .api import UfanetApi
+from .api import (
+    UfanetApi,
+    UfanetAuthError,
+    UfanetCallPreviewError,
+    UfanetConnectionError,
+)
 from .const import DOMAIN
 from .coordinator import UfanetCallCoordinator, UfanetCoordinator
 from .entity import device_info
@@ -164,13 +169,16 @@ class UfanetLastCallImage(ImageEntity):
                 self.status_manager.mark_cancelled(self.skud_id)
                 raise
             except Exception as err:  # noqa: BLE001 - isolate optional download
+                error_code = _preview_download_error_code(err)
                 self.status_manager.mark_failure(
                     self.skud_id,
                     type(err).__name__,
+                    error_code=error_code,
                 )
                 _LOGGER.warning(
-                    "Unable to generate Ufanet last-call image (%s)",
+                    "Unable to generate Ufanet last-call image (%s, reason=%s)",
                     type(err).__name__,
+                    error_code,
                 )
                 return
 
@@ -180,9 +188,11 @@ class UfanetLastCallImage(ImageEntity):
                 self.status_manager.mark_cancelled(self.skud_id)
                 raise
             except Exception as err:  # noqa: BLE001 - isolate optional ffmpeg
+                error_code = _preview_extract_error_code(err)
                 self.status_manager.mark_failure(
                     self.skud_id,
                     type(err).__name__,
+                    error_code=error_code,
                     ffmpeg_available=(
                         False
                         if isinstance(err, UfanetFfmpegUnavailableError)
@@ -194,8 +204,9 @@ class UfanetLastCallImage(ImageEntity):
                     ),
                 )
                 _LOGGER.warning(
-                    "Unable to generate Ufanet last-call image (%s)",
+                    "Unable to generate Ufanet last-call image (%s, reason=%s)",
                     type(err).__name__,
+                    error_code,
                 )
                 return
 
@@ -223,6 +234,24 @@ class UfanetLastCallImage(ImageEntity):
             self._load_task.cancel()
             self._load_task = None
         self.status_manager.mark_cancelled(self.skud_id)
+
+
+def _preview_download_error_code(err: Exception) -> str:
+    """Map preview download failures to a fixed, credential-free reason code."""
+    if isinstance(err, UfanetCallPreviewError):
+        return err.code
+    if isinstance(err, (UfanetAuthError, UfanetConnectionError)):
+        return "download_error"
+    return "unexpected_error"
+
+
+def _preview_extract_error_code(err: Exception) -> str:
+    """Map local extraction failures to a fixed, credential-free reason code."""
+    if isinstance(err, UfanetFfmpegUnavailableError):
+        return "ffmpeg_unavailable"
+    if isinstance(err, UfanetPreviewFrameError):
+        return "decode_error"
+    return "unexpected_error"
 
 
 async def _async_extract_preview_frame(preview: bytes) -> bytes:

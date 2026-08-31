@@ -12,6 +12,7 @@ import pytest
 from custom_components.ufanet_intercom.api import (
     UfanetApi,
     UfanetAuthError,
+    UfanetCallPreviewError,
     UfanetConnectionError,
     UfanetResponseError,
     _response_message,
@@ -258,17 +259,26 @@ async def test_call_preview_download_requires_https_and_limits_size(
         "https://user:password@media.example/preview.mp4",
         "/relative/preview.mp4",
     ):
-        with pytest.raises(UfanetResponseError, match="HTTPS URL"):
+        with pytest.raises(UfanetCallPreviewError, match="HTTPS URL") as err:
             await api.async_get_call_preview(invalid)
+        assert err.value.code == "invalid_url"
+
+    api._request_bytes = AsyncMock(return_value=b"")  # type: ignore[method-assign]
+    with pytest.raises(UfanetCallPreviewError, match="empty") as err:
+        await api.async_get_call_preview("https://media.example/preview.mp4")
+    assert err.value.code == "empty_preview"
+
+    api._request_bytes = AsyncMock(return_value=b"mp4")  # type: ignore[method-assign]
 
     with (
         patch(
             "custom_components.ufanet_intercom.api.CALL_PREVIEW_MAX_BYTES",
             2,
         ),
-        pytest.raises(UfanetResponseError, match="size limit"),
+        pytest.raises(UfanetCallPreviewError, match="size limit") as err,
     ):
         await api.async_get_call_preview("https://media.example/preview.mp4")
+    assert err.value.code == "size_limit"
 
 
 @pytest.mark.asyncio

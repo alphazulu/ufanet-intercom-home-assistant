@@ -30,6 +30,7 @@ class _ImageStatus:
     consecutive_failures: int = 0
     last_success_at: str | None = None
     last_error_at: str | None = None
+    last_error_code: str | None = None
     last_error_type: str | None = None
 
 
@@ -76,6 +77,7 @@ class UfanetLastCallImageStatusManager:
                 "consecutive_failures": 0,
                 "last_success_at": None,
                 "last_error_at": None,
+                "last_error_code": None,
                 "last_error_type": None,
                 "repair_issue_active": self._issue_active,
             }
@@ -90,6 +92,7 @@ class UfanetLastCallImageStatusManager:
             "consecutive_failures": value.consecutive_failures,
             "last_success_at": value.last_success_at,
             "last_error_at": value.last_error_at,
+            "last_error_code": value.last_error_code,
             "last_error_type": value.last_error_type,
             "repair_issue_active": self._issue_active,
         }
@@ -123,6 +126,9 @@ class UfanetLastCallImageStatusManager:
             "last_success_at": latest_success,
             "last_error_at": (
                 latest_error.last_error_at if latest_error is not None else None
+            ),
+            "last_error_code": (
+                latest_error.last_error_code if latest_error is not None else None
             ),
             "last_error_type": (
                 latest_error.last_error_type if latest_error is not None else None
@@ -163,6 +169,7 @@ class UfanetLastCallImageStatusManager:
         value.consecutive_failures = 0
         value.last_success_at = _now_iso()
         value.last_error_at = None
+        value.last_error_code = None
         value.last_error_type = None
         self.ffmpeg_available = True
         self._update_repair_issue()
@@ -173,9 +180,10 @@ class UfanetLastCallImageStatusManager:
         skud_id: int,
         error_type: str,
         *,
+        error_code: str,
         ffmpeg_available: bool | None = None,
     ) -> None:
-        """Record only the exception type, never its potentially private text."""
+        """Record a fixed reason code and type, never potentially private text."""
         value = self._statuses.get(int(skud_id))
         if value is None:
             return
@@ -183,6 +191,7 @@ class UfanetLastCallImageStatusManager:
         value.failure_count += 1
         value.consecutive_failures += 1
         value.last_error_at = _now_iso()
+        value.last_error_code = str(error_code)
         value.last_error_type = str(error_type)
         if ffmpeg_available is not None:
             self.ffmpeg_available = ffmpeg_available

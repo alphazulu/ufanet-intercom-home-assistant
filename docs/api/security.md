@@ -50,7 +50,7 @@ Recommended redaction rules:
 
 The Home Assistant integration follows these principles in downloadable diagnostics.
 
-At runtime, tokenized call-media URLs stay inside the coordinator. Entity state and the `ufanet_intercom_call` event publish capability flags only. An authenticated response service may return a short-lived URL when a user explicitly requests archive playback; consumers should keep that response in memory and must not copy it into persistent entity attributes or logs.
+At runtime, tokenized call-media URLs stay inside the coordinator. Entity state and the `ufanet_intercom_call` event publish capability flags only. An authenticated response service may return a short-lived URL when a user explicitly requests archive playback; consumers should keep that response in memory and must not copy it into persistent entity attributes or logs. Last-call image diagnostics expose only fixed reason codes (`invalid_url`, `empty_preview`, `size_limit`, `download_error`, `decode_error`, `ffmpeg_unavailable` or `unexpected_error`) and exception class names, never response bodies, exception messages or media identifiers.
 
 ## API documentation examples
 
