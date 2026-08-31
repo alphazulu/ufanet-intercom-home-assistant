@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.25.2
+
+- Securely rewrote provider-issued HTTP call-preview URLs to HTTPS before any network request, without permitting an HTTP fallback.
+- Reused the same HTTPS-only normalizer for explicit Preview-video responses and blocked automatic redirects while the integration downloads private preview bytes.
+- Added a token-free `preview_https_upgraded` diagnostic plus distinct `unsupported_scheme`, `missing_host` and `embedded_credentials` failure codes.
+
 ## 0.25.1
 
 - Added fixed privacy-safe `last_error_code` diagnostics for last-call image failures: `invalid_url`, `empty_preview`, `size_limit`, `download_error`, `decode_error`, `ffmpeg_unavailable` or `unexpected_error`.

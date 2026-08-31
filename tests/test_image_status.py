@@ -95,12 +95,17 @@ async def test_repeated_safe_failures_open_issue_and_recovery_closes_it(hass) ->
             ffmpeg_available=True,
         )
 
+    manager.set_preview_available(7, True)
+    manager.set_preview_https_upgraded(7, True)
+
     status = manager.status(7)
     serialized = json.dumps(status)
     assert registry.async_get_issue(DOMAIN, issue_id) is not None
     assert status["consecutive_failures"] == IMAGE_FAILURES_BEFORE_REPAIR
     assert status["last_error_code"] == "decode_error"
     assert status["last_error_type"] == "UfanetPreviewFrameError"
+    assert status["preview_https_upgraded"] is True
+    assert manager.summary()["preview_https_upgraded_count"] == 1
     assert "CAMERA-SECRET" not in serialized
     assert "token" not in serialized.lower()
 

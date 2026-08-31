@@ -198,7 +198,7 @@ get_call_events:
 
 get_last_call_preview_url:
   name: Get last call preview URL
-  description: Return a fresh temporary Ufanet preview URL after an explicit authenticated request. Do not persist or log the response.
+  description: Return a fresh temporary HTTPS-only Ufanet preview URL after an explicit authenticated request. Provider-issued HTTP URLs are upgraded locally; no HTTP fallback is allowed. Do not persist or log the response.
   fields:
     device_id:
       name: Intercom

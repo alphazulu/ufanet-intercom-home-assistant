@@ -149,6 +149,7 @@ async def test_runtime_status_includes_only_safe_image_health(
         "ready": True,
         "loading": False,
         "preview_available": True,
+        "preview_https_upgraded": True,
         "success_count": 1,
         "failure_count": 0,
         "consecutive_failures": 0,
@@ -172,6 +173,7 @@ async def test_runtime_status_includes_only_safe_image_health(
 
     assert result["last_call_image"]["ready"] is True
     assert result["last_call_image"]["ffmpeg_available"] is True
+    assert result["last_call_image"]["preview_https_upgraded"] is True
     assert "preview_url" not in serialized
     assert "archive_url" not in serialized
     assert "token=" not in serialized
@@ -184,7 +186,7 @@ async def test_preview_url_is_returned_only_by_explicit_response_service(
     tmp_path: Path,
 ) -> None:
     device, api = _install_runtime(hass, tmp_path)
-    preview_url = "https://media.invalid/call.mp4?token=EXPLICIT-SECRET"
+    preview_url = "http://media.invalid/call.mp4?token=EXPLICIT-SECRET"
     api.async_get_call_media = AsyncMock(return_value={"preview": preview_url})
     runtime = next(iter(hass.data[DOMAIN].values()))
     runtime["call_coordinator"] = SimpleNamespace(
@@ -204,7 +206,8 @@ async def test_preview_url_is_returned_only_by_explicit_response_service(
         return_response=True,
     )
 
-    assert result["url"] == preview_url
+    assert result["url"] == preview_url.replace("http://", "https://", 1)
+    assert result["https_upgraded"] is True
     assert result["called_at"] == "2026-08-31T11:22:33+10:00"
     api.async_get_call_media.assert_awaited_once_with("call-1")
 
@@ -236,6 +239,37 @@ async def test_preview_service_does_not_expose_private_api_error_text(
 
     message = str(err.value)
     assert "PRIVATE-ERROR-TOKEN" not in message
+    assert "media.invalid" not in message
+
+
+@pytest.mark.asyncio
+async def test_preview_service_returns_only_safe_url_validation_code(
+    hass,
+    tmp_path: Path,
+) -> None:
+    device, api = _install_runtime(hass, tmp_path)
+    api.async_get_call_media = AsyncMock(
+        return_value={
+            "preview": "ftp://media.invalid/call.mp4?token=PRIVATE-URL-TOKEN"
+        }
+    )
+    runtime = next(iter(hass.data[DOMAIN].values()))
+    runtime["call_coordinator"] = SimpleNamespace(
+        data={"CAM/1": {"uuid": "call-1"}}
+    )
+
+    with pytest.raises(ServiceValidationError) as err:
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_GET_LAST_CALL_PREVIEW_URL,
+            {"device_id": device.id},
+            blocking=True,
+            return_response=True,
+        )
+
+    message = str(err.value)
+    assert "unsupported_scheme" in message
+    assert "PRIVATE-URL-TOKEN" not in message
     assert "media.invalid" not in message
 
 

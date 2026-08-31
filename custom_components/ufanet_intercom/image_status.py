@@ -23,6 +23,7 @@ class _ImageStatus:
     """Mutable status for one intercom image without media identifiers."""
 
     preview_available: bool = False
+    preview_https_upgraded: bool = False
     ready: bool = False
     loading: bool = False
     success_count: int = 0
@@ -72,6 +73,7 @@ class UfanetLastCallImageStatusManager:
                 "ready": False,
                 "loading": False,
                 "preview_available": False,
+                "preview_https_upgraded": False,
                 "success_count": 0,
                 "failure_count": 0,
                 "consecutive_failures": 0,
@@ -87,6 +89,7 @@ class UfanetLastCallImageStatusManager:
             "ready": value.ready,
             "loading": value.loading,
             "preview_available": value.preview_available,
+            "preview_https_upgraded": value.preview_https_upgraded,
             "success_count": value.success_count,
             "failure_count": value.failure_count,
             "consecutive_failures": value.consecutive_failures,
@@ -118,6 +121,9 @@ class UfanetLastCallImageStatusManager:
             "preview_available_count": sum(
                 value.preview_available for value in values
             ),
+            "preview_https_upgraded_count": sum(
+                value.preview_https_upgraded for value in values
+            ),
             "success_count": sum(value.success_count for value in values),
             "failure_count": sum(value.failure_count for value in values),
             "consecutive_failures": sum(
@@ -142,6 +148,15 @@ class UfanetLastCallImageStatusManager:
         value = self._statuses.get(int(skud_id))
         if value is not None:
             value.preview_available = bool(available)
+            if not available:
+                value.preview_https_upgraded = False
+
+    @callback
+    def set_preview_https_upgraded(self, skud_id: int, upgraded: bool) -> None:
+        """Record only whether an HTTP URL was rewritten before any request."""
+        value = self._statuses.get(int(skud_id))
+        if value is not None:
+            value.preview_https_upgraded = bool(upgraded)
 
     @callback
     def mark_loading(self, skud_id: int) -> None:

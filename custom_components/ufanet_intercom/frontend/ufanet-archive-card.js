@@ -1,4 +1,4 @@
-const CARD_VERSION = "0.25.1";
+const CARD_VERSION = "0.25.2";
 
 class UfanetArchiveCard extends HTMLElement {
   constructor() {
@@ -2189,6 +2189,9 @@ class UfanetArchiveCard extends HTMLElement {
   _imageErrorReason(code) {
     const reasons = {
       invalid_url: "preview URL не прошёл HTTPS-проверку",
+      unsupported_scheme: "неподдерживаемая схема preview URL",
+      missing_host: "в preview URL отсутствует hostname",
+      embedded_credentials: "preview URL содержит встроенные credentials",
       empty_preview: "получен пустой preview",
       size_limit: "preview превышает 32 МиБ",
       download_error: "ошибка загрузки preview",
@@ -2305,6 +2308,7 @@ class UfanetArchiveCard extends HTMLElement {
       ],
       ["JPEG готов", image.ready ? "да" : "нет", image.ready ? "ok" : "warning"],
       ["Preview доступен", image.preview_available ? "да" : "нет"],
+      ["HTTP → HTTPS", image.preview_https_upgraded ? "применено" : "не требовалось", image.preview_https_upgraded ? "warning" : "ok"],
       ["Извлечение", image.loading ? "выполняется" : "ожидание", image.loading ? "warning" : null],
       ["Успешно / ошибок", `${image.success_count ?? 0} / ${image.failure_count ?? 0}`],
       ["Ошибок подряд", image.consecutive_failures ?? 0, Number(image.consecutive_failures || 0) > 0 ? "warning" : null],

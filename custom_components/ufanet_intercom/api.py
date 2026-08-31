@@ -12,7 +12,7 @@ import base64
 import json
 import time
 from typing import Any
-from urllib.parse import quote, urlencode, urlsplit
+from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 
 from aiohttp import ClientError, ClientResponse, ClientSession
 
@@ -63,6 +63,41 @@ class UfanetCallPreviewError(UfanetResponseError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+def normalize_call_preview_url(preview_url: str) -> tuple[str, bool]:
+    """Return an HTTPS-only preview URL and whether HTTP was upgraded locally."""
+    try:
+        parsed = urlsplit(preview_url)
+        hostname = parsed.hostname
+        username = parsed.username
+        password = parsed.password
+        _port = parsed.port  # Validate a present port.
+    except (TypeError, ValueError) as err:
+        raise UfanetCallPreviewError(
+            "invalid_url",
+            "Call preview URL is malformed",
+        ) from err
+
+    if username is not None or password is not None:
+        raise UfanetCallPreviewError(
+            "embedded_credentials",
+            "Call preview URL must not contain embedded credentials",
+        )
+    if not hostname:
+        raise UfanetCallPreviewError(
+            "missing_host",
+            "Call preview URL has no hostname",
+        )
+
+    if parsed.scheme == "https":
+        return urlunsplit(parsed), False
+    if parsed.scheme == "http":
+        return urlunsplit(parsed._replace(scheme="https")), True
+    raise UfanetCallPreviewError(
+        "unsupported_scheme",
+        "Call preview URL uses an unsupported scheme",
+    )
 
 
 def _jwt_exp(token: str | None) -> int | None:
@@ -281,19 +316,11 @@ class UfanetApi:
 
     async def async_get_call_preview(self, preview_url: str) -> bytes:
         """Download one tokenized call-preview video without exposing its URL."""
-        parsed = urlsplit(preview_url)
-        if (
-            parsed.scheme != "https"
-            or not parsed.hostname
-            or parsed.username is not None
-            or parsed.password is not None
-        ):
-            raise UfanetCallPreviewError(
-                "invalid_url",
-                "Call preview must use an absolute HTTPS URL",
-            )
-
-        body = await self._request_bytes(preview_url)
+        normalized_url, _upgraded = normalize_call_preview_url(preview_url)
+        body = await self._request_bytes(
+            normalized_url,
+            allow_redirects=False,
+        )
         if not body:
             raise UfanetCallPreviewError(
                 "empty_preview",
@@ -758,15 +785,27 @@ class UfanetApi:
         except json.JSONDecodeError as err:
             raise UfanetResponseError(f"Invalid JSON response from {url}") from err
 
-    async def _request_bytes(self, url: str, *, params: dict[str, Any] | None = None) -> bytes:
+    async def _request_bytes(
+        self,
+        url: str,
+        *,
+        params: dict[str, Any] | None = None,
+        allow_redirects: bool = True,
+    ) -> bytes:
         response: ClientResponse | None = None
         try:
             async with asyncio.timeout(30):
-                response = await self._session.get(url, params=params)
+                response = await self._session.get(
+                    url,
+                    params=params,
+                    allow_redirects=allow_redirects,
+                )
                 body = await response.read()
         except (TimeoutError, ClientError) as err:
             raise UfanetConnectionError(str(err)) from err
 
+        if 300 <= response.status < 400:
+            raise UfanetConnectionError("HTTP redirect blocked while fetching media")
         if response.status in (401, 403):
             raise UfanetAuthError(f"HTTP {response.status}")
         if response.status >= 400:

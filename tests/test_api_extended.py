@@ -16,6 +16,7 @@ from custom_components.ufanet_intercom.api import (
     UfanetConnectionError,
     UfanetResponseError,
     _response_message,
+    normalize_call_preview_url,
 )
 
 
@@ -244,7 +245,7 @@ async def test_snapshot_uses_small_suffix(api: UfanetApi) -> None:
 
 
 @pytest.mark.asyncio
-async def test_call_preview_download_requires_https_and_limits_size(
+async def test_call_preview_download_upgrades_http_and_limits_size(
     api: UfanetApi,
 ) -> None:
     api._request_bytes = AsyncMock(return_value=b"mp4")  # type: ignore[method-assign]
@@ -252,16 +253,19 @@ async def test_call_preview_download_requires_https_and_limits_size(
     assert await api.async_get_call_preview(
         "https://media.example/preview.mp4?token=private"
     ) == b"mp4"
-    api._request_bytes.assert_awaited_once()  # type: ignore[attr-defined]
+    api._request_bytes.assert_awaited_once_with(  # type: ignore[attr-defined]
+        "https://media.example/preview.mp4?token=private",
+        allow_redirects=False,
+    )
 
-    for invalid in (
-        "http://media.example/preview.mp4",
-        "https://user:password@media.example/preview.mp4",
-        "/relative/preview.mp4",
-    ):
-        with pytest.raises(UfanetCallPreviewError, match="HTTPS URL") as err:
-            await api.async_get_call_preview(invalid)
-        assert err.value.code == "invalid_url"
+    api._request_bytes.reset_mock()  # type: ignore[attr-defined]
+    assert await api.async_get_call_preview(
+        "http://media.example/preview.mp4?token=private"
+    ) == b"mp4"
+    api._request_bytes.assert_awaited_once_with(  # type: ignore[attr-defined]
+        "https://media.example/preview.mp4?token=private",
+        allow_redirects=False,
+    )
 
     api._request_bytes = AsyncMock(return_value=b"")  # type: ignore[method-assign]
     with pytest.raises(UfanetCallPreviewError, match="empty") as err:
@@ -279,6 +283,36 @@ async def test_call_preview_download_requires_https_and_limits_size(
     ):
         await api.async_get_call_preview("https://media.example/preview.mp4")
     assert err.value.code == "size_limit"
+
+
+@pytest.mark.parametrize(
+    ("url", "code"),
+    [
+        ("ftp://media.example/preview.mp4", "unsupported_scheme"),
+        ("/relative/preview.mp4", "missing_host"),
+        (
+            "https://user:password@media.example/preview.mp4",
+            "embedded_credentials",
+        ),
+        ("https://[broken", "invalid_url"),
+    ],
+)
+def test_call_preview_normalizer_returns_only_fixed_safe_errors(
+    url: str,
+    code: str,
+) -> None:
+    with pytest.raises(UfanetCallPreviewError) as err:
+        normalize_call_preview_url(url)
+    assert err.value.code == code
+
+
+def test_call_preview_normalizer_reports_https_upgrade() -> None:
+    url = "http://media.example/preview.mp4?token=PRIVATE"
+    normalized, upgraded = normalize_call_preview_url(url)
+
+    assert normalized == "https://media.example/preview.mp4?token=PRIVATE"
+    assert upgraded is True
+    assert normalize_call_preview_url(normalized) == (normalized, False)
 
 
 @pytest.mark.asyncio
@@ -382,8 +416,10 @@ async def test_request_bytes_maps_statuses_and_returns_body(api: UfanetApi) -> N
     auth.read = AsyncMock(return_value=b"")
     server = MagicMock(status=500)
     server.read = AsyncMock(return_value=b"")
+    redirect = MagicMock(status=302)
+    redirect.read = AsyncMock(return_value=b"")
     session = MagicMock()
-    session.get = AsyncMock(side_effect=[ok, auth, server])
+    session.get = AsyncMock(side_effect=[ok, auth, server, redirect])
     api._session = session  # noqa: SLF001
 
     assert await api._request_bytes("https://shots.test/a") == b"jpeg"  # noqa: SLF001
@@ -391,6 +427,11 @@ async def test_request_bytes_maps_statuses_and_returns_body(api: UfanetApi) -> N
         await api._request_bytes("https://shots.test/b")  # noqa: SLF001
     with pytest.raises(UfanetConnectionError, match="500"):
         await api._request_bytes("https://shots.test/c")  # noqa: SLF001
+    with pytest.raises(UfanetConnectionError, match="redirect blocked"):
+        await api._request_bytes(  # noqa: SLF001
+            "https://media.test/private",
+            allow_redirects=False,
+        )
 
 
 @pytest.mark.asyncio

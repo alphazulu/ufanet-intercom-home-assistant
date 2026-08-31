@@ -151,6 +151,43 @@ async def test_refresh_caches_only_jpeg_and_rotates_proxy_token(hass) -> None:
 
 
 @pytest.mark.asyncio
+async def test_refresh_upgrades_http_preview_before_download(hass) -> None:
+    event = _call()
+    event["preview_url"] = (
+        "http://media.example/private-preview.mp4?token=secret"
+    )
+    call_coordinator = MagicMock()
+    call_coordinator.data = {"CAM-7": event}
+    api = MagicMock()
+    api.async_get_call_preview = AsyncMock(return_value=b"private-mp4")
+    status_manager = MagicMock()
+    entity = UfanetLastCallImage(
+        hass,
+        call_coordinator,
+        api,
+        status_manager,
+        _skud(),
+    )
+    entity.async_write_ha_state = MagicMock()
+
+    with patch(
+        "custom_components.ufanet_intercom.image._async_extract_preview_frame",
+        AsyncMock(return_value=b"\xff\xd8jpeg\xff\xd9"),
+    ):
+        await entity._async_refresh_image(  # noqa: SLF001
+            event["uuid"],
+            event["preview_url"],
+            event["called_at"],
+        )
+
+    api.async_get_call_preview.assert_awaited_once_with(
+        "https://media.example/private-preview.mp4?token=secret"
+    )
+    status_manager.set_preview_https_upgraded.assert_any_call(7, True)
+    status_manager.mark_success.assert_called_once_with(7)
+
+
+@pytest.mark.asyncio
 async def test_refresh_discards_frame_if_latest_call_changed(hass) -> None:
     old = _call("old-call")
     call_coordinator = MagicMock()

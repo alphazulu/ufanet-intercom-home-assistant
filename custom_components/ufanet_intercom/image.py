@@ -18,6 +18,7 @@ from .api import (
     UfanetAuthError,
     UfanetCallPreviewError,
     UfanetConnectionError,
+    normalize_call_preview_url,
 )
 from .const import DOMAIN
 from .coordinator import UfanetCallCoordinator, UfanetCoordinator
@@ -164,7 +165,16 @@ class UfanetLastCallImage(ImageEntity):
         current_task = asyncio.current_task()
         try:
             try:
-                preview = await self.api.async_get_call_preview(preview_url)
+                self.status_manager.set_preview_https_upgraded(
+                    self.skud_id,
+                    False,
+                )
+                normalized_url, upgraded = normalize_call_preview_url(preview_url)
+                self.status_manager.set_preview_https_upgraded(
+                    self.skud_id,
+                    upgraded,
+                )
+                preview = await self.api.async_get_call_preview(normalized_url)
             except asyncio.CancelledError:
                 self.status_manager.mark_cancelled(self.skud_id)
                 raise

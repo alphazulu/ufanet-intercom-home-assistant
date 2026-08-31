@@ -24,3 +24,5 @@ def test_last_call_button_uses_ha_image_proxy_not_ufanet_state_url() -> None:
     assert "image.last_error_code" in source
     assert "invalid_url" in source
     assert "size_limit" in source
+    assert "image.preview_https_upgraded" in source
+    assert "embedded_credentials" in source

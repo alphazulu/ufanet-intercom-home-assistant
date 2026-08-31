@@ -66,7 +66,7 @@ To install it as a HACS custom repository:
 Add the resource as a JavaScript module:
 
 ```text
-/ufanet_intercom/ufanet-archive-card.js?v=0.25.1
+/ufanet_intercom/ufanet-archive-card.js?v=0.25.2
 ```
 
 Minimal card:
@@ -103,7 +103,7 @@ Every intercom with call history has an **Incoming call** binary sensor. It turn
 
 The **Last call image** entity downloads the tokenized Ufanet preview privately, sends only its bytes to local `ffmpeg`, extracts one JPEG frame and caches that frame in memory. The source MP4 URL is never placed in image state or passed on the `ffmpeg` command line.
 
-The Last call sensor and `ufanet_intercom_call` event expose only `has_preview` / `has_archive` capability flags, never the temporary Ufanet URLs themselves. The custom card's **Call image** button opens the cached JPEG through Home Assistant's authenticated image proxy. **Preview video** requests a fresh temporary URL through an authenticated response service only after an explicit click and keeps it out of Recorder-backed state. Image diagnostics report ffmpeg availability, fixed privacy-safe reason codes, exception types and extraction counters; a Repairs warning opens after repeated failures and closes after a successful extraction.
+The Last call sensor and `ufanet_intercom_call` event expose only `has_preview` / `has_archive` capability flags, never the temporary Ufanet URLs themselves. The custom card's **Call image** button opens the cached JPEG through Home Assistant's authenticated image proxy. **Preview video** requests a fresh temporary URL through an authenticated response service only after an explicit click and keeps it out of Recorder-backed state. Provider-issued HTTP preview URLs are rewritten to HTTPS locally before any request; HTTP fallback is never allowed, and the integration's private JPEG download blocks automatic redirects. Image diagnostics report whether that upgrade occurred, ffmpeg availability, fixed privacy-safe reason codes, exception types and extraction counters; a Repairs warning opens after repeated failures and closes after a successful extraction.
 
 An optional Companion app notification blueprint is available at [incoming_call_notification.yaml](blueprints/automation/ufanet_intercom/incoming_call_notification.yaml). Import that GitHub URL in **Settings → Automations & scenes → Blueprints**, select the Ufanet intercom, its Last call image entity and the phone. It waits three seconds by default for JPEG preparation; the delay is configurable. The blueprint intentionally contains no door-opening action.
 

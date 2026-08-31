@@ -21,7 +21,13 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.util import dt as dt_util
 
-from .api import UfanetApi, UfanetApiError, UfanetResponseError
+from .api import (
+    UfanetApi,
+    UfanetApiError,
+    UfanetCallPreviewError,
+    UfanetResponseError,
+    normalize_call_preview_url,
+)
 from .guest_store import UfanetGuestInviteStore
 from .const import (
     DEFAULT_ARCHIVE_DURATION_SECONDS,
@@ -386,6 +392,7 @@ def async_setup_services(
                     "ready": False,
                     "loading": False,
                     "preview_available": False,
+                    "preview_https_upgraded": False,
                     "success_count": 0,
                     "failure_count": 0,
                     "consecutive_failures": 0,
@@ -593,28 +600,21 @@ def async_setup_services(
                 "Unable to obtain the latest call preview"
             ) from err
 
-        preview_url = media.get("preview")
-        parsed = urlparse(preview_url) if isinstance(preview_url, str) else None
         try:
-            valid_preview = bool(
-                parsed is not None
-                and parsed.scheme == "https"
-                and parsed.hostname
-                and parsed.username is None
-                and parsed.password is None
+            preview_url, https_upgraded = normalize_call_preview_url(
+                media.get("preview")
             )
-        except ValueError:
-            valid_preview = False
-        if not valid_preview:
+        except UfanetCallPreviewError as err:
             raise ServiceValidationError(
-                "The latest call does not have a valid HTTPS preview"
-            )
+                f"The latest call preview is unavailable ({err.code})"
+            ) from err
 
         return {
             "device_id": call.data[ATTR_DEVICE_ID],
             "skud_id": int(skud["id"]),
             "called_at": latest.get("called_at"),
             "url": preview_url,
+            "https_upgraded": https_upgraded,
         }
 
     async def async_get_guest_access(call: ServiceCall) -> ServiceResponse:

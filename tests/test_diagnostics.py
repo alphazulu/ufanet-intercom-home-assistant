@@ -174,6 +174,7 @@ async def test_config_entry_diagnostics_redacts_credentials_and_private_fields(h
         "ffmpeg_available": True,
         "camera_count": 1,
         "ready_count": 1,
+        "preview_https_upgraded_count": 1,
         "last_error_code": None,
         "last_error_type": None,
     }
@@ -261,6 +262,7 @@ async def test_device_diagnostics_survives_camera_failure_and_hides_details(
         "configured": True,
         "ffmpeg_available": True,
         "ready": False,
+        "preview_https_upgraded": True,
         "last_error_code": "decode_error",
         "last_error_type": "UfanetPreviewFrameError",
     }
@@ -288,6 +290,7 @@ async def test_device_diagnostics_survives_camera_failure_and_hides_details(
         "UfanetPreviewFrameError"
     )
     assert result["last_call_image"]["last_error_code"] == "decode_error"
+    assert result["last_call_image"]["preview_https_upgraded"] is True
     assert "VERY-SECRET" not in serialized
     assert "secret.invalid" not in serialized
     assert "CAMERA-SECRET-123" not in serialized
