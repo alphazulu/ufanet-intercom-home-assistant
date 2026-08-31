@@ -1,4 +1,4 @@
-const CARD_VERSION = "0.21.0";
+const CARD_VERSION = "0.22.0";
 
 class UfanetArchiveCard extends HTMLElement {
   constructor() {
@@ -2227,16 +2227,26 @@ class UfanetArchiveCard extends HTMLElement {
           fcm.ufanet_registration_succeeded ? "ok" : "error",
         ],
         [
-          "Headless listener",
+          "Задачи listener",
           fcm.listener_started ? "запущен" : "не запущен",
           fcm.listener_started ? "ok" : "error",
         ],
         [
-          "Транспорт",
-          fcm.transport_state,
-          fcm.active && fcm.transport_state === "RUNNING" ? "ok" : "warning",
+          "Headless listener",
+          fcm.listener_running ? "подключён" : "не подключён",
+          fcm.listener_running ? "ok" : "warning",
         ],
+        ["Транспорт", fcm.transport_state, fcm.active ? "ok" : "warning"],
+        [
+          "Резервный polling",
+          fcm.fallback_polling_active ? "активен" : "редкий контрольный",
+          fcm.fallback_polling_active ? "warning" : "ok",
+        ],
+        ["Watchdog", fcm.watchdog_running ? "работает" : "остановлен", fcm.watchdog_running ? "ok" : "error"],
+        ["Переподключения / ошибки", `${fcm.reconnect_count ?? 0} / ${fcm.consecutive_failures ?? 0}`],
         ["Push / SIP", `${fcm.received_push_count ?? 0} / ${fcm.received_sip_push_count ?? 0}`],
+        ["Последнее подключение", fcm.last_connected_at],
+        ["Последнее отключение", fcm.last_disconnected_at],
         ["Последний SIP push", fcm.last_sip_push_at],
         ["Последняя ошибка", fcm.last_error_type, fcm.last_error_type ? "error" : null],
       ]);

@@ -66,7 +66,7 @@ To install it as a HACS custom repository:
 Add the resource as a JavaScript module:
 
 ```text
-/ufanet_intercom/ufanet-archive-card.js?v=0.21.0
+/ufanet_intercom/ufanet-archive-card.js?v=0.22.0
 ```
 
 Minimal card:
@@ -93,7 +93,9 @@ Important options include the call update mode, polling interval, call archive l
 ### Call update modes
 
 - **`polling` (default)** reads `call-history` at the configured interval and needs no additional setup.
-- **`fcm` (experimental)** uses a local headless FCM receiver as a low-latency wake-up signal. `call-history` remains authoritative and is still polled at least every 300 seconds as a safety fallback.
+- **`fcm` (experimental)** uses a local headless FCM receiver as a low-latency wake-up signal. `call-history` remains authoritative. Normal configured polling stays active until the listener confirms its MCS connection and is restored automatically on disconnect; while FCM is healthy, a 300-second safety poll remains active.
+
+The FCM watchdog distinguishes launched listener tasks from an established transport, lets the FCM library handle short reconnects, and recreates a terminal or stalled listener with exponential backoff. A Home Assistant Repair warning appears after a prolonged outage and closes automatically after recovery. The diagnostics tab shows listener health, watchdog state, fallback polling, reconnects and connection timestamps without exposing push payloads or credentials.
 
 FCM values are not distributed by this repository. Advanced users extract them on their own computer from their own decompiled copy of the official Android app:
 

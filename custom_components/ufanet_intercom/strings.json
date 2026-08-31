@@ -5,6 +5,12 @@
       "incoming_call": "Incoming call"
     }
   },
+  "issues": {
+    "fcm_listener_unavailable": {
+      "title": "FCM listener unavailable",
+      "description": "The FCM listener for {entry_title} has been unavailable for an extended period. Normal call-history polling is active automatically, so incoming-call detection continues with polling latency. Check outbound access to mtalk.google.com:5228, the local Firebase configuration, and the Home Assistant log. The issue closes automatically after FCM reconnects."
+    }
+  },
   "config": {
     "step": {
       "user": {
@@ -101,7 +107,7 @@
         },
         "data_description": {
           "skud_scan_interval_seconds": "How often the available intercom/SKUD list is refreshed.",
-          "call_scan_interval_seconds": "call-history polling interval. In FCM mode it becomes a safety fallback of at least 300 seconds.",
+          "call_scan_interval_seconds": "call-history polling interval. In FCM mode it is used while the listener is unavailable; a healthy listener reduces polling to a 300-second safety interval.",
           "call_update_mode": "Polling requires no extra setup. Experimental FCM uses a locally extracted Firebase config for faster call detection.",
           "call_media_refresh_seconds": "How long preview/archive media URLs are cached for call history.",
           "call_lead_seconds": "Start archive playback this many seconds before a call.",

@@ -5,6 +5,12 @@
       "incoming_call": "Входящий звонок"
     }
   },
+  "issues": {
+    "fcm_listener_unavailable": {
+      "title": "FCM listener недоступен",
+      "description": "FCM listener для {entry_title} долгое время недоступен. Обычный polling истории звонков включён автоматически, поэтому обнаружение входящих звонков продолжает работать с задержкой polling. Проверьте исходящее подключение к mtalk.google.com:5228, локальный Firebase-конфиг и журнал Home Assistant. После восстановления FCM проблема закроется автоматически."
+    }
+  },
   "config": {
     "step": {
       "user": {
@@ -101,7 +107,7 @@
         },
         "data_description": {
           "skud_scan_interval_seconds": "Как часто перечитывать доступные SKUD/домофоны.",
-          "call_scan_interval_seconds": "Интервал polling call-history. В режиме FCM становится резервным опросом не чаще одного раза в 300 секунд.",
+          "call_scan_interval_seconds": "Интервал polling call-history. В режиме FCM используется, пока listener недоступен; при исправном listener остаётся контрольный опрос раз в 300 секунд.",
           "call_update_mode": "Polling не требует дополнительной настройки. Экспериментальный FCM использует локально извлечённый Firebase-конфиг для более быстрого обнаружения звонка.",
           "call_media_refresh_seconds": "Через сколько обновлять preview/archive URL для истории звонков.",
           "call_lead_seconds": "При переходе к звонку начать запись на указанное число секунд раньше.",

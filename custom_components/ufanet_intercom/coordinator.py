@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import logging
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -75,6 +75,17 @@ class UfanetCallCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             name=f"{DOMAIN}_calls",
             update_interval=timedelta(seconds=self.scan_interval_seconds),
         )
+
+    @callback
+    def async_set_scan_interval(self, scan_interval_seconds: int) -> None:
+        """Change call polling interval and reschedule an active coordinator."""
+        scan_interval_seconds = int(scan_interval_seconds)
+        if scan_interval_seconds == self.scan_interval_seconds:
+            return
+        self.scan_interval_seconds = scan_interval_seconds
+        self.update_interval = timedelta(seconds=scan_interval_seconds)
+        if self._listeners:
+            self._schedule_refresh()
 
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
         # Clear the transient batch before every poll so a failed refresh can

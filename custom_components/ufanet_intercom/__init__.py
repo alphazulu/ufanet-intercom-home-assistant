@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
 import logging
 from pathlib import Path
 from typing import Any
@@ -13,11 +12,11 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.typing import ConfigType
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.typing import ConfigType
 
 from .api import UfanetApi, UfanetAuthError, UfanetConnectionError, UfanetResponseError
 from .archive import UfanetArchiveController
@@ -50,7 +49,7 @@ _LOGGER = logging.getLogger(__name__)
 _FRONTEND_DIR = Path(__file__).parent / "frontend"
 _ARCHIVE_CARD_PATH = _FRONTEND_DIR / "ufanet-archive-card.js"
 _ARCHIVE_CARD_URL = "/ufanet_intercom/ufanet-archive-card.js"
-_ARCHIVE_CARD_MODULE_URL = f"{_ARCHIVE_CARD_URL}?v=0.21.0"
+_ARCHIVE_CARD_MODULE_URL = f"{_ARCHIVE_CARD_URL}?v=0.22.0"
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -138,11 +137,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     call_coordinator = UfanetCallCoordinator(
         hass,
         api,
-        scan_interval_seconds=(
-            max(call_scan_interval, FCM_FALLBACK_SCAN_INTERVAL_SECONDS)
-            if firebase_config is not None
-            else call_scan_interval
-        ),
+        # Keep normal polling until the FCM transport confirms its MCS login.
+        scan_interval_seconds=call_scan_interval,
         media_refresh_seconds=int(options[CONF_MEDIA_REFRESH_INTERVAL]),
     )
     # Call history is an enhancement. A temporary failure of this endpoint must
@@ -215,22 +211,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass.bus.async_fire(EVENT_INTERCOM_CALL, event_data)
 
     if firebase_config is not None:
+
+        def _handle_fcm_health_change(healthy: bool) -> None:
+            call_coordinator.async_set_scan_interval(
+                max(call_scan_interval, FCM_FALLBACK_SCAN_INTERVAL_SECONDS)
+                if healthy
+                else call_scan_interval
+            )
+
         fcm_manager = UfanetFcmManager(
             hass,
             entry,
             api,
             firebase_config,
             call_coordinator.async_request_refresh,
+            on_health_change=_handle_fcm_health_change,
         )
         hass.data[DOMAIN][entry.entry_id]["fcm_manager"] = fcm_manager
-        if not await fcm_manager.async_start():
-            call_coordinator.update_interval = timedelta(
-                seconds=call_scan_interval
-            )
+        await fcm_manager.async_start()
 
     # This listener also keeps the call coordinator polling even if the user
     # disables the Last call sensor entity. It is registered after FCM setup so
-    # a failed FCM connection restores the normal interval before scheduling.
+    # the FCM health callback has selected the appropriate polling interval.
     entry.async_on_unload(call_coordinator.async_add_listener(_handle_call_update))
     entry.async_on_unload(auto_save_manager.cancel_all)
 

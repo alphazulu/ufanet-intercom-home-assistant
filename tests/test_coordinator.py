@@ -74,6 +74,21 @@ def _event(
     }
 
 
+def test_call_coordinator_reschedules_when_scan_interval_changes(hass) -> None:
+    coordinator = UfanetCallCoordinator(hass, _api(), scan_interval_seconds=10)
+    coordinator._listeners = {MagicMock(): None}  # noqa: SLF001
+    coordinator._schedule_refresh = MagicMock()  # noqa: SLF001
+
+    coordinator.async_set_scan_interval(300)
+
+    assert coordinator.scan_interval_seconds == 300
+    assert coordinator.update_interval.total_seconds() == 300
+    coordinator._schedule_refresh.assert_called_once()  # noqa: SLF001
+
+    coordinator.async_set_scan_interval(300)
+    coordinator._schedule_refresh.assert_called_once()  # noqa: SLF001
+
+
 @pytest.mark.asyncio
 async def test_call_coordinator_first_poll_is_baseline_and_selects_latest_camera_event(
     hass,

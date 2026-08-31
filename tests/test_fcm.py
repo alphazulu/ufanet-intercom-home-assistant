@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ufanet_intercom.const import (
@@ -88,6 +89,9 @@ async def test_fcm_start_registers_and_sip_push_refreshes(hass) -> None:
         assert status["firebase_registration_succeeded"] is True
         assert status["ufanet_registration_succeeded"] is True
         assert status["listener_started"] is True
+        assert status["listener_running"] is True
+        assert status["fallback_polling_active"] is False
+        assert status["watchdog_running"] is True
         assert status["transport_state"] == "RUNNING"
         assert status["received_push_count"] == 1
         assert status["received_sip_push_count"] == 1
@@ -145,11 +149,14 @@ async def test_fcm_start_failure_is_non_fatal(hass) -> None:
         )
         assert await manager.async_start() is False
 
+        await manager.async_stop()
+
     status = manager.status()
     assert status["last_error_type"] == "RuntimeError"
     assert status["firebase_registration_succeeded"] is False
     assert status["ufanet_registration_succeeded"] is False
     assert status["listener_started"] is False
+    assert status["listener_running"] is False
     assert manager.active is False
     client.stop.assert_awaited_once()
     api.async_register_fcm_device.assert_not_awaited()
@@ -196,6 +203,8 @@ async def test_fcm_status_identifies_failed_startup_stage(
             AsyncMock(),
         )
         assert await manager.async_start() is False
+
+        await manager.async_stop()
 
     status = manager.status()
     assert (
@@ -250,3 +259,159 @@ async def test_fcm_stop_cancels_pending_sip_refresh(hass) -> None:
         await manager.async_stop()
 
     assert not manager._sip_tasks  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_fcm_watchdog_tracks_transport_and_polling_fallback(hass) -> None:
+    store = MagicMock()
+    store.async_load = AsyncMock(return_value=None)
+    store.async_save = AsyncMock()
+    client = MagicMock()
+    client.checkin_or_register = AsyncMock(return_value="token")
+    client.start = AsyncMock()
+    client.stop = AsyncMock()
+    client.run_state = SimpleNamespace(name="STARTING_TASKS")
+    api = MagicMock()
+    api.async_register_fcm_device = AsyncMock()
+    health_changes = MagicMock()
+
+    with (
+        patch("custom_components.ufanet_intercom.fcm.Store", return_value=store),
+        patch(
+            "custom_components.ufanet_intercom.fcm.FcmPushClient",
+            return_value=client,
+        ),
+        patch("custom_components.ufanet_intercom.fcm.FcmRegisterConfig"),
+        patch("custom_components.ufanet_intercom.fcm.async_get_clientsession"),
+    ):
+        manager = UfanetFcmManager(
+            hass,
+            _entry(),
+            api,
+            FIREBASE_CONFIG,
+            AsyncMock(),
+            on_health_change=health_changes,
+        )
+        assert await manager.async_start() is True
+        assert manager.status()["fallback_polling_active"] is True
+        health_changes.assert_not_called()
+
+        client.run_state = SimpleNamespace(name="STARTED")
+        await manager._async_watchdog_iteration()  # noqa: SLF001
+        assert manager.status()["listener_running"] is True
+        assert manager.status()["last_connected_at"] is not None
+        health_changes.assert_called_once_with(True)
+
+        client.run_state = SimpleNamespace(name="RESETTING")
+        await manager._async_watchdog_iteration()  # noqa: SLF001
+        assert manager.status()["listener_running"] is False
+        assert manager.status()["fallback_polling_active"] is True
+        assert manager.status()["last_disconnected_at"] is not None
+        assert health_changes.call_args_list[-1].args == (False,)
+        assert client.stop.await_count == 0
+
+        await manager.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_fcm_watchdog_restarts_terminal_client_and_counts_reconnect(hass) -> None:
+    store = MagicMock()
+    store.async_load = AsyncMock(return_value=None)
+    store.async_save = AsyncMock()
+    first = MagicMock()
+    first.checkin_or_register = AsyncMock(return_value="token-1")
+    first.start = AsyncMock()
+    first.stop = AsyncMock()
+    first.run_state = SimpleNamespace(name="STARTED")
+    replacement = MagicMock()
+    replacement.checkin_or_register = AsyncMock(return_value="token-2")
+    replacement.start = AsyncMock()
+    replacement.stop = AsyncMock()
+    replacement.run_state = SimpleNamespace(name="STARTING_TASKS")
+    api = MagicMock()
+    api.async_register_fcm_device = AsyncMock()
+    health_changes = MagicMock()
+
+    with (
+        patch("custom_components.ufanet_intercom.fcm.Store", return_value=store),
+        patch(
+            "custom_components.ufanet_intercom.fcm.FcmPushClient",
+            side_effect=(first, replacement),
+        ) as client_cls,
+        patch("custom_components.ufanet_intercom.fcm.FcmRegisterConfig"),
+        patch("custom_components.ufanet_intercom.fcm.async_get_clientsession"),
+        patch("custom_components.ufanet_intercom.fcm.FCM_RESTART_BASE_SECONDS", 0),
+    ):
+        manager = UfanetFcmManager(
+            hass,
+            _entry(),
+            api,
+            FIREBASE_CONFIG,
+            AsyncMock(),
+            on_health_change=health_changes,
+        )
+        assert await manager.async_start() is True
+        first.run_state = SimpleNamespace(name="STOPPED")
+
+        await manager._async_watchdog_iteration()  # noqa: SLF001
+
+        assert client_cls.call_count == 2
+        first.stop.assert_awaited_once()
+        assert manager.status()["listener_running"] is False
+        replacement.run_state = SimpleNamespace(name="STARTED")
+        await manager._async_watchdog_iteration()  # noqa: SLF001
+        assert manager.status()["listener_running"] is True
+        assert manager.status()["reconnect_count"] == 1
+        assert manager.status()["consecutive_failures"] == 0
+        assert [call.args for call in health_changes.call_args_list] == [
+            (True,),
+            (False,),
+            (True,),
+        ]
+
+        await manager.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_fcm_watchdog_opens_and_closes_repair_issue(hass) -> None:
+    store = MagicMock()
+    store.async_load = AsyncMock(return_value=None)
+    store.async_save = AsyncMock()
+    client = MagicMock()
+    client.checkin_or_register = AsyncMock(return_value="token")
+    client.start = AsyncMock()
+    client.stop = AsyncMock()
+    client.run_state = SimpleNamespace(name="STARTING_TASKS")
+    api = MagicMock()
+    api.async_register_fcm_device = AsyncMock()
+    entry = _entry()
+
+    with (
+        patch("custom_components.ufanet_intercom.fcm.Store", return_value=store),
+        patch(
+            "custom_components.ufanet_intercom.fcm.FcmPushClient",
+            return_value=client,
+        ),
+        patch("custom_components.ufanet_intercom.fcm.FcmRegisterConfig"),
+        patch("custom_components.ufanet_intercom.fcm.async_get_clientsession"),
+        patch("custom_components.ufanet_intercom.fcm.FCM_REPAIR_AFTER_SECONDS", 0),
+    ):
+        manager = UfanetFcmManager(
+            hass,
+            entry,
+            api,
+            FIREBASE_CONFIG,
+            AsyncMock(),
+        )
+        assert await manager.async_start() is True
+        await manager._async_watchdog_iteration()  # noqa: SLF001
+
+        issue_id = f"fcm_listener_unavailable_{entry.entry_id}"
+        registry = ir.async_get(hass)
+        assert registry.async_get_issue(DOMAIN, issue_id) is not None
+
+        client.run_state = SimpleNamespace(name="STARTED")
+        await manager._async_watchdog_iteration()  # noqa: SLF001
+        assert registry.async_get_issue(DOMAIN, issue_id) is None
+
+        await manager.async_stop()

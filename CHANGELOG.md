@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.22.0
+
+- Added an FCM watchdog that distinguishes listener task startup from a confirmed MCS connection and recreates terminal or stalled listeners with exponential backoff.
+- Call-history polling now stays at the configured interval until FCM is healthy, switches to the 300-second safety interval after connection, and returns automatically after a disconnect.
+- Added an automatically resolving Home Assistant Repair warning for prolonged FCM outages.
+- Expanded privacy-preserving diagnostics with actual listener health, watchdog/fallback state, reconnect and failure counters, and connection timestamps.
+
 ## 0.21.0
 
 - Added an **Incoming call** device trigger for every Ufanet intercom in Home Assistant's visual automation editor.

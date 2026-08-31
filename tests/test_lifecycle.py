@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -158,7 +157,7 @@ async def test_setup_entry_builds_runtime_and_optional_archive(hass) -> None:
 
 
 @pytest.mark.asyncio
-async def test_fcm_setup_uses_safety_poll_and_restores_polling_on_failure(
+async def test_fcm_setup_switches_polling_interval_with_transport_health(
     hass,
 ) -> None:
     entry = _entry(
@@ -220,13 +219,17 @@ async def test_fcm_setup_uses_safety_poll_and_restores_polling_on_failure(
         hass,
         "ufanet_intercom/firebase_config.json",
     )
-    assert call_cls.call_args.kwargs["scan_interval_seconds"] == (
-        FCM_FALLBACK_SCAN_INTERVAL_SECONDS
-    )
+    assert call_cls.call_args.kwargs["scan_interval_seconds"] == 12
     forward.assert_awaited_once()
     fcm_cls.assert_called_once()
     fcm_manager.async_start.assert_awaited_once()
-    assert call_coordinator.update_interval == timedelta(seconds=12)
+    health_callback = fcm_cls.call_args.kwargs["on_health_change"]
+    health_callback(True)
+    call_coordinator.async_set_scan_interval.assert_called_with(
+        FCM_FALLBACK_SCAN_INTERVAL_SECONDS
+    )
+    health_callback(False)
+    call_coordinator.async_set_scan_interval.assert_called_with(12)
     assert hass.data[DOMAIN][entry.entry_id]["fcm_manager"] is fcm_manager
 
 
