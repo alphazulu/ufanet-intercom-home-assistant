@@ -66,7 +66,7 @@ To install it as a HACS custom repository:
 Add the resource as a JavaScript module:
 
 ```text
-/ufanet_intercom/ufanet-archive-card.js?v=0.24.0
+/ufanet_intercom/ufanet-archive-card.js?v=0.25.0
 ```
 
 Minimal card:
@@ -103,6 +103,8 @@ Every intercom with call history has an **Incoming call** binary sensor. It turn
 
 The **Last call image** entity downloads the tokenized Ufanet preview privately, sends only its bytes to local `ffmpeg`, extracts one JPEG frame and caches that frame in memory. The source MP4 URL is never placed in image state or passed on the `ffmpeg` command line.
 
+The Last call sensor and `ufanet_intercom_call` event expose only `has_preview` / `has_archive` capability flags, never the temporary Ufanet URLs themselves. The custom card's **Call image** button opens the cached JPEG through Home Assistant's authenticated image proxy. **Preview video** requests a fresh temporary URL through an authenticated response service only after an explicit click and keeps it out of Recorder-backed state. Image diagnostics report ffmpeg availability, safe exception types and extraction counters; a Repairs warning opens after repeated failures and closes after a successful extraction.
+
 An optional Companion app notification blueprint is available at [incoming_call_notification.yaml](blueprints/automation/ufanet_intercom/incoming_call_notification.yaml). Import that GitHub URL in **Settings → Automations & scenes → Blueprints**, select the Ufanet intercom, its Last call image entity and the phone. It waits three seconds by default for JPEG preparation; the delay is configurable. The blueprint intentionally contains no door-opening action.
 
 FCM values are not distributed by this repository. Advanced users extract them on their own computer from their own decompiled copy of the official Android app:
@@ -136,6 +138,7 @@ Manual and automatic MP4 exports are saved under the Home Assistant media direct
 - Opening the door is a real physical action and requires an explicit button press/confirmation in the custom card.
 - Downloadable diagnostics redact login/password and avoid guest/media URLs and exact camera identifiers.
 - The last-call image keeps only a generated JPEG in memory; tokenized preview video and its URL are not persisted.
+- Tokenized call-media URLs remain internal runtime data and are not published in entity state or `ufanet_intercom_call` events. Explicit authenticated archive service responses may still contain a temporary URL required for playback.
 - Firebase values, FCM credentials and the local Firebase config path are never included in diagnostics. Do not commit `firebase_config.json`.
 
 ## Troubleshooting
@@ -147,6 +150,8 @@ python scripts/release_check.py
 ```
 
 In Home Assistant, use either the **ДИАГНОСТИКА** card tab for live operational state or **Download diagnostics** on the integration/device page for privacy-redacted support data.
+
+If local `ffmpeg` is unavailable or last-call JPEG extraction repeatedly fails, Home Assistant creates a Repairs warning. Call detection, archive viewing and door control remain available; the warning closes automatically after image extraction recovers.
 
 ## Development / release validation
 

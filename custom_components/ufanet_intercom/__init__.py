@@ -41,6 +41,7 @@ from .entity import device_name
 from .fcm import UfanetFcmManager
 from .firebase_config import UfanetFirebaseConfigError, async_load_firebase_config
 from .guest_store import UfanetGuestInviteStore
+from .image_status import UfanetLastCallImageStatusManager
 from .options import effective_options
 from .services import async_setup_services
 
@@ -49,7 +50,7 @@ _LOGGER = logging.getLogger(__name__)
 _FRONTEND_DIR = Path(__file__).parent / "frontend"
 _ARCHIVE_CARD_PATH = _FRONTEND_DIR / "ufanet-archive-card.js"
 _ARCHIVE_CARD_URL = "/ufanet_intercom/ufanet-archive-card.js"
-_ARCHIVE_CARD_MODULE_URL = f"{_ARCHIVE_CARD_URL}?v=0.24.0"
+_ARCHIVE_CARD_MODULE_URL = f"{_ARCHIVE_CARD_URL}?v=0.25.0"
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -167,6 +168,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
     auto_save_manager = UfanetCallAutoSaveManager(hass, options)
+    image_status_manager = UfanetLastCallImageStatusManager(
+        hass,
+        entry,
+        coordinator.data.values(),
+    )
+    await image_status_manager.async_initialize()
     fcm_manager: UfanetFcmManager | None = None
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
@@ -177,6 +184,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "entry": entry,
         "options": options,
         "auto_save_manager": auto_save_manager,
+        "image_status_manager": image_status_manager,
         "call_update_mode": call_update_mode,
         "fcm_manager": None,
         "fcm_config_error_type": fcm_config_error_type,
@@ -243,6 +251,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception:
         if fcm_manager is not None:
             await fcm_manager.async_stop()
+        image_status_manager.stop()
         raise
 
     # Recover a very recent call after a Home Assistant/integration restart.
@@ -283,13 +292,20 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         fcm_manager = runtime.get("fcm_manager")
         if fcm_manager is not None:
             await fcm_manager.async_stop()
+        image_status_manager = runtime.get("image_status_manager")
+        if image_status_manager is not None:
+            image_status_manager.stop()
         hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
     return unloaded
 
 
 def _call_event_data(call: dict[str, Any]) -> dict[str, Any]:
-    """Build serializable event data without empty optional fields."""
-    data: dict[str, Any] = {"type": "call"}
+    """Build event data without persistent tokenized media URLs."""
+    data: dict[str, Any] = {
+        "type": "call",
+        "has_preview": bool(call.get("preview_url")),
+        "has_archive": bool(call.get("archive_url")),
+    }
     for source, target in (
         ("uuid", "uuid"),
         ("called_at", "called_at"),
@@ -298,8 +314,6 @@ def _call_event_data(call: dict[str, Any]) -> dict[str, Any]:
         ("address", "address"),
         ("porch", "porch"),
         ("flat", "flat"),
-        ("preview_url", "preview_url"),
-        ("archive_url", "archive_url"),
     ):
         value = call.get(source)
         if value is not None:

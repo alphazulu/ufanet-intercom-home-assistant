@@ -9,6 +9,10 @@
     "fcm_listener_unavailable": {
       "title": "FCM listener unavailable",
       "description": "The FCM listener for {entry_title} has been unavailable for an extended period. Normal call-history polling is active automatically, so incoming-call detection continues with polling latency. Check outbound access to mtalk.google.com:5228, the local Firebase configuration, and the Home Assistant log. The issue closes automatically after FCM reconnects."
+    },
+    "last_call_image_unavailable": {
+      "title": "Last call image unavailable",
+      "description": "Last-call JPEG generation for {entry_title} is unavailable. Check that ffmpeg is installed and executable in the Home Assistant runtime, then inspect the integration diagnostics and log for the safe error type. Existing call detection, archive playback and door control continue to work. The issue closes automatically after a successful image extraction."
     }
   },
   "config": {
@@ -119,7 +123,7 @@
           "skud_scan_interval_seconds": "How often the available intercom/SKUD list is refreshed.",
           "call_scan_interval_seconds": "call-history polling interval. In FCM mode it is used while the listener is unavailable; a healthy listener reduces polling to a 300-second safety interval.",
           "call_update_mode": "Polling requires no extra setup. Experimental FCM uses a locally extracted Firebase config for faster call detection.",
-          "call_media_refresh_seconds": "How long preview/archive media URLs are cached for call history.",
+          "call_media_refresh_seconds": "How long preview/archive media URLs are cached internally for call processing. They are not published in entity state or call events.",
           "call_lead_seconds": "Start archive playback this many seconds before a call.",
           "archive_default_duration_seconds": "Used by HA archive entities and the card unless YAML sets duration.",
           "archive_default_step_seconds": "Used by HA archive entities and the card unless YAML sets step.",

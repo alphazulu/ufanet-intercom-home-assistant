@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import hashlib
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,10 +14,13 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.ufanet_intercom.api import UfanetResponseError
 from custom_components.ufanet_intercom.const import (
     CONF_EXPORT_AUTO_CLEANUP,
     DOMAIN,
     SERVICE_GET_ARCHIVE_DOWNLOAD_URL,
+    SERVICE_GET_LAST_CALL_PREVIEW_URL,
+    SERVICE_GET_RUNTIME_STATUS,
 )
 from custom_components.ufanet_intercom.services import async_setup_services
 
@@ -132,6 +136,109 @@ async def test_archive_download_service_exports_atomic_mp4_and_deduplicates_call
 
 
 @pytest.mark.asyncio
+async def test_runtime_status_includes_only_safe_image_health(
+    hass,
+    tmp_path: Path,
+) -> None:
+    device, api = _install_runtime(hass, tmp_path)
+    api.diagnostic_auth_state.return_value = {"ufanet_access_present": True}
+    image_status = MagicMock()
+    image_status.status.return_value = {
+        "configured": True,
+        "ffmpeg_available": True,
+        "ready": True,
+        "loading": False,
+        "preview_available": True,
+        "success_count": 1,
+        "failure_count": 0,
+        "consecutive_failures": 0,
+        "last_success_at": "2026-08-31T01:00:00+00:00",
+        "last_error_at": None,
+        "last_error_type": None,
+        "repair_issue_active": False,
+    }
+    runtime = next(iter(hass.data[DOMAIN].values()))
+    runtime["image_status_manager"] = image_status
+
+    result = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_GET_RUNTIME_STATUS,
+        {"device_id": device.id},
+        blocking=True,
+        return_response=True,
+    )
+    serialized = json.dumps(result)
+
+    assert result["last_call_image"]["ready"] is True
+    assert result["last_call_image"]["ffmpeg_available"] is True
+    assert "preview_url" not in serialized
+    assert "archive_url" not in serialized
+    assert "token=" not in serialized
+    image_status.status.assert_called_once_with(7)
+
+
+@pytest.mark.asyncio
+async def test_preview_url_is_returned_only_by_explicit_response_service(
+    hass,
+    tmp_path: Path,
+) -> None:
+    device, api = _install_runtime(hass, tmp_path)
+    preview_url = "https://media.invalid/call.mp4?token=EXPLICIT-SECRET"
+    api.async_get_call_media = AsyncMock(return_value={"preview": preview_url})
+    runtime = next(iter(hass.data[DOMAIN].values()))
+    runtime["call_coordinator"] = SimpleNamespace(
+        data={
+            "CAM/1": {
+                "uuid": "call-1",
+                "called_at": "2026-08-31T11:22:33+10:00",
+            }
+        }
+    )
+
+    result = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_GET_LAST_CALL_PREVIEW_URL,
+        {"device_id": device.id},
+        blocking=True,
+        return_response=True,
+    )
+
+    assert result["url"] == preview_url
+    assert result["called_at"] == "2026-08-31T11:22:33+10:00"
+    api.async_get_call_media.assert_awaited_once_with("call-1")
+
+
+@pytest.mark.asyncio
+async def test_preview_service_does_not_expose_private_api_error_text(
+    hass,
+    tmp_path: Path,
+) -> None:
+    device, api = _install_runtime(hass, tmp_path)
+    api.async_get_call_media = AsyncMock(
+        side_effect=UfanetResponseError(
+            "https://media.invalid/call.mp4?token=PRIVATE-ERROR-TOKEN"
+        )
+    )
+    runtime = next(iter(hass.data[DOMAIN].values()))
+    runtime["call_coordinator"] = SimpleNamespace(
+        data={"CAM/1": {"uuid": "call-1"}}
+    )
+
+    with pytest.raises(ServiceValidationError) as err:
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_GET_LAST_CALL_PREVIEW_URL,
+            {"device_id": device.id},
+            blocking=True,
+            return_response=True,
+        )
+
+    message = str(err.value)
+    assert "PRIVATE-ERROR-TOKEN" not in message
+    assert "media.invalid" not in message
+
+
+@pytest.mark.asyncio
 async def test_archive_download_service_reports_ffmpeg_failure_and_cleans_partial(
     hass,
     tmp_path: Path,
@@ -151,7 +258,7 @@ async def test_archive_download_service_reports_ffmpeg_failure_and_cleans_partia
         "custom_components.ufanet_intercom.services.asyncio.create_subprocess_exec",
         side_effect=fake_exec,
     ):
-        with pytest.raises(HomeAssistantError, match="decoder failed"):
+        with pytest.raises(HomeAssistantError, match="could not export") as err:
             await hass.services.async_call(
                 DOMAIN,
                 SERVICE_GET_ARCHIVE_DOWNLOAD_URL,
@@ -163,6 +270,8 @@ async def test_archive_download_service_reports_ffmpeg_failure_and_cleans_partia
                 blocking=True,
                 return_response=True,
             )
+
+    assert "decoder failed" not in str(err.value)
 
     export_dir = tmp_path / "ufanet_intercom"
     assert not list(export_dir.glob(".*.part.mp4"))

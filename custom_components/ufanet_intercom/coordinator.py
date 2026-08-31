@@ -162,7 +162,11 @@ class UfanetCallCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             try:
                 media = await self.api.async_get_call_media(uuid)
             except UfanetApiError as err:
-                _LOGGER.debug("Unable to obtain call media for %s: %s", uuid, err)
+                _LOGGER.debug(
+                    "Unable to obtain call media for %s (%s)",
+                    uuid,
+                    type(err).__name__,
+                )
                 return enriched
             self._media_cache[uuid] = (now, media)
 

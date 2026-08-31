@@ -17,6 +17,7 @@ from .api import UfanetApi
 from .const import DOMAIN
 from .coordinator import UfanetCallCoordinator, UfanetCoordinator
 from .entity import device_info
+from .image_status import UfanetLastCallImageStatusManager
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,6 +30,10 @@ class UfanetPreviewFrameError(Exception):
     """Raised when a JPEG frame cannot be extracted from a call preview."""
 
 
+class UfanetFfmpegUnavailableError(UfanetPreviewFrameError):
+    """Raised when the local ffmpeg executable cannot be started."""
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -39,9 +44,12 @@ async def async_setup_entry(
     coordinator: UfanetCoordinator = runtime["coordinator"]
     call_coordinator: UfanetCallCoordinator = runtime["call_coordinator"]
     api: UfanetApi = runtime["api"]
+    status_manager: UfanetLastCallImageStatusManager = runtime[
+        "image_status_manager"
+    ]
 
     async_add_entities(
-        UfanetLastCallImage(hass, call_coordinator, api, skud)
+        UfanetLastCallImage(hass, call_coordinator, api, status_manager, skud)
         for skud in coordinator.data.values()
         if skud.get("cctv_number")
     )
@@ -59,11 +67,13 @@ class UfanetLastCallImage(ImageEntity):
         hass: HomeAssistant,
         call_coordinator: UfanetCallCoordinator,
         api: UfanetApi,
+        status_manager: UfanetLastCallImageStatusManager,
         skud: dict[str, Any],
     ) -> None:
         super().__init__(hass)
         self.call_coordinator = call_coordinator
         self.api = api
+        self.status_manager = status_manager
         self.skud_id = int(skud["id"])
         self.camera_number = str(skud["cctv_number"])
         self._attr_unique_id = f"{self.skud_id}_last_call_image"
@@ -99,11 +109,16 @@ class UfanetLastCallImage(ImageEntity):
         """Schedule frame extraction when the latest confirmed call changes."""
         event = self.call_coordinator.data.get(self.camera_number)
         if not event:
+            self.status_manager.set_preview_available(self.skud_id, False)
             self.async_write_ha_state()
             return
 
         uuid = str(event.get("uuid") or "")
         preview_url = event.get("preview_url")
+        self.status_manager.set_preview_available(
+            self.skud_id,
+            isinstance(preview_url, str) and bool(preview_url),
+        )
         if not uuid or not isinstance(preview_url, str) or not preview_url:
             self.async_write_ha_state()
             return
@@ -123,6 +138,7 @@ class UfanetLastCallImage(ImageEntity):
         self._loading_uuid = uuid
         self._last_attempted_uuid = uuid
         self._last_attempt_at = now
+        self.status_manager.mark_loading(self.skud_id)
         self._load_task = self.hass.async_create_task(
             self._async_refresh_image(
                 uuid,
@@ -142,31 +158,63 @@ class UfanetLastCallImage(ImageEntity):
         """Download the preview and atomically replace the cached JPEG frame."""
         current_task = asyncio.current_task()
         try:
-            preview = await self.api.async_get_call_preview(preview_url)
-            image = await _async_extract_preview_frame(preview)
-        except asyncio.CancelledError:
-            raise
-        except Exception as err:  # noqa: BLE001 - isolate this optional background task
-            _LOGGER.warning(
-                "Unable to generate Ufanet last-call image (%s)",
-                type(err).__name__,
-            )
-            return
+            try:
+                preview = await self.api.async_get_call_preview(preview_url)
+            except asyncio.CancelledError:
+                self.status_manager.mark_cancelled(self.skud_id)
+                raise
+            except Exception as err:  # noqa: BLE001 - isolate optional download
+                self.status_manager.mark_failure(
+                    self.skud_id,
+                    type(err).__name__,
+                )
+                _LOGGER.warning(
+                    "Unable to generate Ufanet last-call image (%s)",
+                    type(err).__name__,
+                )
+                return
+
+            try:
+                image = await _async_extract_preview_frame(preview)
+            except asyncio.CancelledError:
+                self.status_manager.mark_cancelled(self.skud_id)
+                raise
+            except Exception as err:  # noqa: BLE001 - isolate optional ffmpeg
+                self.status_manager.mark_failure(
+                    self.skud_id,
+                    type(err).__name__,
+                    ffmpeg_available=(
+                        False
+                        if isinstance(err, UfanetFfmpegUnavailableError)
+                        else (
+                            True
+                            if isinstance(err, UfanetPreviewFrameError)
+                            else None
+                        )
+                    ),
+                )
+                _LOGGER.warning(
+                    "Unable to generate Ufanet last-call image (%s)",
+                    type(err).__name__,
+                )
+                return
+
+            current = self.call_coordinator.data.get(self.camera_number)
+            if not current or str(current.get("uuid") or "") != uuid:
+                self.status_manager.mark_cancelled(self.skud_id)
+                return
+
+            self._image_bytes = image
+            self._loaded_uuid = uuid
+            self._attr_image_last_updated = _call_timestamp(called_at)
+            self.async_update_token()
+            self.status_manager.mark_success(self.skud_id)
+            self.async_write_ha_state()
         finally:
             if self._loading_uuid == uuid:
                 self._loading_uuid = None
             if self._load_task is current_task:
                 self._load_task = None
-
-        current = self.call_coordinator.data.get(self.camera_number)
-        if not current or str(current.get("uuid") or "") != uuid:
-            return
-
-        self._image_bytes = image
-        self._loaded_uuid = uuid
-        self._attr_image_last_updated = _call_timestamp(called_at)
-        self.async_update_token()
-        self.async_write_ha_state()
 
     @callback
     def _cancel_load_task(self) -> None:
@@ -174,6 +222,7 @@ class UfanetLastCallImage(ImageEntity):
         if self._load_task is not None:
             self._load_task.cancel()
             self._load_task = None
+        self.status_manager.mark_cancelled(self.skud_id)
 
 
 async def _async_extract_preview_frame(preview: bytes) -> bytes:
@@ -203,7 +252,9 @@ async def _async_extract_preview_frame(preview: bytes) -> bytes:
             stderr=asyncio.subprocess.PIPE,
         )
     except OSError as err:
-        raise UfanetPreviewFrameError("ffmpeg executable is unavailable") from err
+        raise UfanetFfmpegUnavailableError(
+            "ffmpeg executable is unavailable"
+        ) from err
 
     try:
         stdout, _stderr = await asyncio.wait_for(

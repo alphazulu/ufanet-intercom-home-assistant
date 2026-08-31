@@ -39,7 +39,7 @@ def _entry(options: dict | None = None) -> MockConfigEntry:
     )
 
 
-def test_call_event_data_keeps_only_present_serializable_fields() -> None:
+def test_call_event_data_keeps_metadata_without_media_urls() -> None:
     result = _call_event_data(
         {
             "uuid": "u1",
@@ -49,21 +49,24 @@ def test_call_event_data_keeps_only_present_serializable_fields() -> None:
             "address": "Street",
             "porch": None,
             "flat": "10",
-            "preview_url": None,
-            "archive_url": "https://archive.invalid/x.mp4",
+            "preview_url": "https://preview.invalid/x.mp4?token=PRIVATE",
+            "archive_url": "https://archive.invalid/x.mp4?token=PRIVATE",
             "ignored": "value",
         }
     )
 
     assert result == {
         "type": "call",
+        "has_preview": True,
+        "has_archive": True,
         "uuid": "u1",
         "called_at": "2026-08-28T10:00:00+10:00",
         "camera_number": "CAM",
         "address": "Street",
         "flat": "10",
-        "archive_url": "https://archive.invalid/x.mp4",
     }
+    assert "preview_url" not in result
+    assert "archive_url" not in result
 
 
 @pytest.mark.asyncio
@@ -120,6 +123,8 @@ async def test_setup_entry_builds_runtime_and_optional_archive(hass) -> None:
 
     auto_manager = MagicMock()
     auto_manager.enabled = False
+    image_manager = MagicMock()
+    image_manager.async_initialize = AsyncMock()
 
     with (
         patch("custom_components.ufanet_intercom.async_get_clientsession"),
@@ -137,6 +142,10 @@ async def test_setup_entry_builds_runtime_and_optional_archive(hass) -> None:
             "custom_components.ufanet_intercom.UfanetCallAutoSaveManager",
             return_value=auto_manager,
         ),
+        patch(
+            "custom_components.ufanet_intercom.UfanetLastCallImageStatusManager",
+            return_value=image_manager,
+        ),
         patch.object(
             hass.config_entries,
             "async_forward_entry_setups",
@@ -150,9 +159,11 @@ async def test_setup_entry_builds_runtime_and_optional_archive(hass) -> None:
     assert runtime["coordinator"] is coordinator
     assert runtime["call_coordinator"] is call_coordinator
     assert runtime["archive_controllers"] == {7: controller}
+    assert runtime["image_status_manager"] is image_manager
     assert call_coordinator.data == {}
     controller.async_initialize.assert_awaited_once()
     archive_cls.assert_called_once()
+    image_manager.async_initialize.assert_awaited_once()
     forward.assert_awaited_once()
 
 
@@ -262,8 +273,10 @@ async def test_unload_stops_fcm_manager(hass) -> None:
     entry.add_to_hass(hass)
     fcm_manager = MagicMock()
     fcm_manager.async_stop = AsyncMock()
+    image_manager = MagicMock()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "fcm_manager": fcm_manager,
+        "image_status_manager": image_manager,
     }
 
     with patch.object(
@@ -274,3 +287,4 @@ async def test_unload_stops_fcm_manager(hass) -> None:
         assert await async_unload_entry(hass, entry) is True
 
     fcm_manager.async_stop.assert_awaited_once()
+    image_manager.stop.assert_called_once_with()

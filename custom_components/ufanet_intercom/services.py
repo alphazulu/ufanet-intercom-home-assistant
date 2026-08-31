@@ -53,6 +53,7 @@ from .const import (
     SERVICE_DELETE_ARCHIVE_EXPORT,
     SERVICE_CLEANUP_ARCHIVE_EXPORTS,
     SERVICE_GET_CALL_EVENTS,
+    SERVICE_GET_LAST_CALL_PREVIEW_URL,
     SERVICE_GET_GUEST_ACCESS,
     SERVICE_CREATE_GUEST_INVITE,
     SERVICE_FORGET_GUEST_INVITE,
@@ -76,6 +77,10 @@ GET_SETTINGS_SCHEMA = vol.Schema(
 )
 
 GET_RUNTIME_STATUS_SCHEMA = vol.Schema(
+    {vol.Required(ATTR_DEVICE_ID): cv.string}
+)
+
+GET_LAST_CALL_PREVIEW_URL_SCHEMA = vol.Schema(
     {vol.Required(ATTR_DEVICE_ID): cv.string}
 )
 
@@ -266,6 +271,7 @@ def async_setup_services(
         options = runtime.get("options") or {}
         auto_manager = runtime.get("auto_save_manager")
         fcm_manager = runtime.get("fcm_manager")
+        image_status_manager = runtime.get("image_status_manager")
 
         camera_number = _camera_number(skud)
         camera: dict[str, Any] | None = None
@@ -371,6 +377,24 @@ def async_setup_services(
                 ),
             },
             "call_update_mode": runtime.get("call_update_mode"),
+            "last_call_image": (
+                image_status_manager.status(int(skud["id"]))
+                if image_status_manager is not None
+                else {
+                    "configured": False,
+                    "ffmpeg_available": None,
+                    "ready": False,
+                    "loading": False,
+                    "preview_available": False,
+                    "success_count": 0,
+                    "failure_count": 0,
+                    "consecutive_failures": 0,
+                    "last_success_at": None,
+                    "last_error_at": None,
+                    "last_error_type": None,
+                    "repair_issue_active": False,
+                }
+            ),
             "fcm": (
                 fcm_manager.status()
                 if fcm_manager is not None
@@ -537,6 +561,59 @@ def async_setup_services(
             "date": requested_date.isoformat(),
             "count": len(matching),
             "events": matching,
+        }
+
+    async def async_get_last_call_preview_url(
+        call: ServiceCall,
+    ) -> ServiceResponse:
+        """Return a fresh preview URL only after an explicit authenticated call."""
+        runtime, skud = _resolve_device_runtime(hass, call.data[ATTR_DEVICE_ID])
+        api: UfanetApi = runtime["api"]
+        call_coordinator = runtime.get("call_coordinator")
+        camera_number = _camera_number(skud)
+        latest = (
+            call_coordinator.data.get(camera_number)
+            if call_coordinator is not None
+            and isinstance(getattr(call_coordinator, "data", None), dict)
+            else None
+        )
+        uuid = str(latest.get("uuid") or "") if isinstance(latest, dict) else ""
+        if not uuid:
+            raise ServiceValidationError("No confirmed call is available")
+
+        try:
+            media = await api.async_get_call_media(uuid)
+        except UfanetResponseError as err:
+            raise ServiceValidationError(
+                "Unable to obtain a valid preview for the latest call"
+            ) from err
+        except UfanetApiError as err:
+            raise HomeAssistantError(
+                "Unable to obtain the latest call preview"
+            ) from err
+
+        preview_url = media.get("preview")
+        parsed = urlparse(preview_url) if isinstance(preview_url, str) else None
+        try:
+            valid_preview = bool(
+                parsed is not None
+                and parsed.scheme == "https"
+                and parsed.hostname
+                and parsed.username is None
+                and parsed.password is None
+            )
+        except ValueError:
+            valid_preview = False
+        if not valid_preview:
+            raise ServiceValidationError(
+                "The latest call does not have a valid HTTPS preview"
+            )
+
+        return {
+            "device_id": call.data[ATTR_DEVICE_ID],
+            "skud_id": int(skud["id"]),
+            "called_at": latest.get("called_at"),
+            "url": preview_url,
         }
 
     async def async_get_guest_access(call: ServiceCall) -> ServiceResponse:
@@ -1040,7 +1117,7 @@ def async_setup_services(
             )
 
             try:
-                stdout, stderr = await asyncio.wait_for(
+                _stdout, _stderr = await asyncio.wait_for(
                     process.communicate(),
                     timeout=timeout_seconds,
                 )
@@ -1052,12 +1129,9 @@ def async_setup_services(
                 ) from err
 
             if process.returncode != 0:
-                error_text = stderr.decode("utf-8", errors="replace").strip()
-                if len(error_text) > 1200:
-                    error_text = error_text[-1200:]
                 raise HomeAssistantError(
-                    "ffmpeg could not export the Ufanet archive"
-                    + (f": {error_text}" if error_text else "")
+                    "ffmpeg could not export the Ufanet archive; "
+                    "see the Home Assistant host diagnostics"
                 )
 
             if not temporary_path.exists():
@@ -1294,6 +1368,13 @@ def async_setup_services(
         SERVICE_GET_RUNTIME_STATUS,
         async_get_runtime_status,
         schema=GET_RUNTIME_STATUS_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_LAST_CALL_PREVIEW_URL,
+        async_get_last_call_preview_url,
+        schema=GET_LAST_CALL_PREVIEW_URL_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
     hass.services.async_register(

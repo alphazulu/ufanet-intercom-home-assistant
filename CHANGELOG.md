@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.25.0
+
+- Removed tokenized Ufanet `preview_url` and `archive_url` values from the Last call sensor state and `ufanet_intercom_call` event; capability-only `has_preview` and `has_archive` flags remain.
+- Updated the custom card to open the cached Last call image through Home Assistant's authenticated image proxy; preview-video URLs are now requested through an authenticated response service only after an explicit click.
+- Added token-free last-call image health to downloadable and card diagnostics, including ffmpeg availability, extraction counters and safe exception types.
+- Added an auto-closing Repairs warning when local ffmpeg is unavailable or JPEG extraction repeatedly fails.
+- Stopped returning raw ffmpeg stderr from archive-export failures and added privacy regression coverage for states, events, diagnostics, card source and logs.
+
 ## 0.24.0
 
 - Added a native **Last call image** entity that privately downloads the confirmed call preview, extracts one JPEG frame through local `ffmpeg`, and keeps only the JPEG in memory.

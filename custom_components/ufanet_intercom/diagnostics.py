@@ -91,6 +91,52 @@ def _fcm_state(runtime: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _last_call_image_summary(runtime: dict[str, Any]) -> dict[str, Any]:
+    """Return aggregate image status without call/media identifiers."""
+    manager = runtime.get("image_status_manager")
+    if manager is not None:
+        return manager.summary()
+    return {
+        "configured": False,
+        "ffmpeg_available": None,
+        "camera_count": 0,
+        "ready_count": 0,
+        "loading_count": 0,
+        "preview_available_count": 0,
+        "success_count": 0,
+        "failure_count": 0,
+        "consecutive_failures": 0,
+        "last_success_at": None,
+        "last_error_at": None,
+        "last_error_type": None,
+        "repair_issue_active": False,
+    }
+
+
+def _last_call_image_state(
+    runtime: dict[str, Any],
+    skud_id: int,
+) -> dict[str, Any]:
+    """Return one device's image status without private media fields."""
+    manager = runtime.get("image_status_manager")
+    if manager is not None:
+        return manager.status(skud_id)
+    return {
+        "configured": False,
+        "ffmpeg_available": None,
+        "ready": False,
+        "loading": False,
+        "preview_available": False,
+        "success_count": 0,
+        "failure_count": 0,
+        "consecutive_failures": 0,
+        "last_success_at": None,
+        "last_error_at": None,
+        "last_error_type": None,
+        "repair_issue_active": False,
+    }
+
+
 def _safe_skud(skud: dict[str, Any]) -> dict[str, Any]:
     """Summarize an intercom without address/account/camera identifiers."""
     return {
@@ -197,6 +243,7 @@ async def async_get_config_entry_diagnostics(
             "mode": runtime.get("call_update_mode"),
             "fcm": _fcm_state(runtime),
         },
+        "last_call_image": _last_call_image_summary(runtime),
         "api_auth": api.diagnostic_auth_state() if api is not None else None,
         "coordinator": {
             **_coordinator_state(coordinator),
@@ -297,6 +344,7 @@ async def async_get_device_diagnostics(
             "mode": runtime.get("call_update_mode"),
             "fcm": _fcm_state(runtime),
         },
+        "last_call_image": _last_call_image_state(runtime, int(skud["id"])),
         "intercom": _safe_skud(skud),
         "camera": _safe_camera(camera),
         "camera_fetch_error_type": camera_error_type,

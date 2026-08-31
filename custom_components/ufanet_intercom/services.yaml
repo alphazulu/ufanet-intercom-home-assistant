@@ -196,6 +196,18 @@ get_call_events:
       selector:
         date:
 
+get_last_call_preview_url:
+  name: Get last call preview URL
+  description: Return a fresh temporary Ufanet preview URL after an explicit authenticated request. Do not persist or log the response.
+  fields:
+    device_id:
+      name: Intercom
+      description: Ufanet Intercom device.
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+
 
 get_guest_access:
   name: Get guest access

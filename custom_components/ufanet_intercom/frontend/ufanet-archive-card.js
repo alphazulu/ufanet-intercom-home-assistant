@@ -1,4 +1,4 @@
-const CARD_VERSION = "0.24.0";
+const CARD_VERSION = "0.25.0";
 
 class UfanetArchiveCard extends HTMLElement {
   constructor() {
@@ -32,6 +32,7 @@ class UfanetArchiveCard extends HTMLElement {
     this._liveEntityId = null;
     this._openDoorEntityId = null;
     this._lastCallEntityId = null;
+    this._lastCallImageEntityId = null;
     this._deviceRegistryEntities = null;
     this._lastCallStateSeen = null;
     this._liveCallFlashTimer = null;
@@ -435,6 +436,16 @@ class UfanetArchiveCard extends HTMLElement {
       if (lastCall?.entity_id) {
         this._lastCallEntityId = lastCall.entity_id;
       }
+
+      const images = sameDevice.filter((item) =>
+        String(item?.entity_id || "").startsWith("image.")
+      );
+      const lastCallImage = images.find(
+        (item) => String(item?.unique_id || "").endsWith("_last_call_image")
+      );
+      if (lastCallImage?.entity_id) {
+        this._lastCallImageEntityId = lastCallImage.entity_id;
+      }
     } catch (_err) {
       // Fall back below.
     }
@@ -489,6 +500,7 @@ class UfanetArchiveCard extends HTMLElement {
     const callAddress = this.shadowRoot.getElementById("live-last-call-address");
     const archiveButton = this.shadowRoot.getElementById("live-open-call-archive");
     const previewButton = this.shadowRoot.getElementById("live-open-call-preview");
+    const imageButton = this.shadowRoot.getElementById("live-open-call-image");
 
     const cameraAvailable = this._entityAvailable(this._liveEntityId);
     const doorAvailable = this._entityAvailable(this._openDoorEntityId);
@@ -513,6 +525,7 @@ class UfanetArchiveCard extends HTMLElement {
       if (callAddress) callAddress.textContent = "";
       if (archiveButton) archiveButton.disabled = true;
       if (previewButton) previewButton.hidden = true;
+      if (imageButton) imageButton.hidden = true;
       return;
     }
 
@@ -539,8 +552,24 @@ class UfanetArchiveCard extends HTMLElement {
 
     if (archiveButton) archiveButton.disabled = false;
     if (previewButton) {
-      previewButton.hidden = !attrs.preview_url;
-      previewButton.dataset.url = attrs.preview_url || "";
+      previewButton.hidden = !attrs.has_preview;
+      previewButton.title = attrs.has_preview
+        ? "Временный URL будет получен только после нажатия"
+        : "Preview-видео недоступно";
+    }
+    if (imageButton) {
+      const imageState = this._lastCallImageEntityId
+        ? this._hass?.states?.[this._lastCallImageEntityId]
+        : null;
+      const imageReady = Boolean(
+        imageState &&
+        !["unknown", "unavailable"].includes(imageState.state) &&
+        imageState.attributes?.access_token
+      );
+      imageButton.hidden = !imageReady;
+      imageButton.title = imageReady
+        ? this._lastCallImageEntityId
+        : "Снимок последнего звонка ещё не готов";
     }
   }
 
@@ -600,19 +629,51 @@ class UfanetArchiveCard extends HTMLElement {
     await this._loadCallEvent({ timestamp: lastCall.epoch });
   }
 
-  _openLastCallPreview() {
-    const lastCall = this._lastCallState();
-    const url = lastCall?.state?.attributes?.preview_url;
-    if (url) {
-      window.open(url, "_blank", "noopener,noreferrer");
+  async _openLastCallPreview() {
+    const popup = window.open("about:blank", "_blank");
+    if (popup) popup.opener = null;
+    try {
+      const response = await this._callResponseService(
+        "get_last_call_preview_url",
+        { device_id: this._deviceId }
+      );
+      if (!response?.url) {
+        throw new Error("Сервис не вернул URL preview-видео");
+      }
+      if (popup) {
+        popup.location.replace(response.url);
+      } else {
+        window.open(response.url, "_blank", "noopener,noreferrer");
+      }
+    } catch (err) {
+      popup?.close();
+      this._setStatus(this._errorText(err), "error");
     }
+  }
+
+  _openLastCallImage() {
+    const entityId = this._lastCallImageEntityId;
+    const imageState = entityId ? this._hass?.states?.[entityId] : null;
+    const token = imageState?.attributes?.access_token;
+    if (!entityId || !token) {
+      this._setStatus("Снимок последнего звонка ещё не готов", "warning");
+      return;
+    }
+    const url =
+      `/api/image_proxy/${encodeURIComponent(entityId)}` +
+      `?token=${encodeURIComponent(token)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 
   async _refreshLivePanel() {
     this._setStatus("Обновление LIVE…", "info");
 
     try {
-      const entities = [this._liveEntityId, this._lastCallEntityId]
+      const entities = [
+        this._liveEntityId,
+        this._lastCallEntityId,
+        this._lastCallImageEntityId,
+      ]
         .filter(Boolean);
       if (entities.length) {
         await this._hass.callWS({
@@ -2145,6 +2206,7 @@ class UfanetArchiveCard extends HTMLElement {
     const coordinator = status.coordinator || {};
     const calls = status.call_coordinator || {};
     const fcm = status.fcm || {};
+    const image = status.last_call_image || {};
     const archive = status.archive || {};
     const auto = status.auto_save || {};
     const exports = status.exports || {};
@@ -2211,6 +2273,31 @@ class UfanetArchiveCard extends HTMLElement {
       ["Последний звонок доступен", calls.latest_call_present ? "да" : "нет"],
       ["Archive controller", archive.ready ? "ready" : "not ready", archive.ready ? "ok" : "warning"],
       ["Archive duration / step", `${archive.duration_seconds ?? "—"} / ${archive.step_seconds ?? "—"} с`],
+    ]);
+
+    this._diagnosticSection(host, "Снимок последнего звонка", [
+      ["Настроен", image.configured ? "да" : "нет", image.configured ? "ok" : "warning"],
+      [
+        "ffmpeg",
+        image.ffmpeg_available === true
+          ? "доступен"
+          : image.ffmpeg_available === false
+            ? "не найден / не запускается"
+            : "не проверен",
+        image.ffmpeg_available === true
+          ? "ok"
+          : image.ffmpeg_available === false
+            ? "error"
+            : "warning",
+      ],
+      ["JPEG готов", image.ready ? "да" : "нет", image.ready ? "ok" : "warning"],
+      ["Preview доступен", image.preview_available ? "да" : "нет"],
+      ["Извлечение", image.loading ? "выполняется" : "ожидание", image.loading ? "warning" : null],
+      ["Успешно / ошибок", `${image.success_count ?? 0} / ${image.failure_count ?? 0}`],
+      ["Ошибок подряд", image.consecutive_failures ?? 0, Number(image.consecutive_failures || 0) > 0 ? "warning" : null],
+      ["Последний JPEG", image.last_success_at],
+      ["Последняя ошибка", image.last_error_type, image.last_error_type ? "error" : null],
+      ["Repairs warning", image.repair_issue_active ? "активен" : "нет", image.repair_issue_active ? "error" : "ok"],
     ]);
 
     if (status.call_update_mode === "fcm") {
@@ -3523,7 +3610,10 @@ class UfanetArchiveCard extends HTMLElement {
                   Посмотреть запись
                 </button>
                 <button id="live-open-call-preview" type="button" class="small-button" hidden>
-                  Preview
+                  Preview-видео
+                </button>
+                <button id="live-open-call-image" type="button" class="small-button" hidden>
+                  Снимок звонка
                 </button>
               </div>
             </div>
@@ -3746,7 +3836,11 @@ class UfanetArchiveCard extends HTMLElement {
     );
     this.shadowRoot.getElementById("live-open-call-preview")?.addEventListener(
       "click",
-      () => this._openLastCallPreview()
+      () => void this._openLastCallPreview()
+    );
+    this.shadowRoot.getElementById("live-open-call-image")?.addEventListener(
+      "click",
+      () => this._openLastCallImage()
     );
 
     const timelineTrack = this.shadowRoot.getElementById("timeline-track");

@@ -73,7 +73,7 @@ class UfanetLastCallSensor(SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Return useful metadata and short-lived media URLs for the call."""
+        """Return useful metadata without tokenized media URLs."""
         event = self.call_coordinator.data.get(self.camera_number)
         if not event:
             return None
@@ -84,8 +84,8 @@ class UfanetLastCallSensor(SensorEntity):
             "address": event.get("address"),
             "porch": event.get("porch"),
             "flat": event.get("flat"),
-            "preview_url": event.get("preview_url"),
-            "archive_url": event.get("archive_url"),
+            "has_preview": bool(event.get("preview_url")),
+            "has_archive": bool(event.get("archive_url")),
         }
 
     async def async_added_to_hass(self) -> None:

@@ -50,6 +50,8 @@ Recommended redaction rules:
 
 The Home Assistant integration follows these principles in downloadable diagnostics.
 
+At runtime, tokenized call-media URLs stay inside the coordinator. Entity state and the `ufanet_intercom_call` event publish capability flags only. An authenticated response service may return a short-lived URL when a user explicitly requests archive playback; consumers should keep that response in memory and must not copy it into persistent entity attributes or logs.
+
 ## API documentation examples
 
 All examples in this repository must use placeholders such as:

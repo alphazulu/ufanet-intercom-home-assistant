@@ -168,6 +168,14 @@ async def test_config_entry_diagnostics_redacts_credentials_and_private_fields(h
         "pending_count": 1,
         "last_error_type": None,
     }
+    image_status = MagicMock()
+    image_status.summary.return_value = {
+        "configured": True,
+        "ffmpeg_available": True,
+        "camera_count": 1,
+        "ready_count": 1,
+        "last_error_type": None,
+    }
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "api": api,
@@ -175,6 +183,7 @@ async def test_config_entry_diagnostics_redacts_credentials_and_private_fields(h
         "call_coordinator": call_coordinator,
         "archive_controllers": {},
         "auto_save_manager": auto_save,
+        "image_status_manager": image_status,
         "call_update_mode": CALL_UPDATE_MODE_FCM,
         "fcm_config_error_type": "UfanetFirebaseConfigError",
     }
@@ -204,6 +213,9 @@ async def test_config_entry_diagnostics_redacts_credentials_and_private_fields(h
     )
     assert result["coordinator"]["intercom_count"] == 1
     assert result["call_coordinator"]["camera_with_latest_call_count"] == 1
+    assert result["last_call_image"]["ffmpeg_available"] is True
+    assert result["last_call_image"]["ready_count"] == 1
+    image_status.summary.assert_called_once_with()
     auto_save.status.assert_called_once_with(include_details=False)
 
 
@@ -243,6 +255,13 @@ async def test_device_diagnostics_survives_camera_failure_and_hides_details(
         step=60,
         last_archive={"url": "https://secret.invalid/?token=SECRET"},
     )
+    image_status = MagicMock()
+    image_status.status.return_value = {
+        "configured": True,
+        "ffmpeg_available": True,
+        "ready": False,
+        "last_error_type": "UfanetPreviewFrameError",
+    }
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "api": api,
@@ -250,6 +269,7 @@ async def test_device_diagnostics_survives_camera_failure_and_hides_details(
         "call_coordinator": call_coordinator,
         "archive_controllers": {7: controller},
         "auto_save_manager": auto_save,
+        "image_status_manager": image_status,
         "call_update_mode": CALL_UPDATE_MODE_FCM,
     }
 
@@ -262,11 +282,15 @@ async def test_device_diagnostics_survives_camera_failure_and_hides_details(
     assert result["camera_fetch_error_type"] == "RuntimeError"
     assert result["archive_controller"]["last_archive_loaded"] is True
     assert result["call_coordinator"]["latest_call_present"] is True
+    assert result["last_call_image"]["last_error_type"] == (
+        "UfanetPreviewFrameError"
+    )
     assert "VERY-SECRET" not in serialized
     assert "secret.invalid" not in serialized
     assert "CAMERA-SECRET-123" not in serialized
     assert "top-secret" not in serialized
     assert "secret-firebase-config" not in serialized
+    image_status.status.assert_called_once_with(7)
     auto_save.status.assert_called_once_with(include_details=False)
 
 
