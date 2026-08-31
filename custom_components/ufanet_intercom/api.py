@@ -12,7 +12,7 @@ import base64
 import json
 import time
 from typing import Any
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
 from aiohttp import ClientError, ClientResponse, ClientSession
 
@@ -37,6 +37,8 @@ CAMERA_FIELDS = [
     "is_sounding",
     "streams_count",
 ]
+
+CALL_PREVIEW_MAX_BYTES = 32 * 1024 * 1024
 
 
 class UfanetApiError(Exception):
@@ -268,6 +270,24 @@ class UfanetApi:
         if not isinstance(data, dict):
             raise UfanetResponseError("Unexpected CCTV history response")
         return data
+
+    async def async_get_call_preview(self, preview_url: str) -> bytes:
+        """Download one tokenized call-preview video without exposing its URL."""
+        parsed = urlsplit(preview_url)
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise UfanetResponseError("Call preview must use an absolute HTTPS URL")
+
+        body = await self._request_bytes(preview_url)
+        if not body:
+            raise UfanetResponseError("Call preview is empty")
+        if len(body) > CALL_PREVIEW_MAX_BYTES:
+            raise UfanetResponseError("Call preview exceeds the in-memory size limit")
+        return body
 
     async def async_register_fcm_device(
         self,

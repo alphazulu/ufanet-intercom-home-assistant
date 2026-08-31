@@ -1,7 +1,7 @@
 """Constants for the Ufanet Intercom integration."""
 
 DOMAIN = "ufanet_intercom"
-INTEGRATION_VERSION = "0.23.0"
+INTEGRATION_VERSION = "0.24.0"
 
 UFANET_BASE_URL = "https://dom.ufanet.ru"
 UCAMS_BASE_URL = "https://cloud.ucams.ru"
@@ -39,7 +39,15 @@ EVENT_INTERCOM_CALL = "ufanet_intercom_call"
 TRIGGER_INCOMING_CALL = "incoming_call"
 INCOMING_CALL_STATE_SECONDS = 30
 
-PLATFORMS = ["binary_sensor", "button", "camera", "datetime", "number", "sensor"]
+PLATFORMS = [
+    "binary_sensor",
+    "button",
+    "camera",
+    "datetime",
+    "image",
+    "number",
+    "sensor",
+]
 
 SERVICE_GET_SETTINGS = "get_settings"
 SERVICE_GET_RUNTIME_STATUS = "get_runtime_status"

@@ -1,0 +1,83 @@
+blueprint:
+  name: Ufanet incoming call notification
+  description: >-
+    Send a Home Assistant Companion notification with the privately proxied
+    last-call image after a confirmed Ufanet intercom call. Door opening is
+    intentionally not included.
+  domain: automation
+  source_url: >-
+    https://github.com/alphazulu/ufanet-intercom-home-assistant/blob/main/blueprints/automation/ufanet_intercom/incoming_call_notification.yaml
+  author: alphazulu
+  homeassistant:
+    min_version: 2026.8.0
+  input:
+    intercom_device:
+      name: Ufanet intercom
+      selector:
+        device:
+          filter:
+            integration: ufanet_intercom
+    notify_device:
+      name: Phone to notify
+      description: Device running the official Home Assistant Companion app.
+      selector:
+        device:
+          filter:
+            integration: mobile_app
+    last_call_image:
+      name: Last call image
+      description: Select the image entity belonging to the same intercom.
+      selector:
+        entity:
+          filter:
+            domain: image
+            integration: ufanet_intercom
+    image_delay:
+      name: Image preparation delay
+      description: Wait for preview download and local JPEG extraction.
+      default: 3
+      selector:
+        number:
+          min: 0
+          max: 30
+          step: 1
+          unit_of_measurement: seconds
+          mode: slider
+    notification_title:
+      name: Notification title
+      default: Incoming intercom call
+      selector:
+        text:
+    notification_message:
+      name: Notification message
+      default: Someone is calling the intercom.
+      selector:
+        text:
+
+variables:
+  last_call_image_entity: !input last_call_image
+
+triggers:
+  - trigger: device
+    domain: ufanet_intercom
+    device_id: !input intercom_device
+    type: incoming_call
+
+actions:
+  - alias: Wait for the latest call image
+    delay:
+      seconds: !input image_delay
+  - alias: Notify the selected Companion app
+    domain: mobile_app
+    type: notify
+    device_id: !input notify_device
+    title: !input notification_title
+    message: !input notification_message
+    data:
+      image: >-
+        /api/image_proxy/{{ last_call_image_entity }}?token={{
+          state_attr(last_call_image_entity, 'access_token')
+        }}
+
+mode: queued
+max: 10

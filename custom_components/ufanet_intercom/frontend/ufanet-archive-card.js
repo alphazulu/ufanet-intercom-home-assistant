@@ -1,3854 +1,58 @@
-const CARD_VERSION = "0.23.0";
-
-class UfanetArchiveCard extends HTMLElement {
-  constructor() {
-    super();
-    this.attachShadow({ mode: "open" });
-    this._hass = null;
-    this._config = null;
-    this._userConfig = null;
-    this._integrationSettings = null;
-    this._initialized = false;
-    this._initializing = false;
-    this._deviceId = null;
-    this._ranges = [];
-    this._days = [];
-    this._daysByDate = new Map();
-    this._timezone = "UTC";
-    this._earliest = null;
-    this._latest = null;
-    this._currentEpoch = null;
-    this._player = null;
-    this._loading = false;
-    this._timelineZoomHours = 24;
-    this._timelineCenterSeconds = 43200;
-    this._lastTimelineWheelAt = 0;
-    this._timelineDrag = null;
-    this._timelineSuppressClickUntil = 0;
-    this._callEvents = [];
-    this._callEventsDate = null;
-    this._callEventsCache = new Map();
-    this._activeTab = "archive";
-    this._liveEntityId = null;
-    this._openDoorEntityId = null;
-    this._lastCallEntityId = null;
-    this._deviceRegistryEntities = null;
-    this._lastCallStateSeen = null;
-    this._liveCallFlashTimer = null;
-    this._liveCard = null;
-    this._archiveDownload = null;
-    this._archiveExports = [];
-    this._archiveExportsLoaded = false;
-    this._archiveExportsLoading = false;
-    this._guestAccess = null;
-    this._guestLoading = false;
-    this._guestInviteUrl = null;
-    this._runtimeStatus = null;
-    this._runtimeStatusLoading = false;
-  }
-
-  static getStubConfig() {
-    return {
-      duration: 300,
-      step: 60,
-      timeline_zoom: 24,
-      call_lead_seconds: 15,
-      default_tab: "archive",
-      export_retention_days: 30,
-      export_max_gb: 5,
-      title: "Ğ”Ğ¾Ğ¼Ğ¾Ñ„Ğ¾Ğ½ Ufanet",
-    };
-  }
-
-  static getConfigForm() {
-    return {
-      schema: [
-        {
-          name: "entity",
-          required: true,
-          selector: { entity: { domain: "camera" } },
-        },
-        {
-          name: "live_entity",
-          selector: { entity: { domain: "camera" } },
-        },
-        {
-          name: "default_tab",
-          selector: {
-            select: {
-              options: [
-                { value: "live", label: "Live" },
-                { value: "archive", label: "ĞÑ€Ñ…Ğ¸Ğ²" },
-                { value: "guests", label: "Ğ“Ğ¾ÑÑ‚Ğ¸" },
-                { value: "diagnostics", label: "Ğ”Ğ¸Ğ°Ğ³Ğ½Ğ¾ÑÑ‚Ğ¸ĞºĞ°" },
-              ],
-            },
-          },
-        },
-        { name: "title", selector: { text: {} } },
-        {
-          name: "duration",
-          selector: {
-            number: { min: 30, max: 3600, step: 30, unit_of_measurement: "s" },
-          },
-        },
-        {
-          name: "step",
-          selector: {
-            number: { min: 10, max: 3600, step: 10, unit_of_measurement: "s" },
-          },
-        },
-        {
-          name: "timeline_zoom",
-          selector: {
-            select: {
-              options: [
-                { value: "24", label: "24 Ñ‡Ğ°ÑĞ°" },
-                { value: "6", label: "6 Ñ‡Ğ°ÑĞ¾Ğ²" },
-                { value: "1", label: "1 Ñ‡Ğ°Ñ" },
-              ],
-            },
-          },
-        },
-        {
-          name: "call_lead_seconds",
-          selector: {
-            number: { min: 0, max: 60, step: 1, unit_of_measurement: "s" },
-          },
-        },
-        {
-          name: "export_retention_days",
-          selector: {
-            number: { min: 0, max: 3650, step: 1, unit_of_measurement: "d" },
-          },
-        },
-        {
-          name: "export_max_gb",
-          selector: {
-            number: { min: 0, max: 1024, step: 0.5, unit_of_measurement: "GB" },
-          },
-        },
-      ],
-      computeLabel: (schema) => ({
-        entity: "ĞšĞ°Ğ¼ĞµÑ€Ğ° Ufanet (Ğ´Ğ»Ñ Ğ¾Ğ¿Ñ€ĞµĞ´ĞµĞ»ĞµĞ½Ğ¸Ñ ÑƒÑÑ‚Ñ€Ğ¾Ğ¹ÑÑ‚Ğ²Ğ°)",
-        live_entity: "Live-ĞºĞ°Ğ¼ĞµÑ€Ğ° (Ğ½ĞµĞ¾Ğ±ÑĞ·Ğ°Ñ‚ĞµĞ»ÑŒĞ½Ğ¾, Ğ¾Ğ¿Ñ€ĞµĞ´ĞµĞ»ÑĞµÑ‚ÑÑ Ğ°Ğ²Ñ‚Ğ¾Ğ¼Ğ°Ñ‚Ğ¸Ñ‡ĞµÑĞºĞ¸)",
-        default_tab: "Ğ’ĞºĞ»Ğ°Ğ´ĞºĞ° Ğ¿Ğ¾ ÑƒĞ¼Ğ¾Ğ»Ñ‡Ğ°Ğ½Ğ¸Ñ",
-        title: "Ğ—Ğ°Ğ³Ğ¾Ğ»Ğ¾Ğ²Ğ¾Ğº",
-        duration: "Ğ”Ğ»Ğ¸Ñ‚ĞµĞ»ÑŒĞ½Ğ¾ÑÑ‚ÑŒ Ñ„Ñ€Ğ°Ğ³Ğ¼ĞµĞ½Ñ‚Ğ°",
-        step: "Ğ¨Ğ°Ğ³ Ğ½Ğ°Ğ·Ğ°Ğ´/Ğ²Ğ¿ĞµÑ€Ñ‘Ğ´",
-        timeline_zoom: "ĞĞ°Ñ‡Ğ°Ğ»ÑŒĞ½Ñ‹Ğ¹ Ğ¼Ğ°ÑÑˆÑ‚Ğ°Ğ± timeline",
-        call_lead_seconds: "ĞĞ°Ñ‡Ğ¸Ğ½Ğ°Ñ‚ÑŒ Ğ²Ğ¸Ğ´ĞµĞ¾ Ğ·Ğ° N ÑĞµĞºÑƒĞ½Ğ´ Ğ´Ğ¾ Ğ·Ğ²Ğ¾Ğ½ĞºĞ°",
-        export_retention_days: "Ğ¥Ñ€Ğ°Ğ½Ğ¸Ñ‚ÑŒ ÑĞºÑĞ¿Ğ¾Ñ€Ñ‚Ğ¸Ñ€Ğ¾Ğ²Ğ°Ğ½Ğ½Ñ‹Ğµ Ğ²Ğ¸Ğ´ĞµĞ¾, Ğ´Ğ½ĞµĞ¹ (0 = Ğ±ĞµĞ· Ğ¾Ğ³Ñ€Ğ°Ğ½Ğ¸Ñ‡ĞµĞ½Ğ¸Ñ)",
-        export_max_gb: "ĞœĞ°ĞºÑĞ¸Ğ¼Ğ°Ğ»ÑŒĞ½Ñ‹Ğ¹ Ğ¾Ğ±ÑŠÑ‘Ğ¼ ÑĞºÑĞ¿Ğ¾Ñ€Ñ‚Ğ¾Ğ², Ğ“Ğ‘ (0 = Ğ±ĞµĞ· Ğ¾Ğ³Ñ€Ğ°Ğ½Ğ¸Ñ‡ĞµĞ½Ğ¸Ñ)",
-      })[schema.name] || schema.name,
-    };
-  }
-
-  setConfig(config) {
-    if (!config || (!config.entity && !config.device_id)) {
-      throw new Error("Specify a Ufanet camera entity or device_id");
-    }
-
-    this._userConfig = { ...config };
-    this._integrationSettings = null;
-
-    this._config = {
-      title: "Ğ”Ğ¾Ğ¼Ğ¾Ñ„Ğ¾Ğ½ Ufanet",
-      duration: 300,
-      step: 60,
-      timeline_zoom: 24,
-      call_lead_seconds: 15,
-      default_tab: "archive",
-      ...config,
-    };
-
-    this._activeTab = ["live", "archive", "guests", "diagnostics"].includes(this._config.default_tab)
-      ? this._config.default_tab
-      : "archive";
-    this._liveEntityId = this._config.live_entity || null;
-
-    const configuredZoom = Number(this._config.timeline_zoom);
-    this._timelineZoomHours = [24, 6, 1].includes(configuredZoom)
-      ? configuredZoom
-      : 24;
-
-    this._initialized = false;
-    this._deviceId = this._config.device_id || null;
-    this._renderSkeleton();
-
-    if (this.isConnected && this._hass) {
-      void this._initialize();
-    }
-  }
-
-  set hass(hass) {
-    this._hass = hass;
-    if (this._liveCard) {
-      this._liveCard.hass = hass;
-    }
-
-    if (this._initialized && this._lastCallEntityId) {
-      const nextState = hass?.states?.[this._lastCallEntityId]?.state || null;
-      if (
-        this._lastCallStateSeen &&
-        nextState &&
-        !["unknown", "unavailable"].includes(nextState) &&
-        nextState !== this._lastCallStateSeen
-      ) {
-        this._flashNewLiveCall();
-      }
-      if (nextState) {
-        this._lastCallStateSeen = nextState;
-      }
-      this._renderLiveMeta();
-    }
-
-    if (this.isConnected && this._config && !this._initialized) {
-      void this._initialize();
-    }
-  }
-
-  connectedCallback() {
-    if (this._config) {
-      this._renderSkeleton();
-    }
-    if (this._hass && this._config && !this._initialized) {
-      void this._initialize();
-    }
-  }
-
-  disconnectedCallback() {
-    if (this._liveCallFlashTimer) {
-      clearTimeout(this._liveCallFlashTimer);
-      this._liveCallFlashTimer = null;
-    }
-  }
-
-  getCardSize() {
-    return 8;
-  }
-
-  async _initialize() {
-    if (this._initializing || this._initialized || !this._hass || !this._config) {
-      return;
-    }
-
-    this._initializing = true;
-    this._setStatus("Ğ—Ğ°Ğ³Ñ€ÑƒĞ·ĞºĞ° Ğ´Ğ¸Ğ°Ğ¿Ğ°Ğ·Ğ¾Ğ½Ğ¾Ğ² Ğ°Ñ€Ñ…Ğ¸Ğ²Ğ°â€¦", "info");
-
-    try {
-      await this._ensureHlsPlayer();
-
-      if (!this._deviceId) {
-        const entry = await this._hass.callWS({
-          type: "config/entity_registry/get",
-          entity_id: this._config.entity,
-        });
-        this._deviceId = entry?.device_id;
-      }
-
-      if (!this._deviceId) {
-        throw new Error("ĞĞµ ÑƒĞ´Ğ°Ğ»Ğ¾ÑÑŒ Ğ¾Ğ¿Ñ€ĞµĞ´ĞµĞ»Ğ¸Ñ‚ÑŒ device_id Ğ²Ñ‹Ğ±Ñ€Ğ°Ğ½Ğ½Ğ¾Ğ¹ ĞºĞ°Ğ¼ĞµÑ€Ñ‹");
-      }
-
-      await this._loadIntegrationSettings();
-      await this._resolveLiveEntity();
-
-      await this._refreshRanges();
-      if (!this._ranges.length) {
-        throw new Error("ĞÑ€Ñ…Ğ¸Ğ²Ğ½Ñ‹Ñ… Ğ·Ğ°Ğ¿Ğ¸ÑĞµĞ¹ Ğ½Ğµ Ğ½Ğ°Ğ¹Ğ´ĞµĞ½Ğ¾");
-      }
-
-      this._initialized = true;
-      await this._goLatest(false);
-      this._setActiveTab(this._activeTab, false);
-    } catch (err) {
-      this._setStatus(this._errorText(err), "error");
-    } finally {
-      this._initializing = false;
-    }
-  }
-
-  _hasYamlOption(name) {
-    return Object.prototype.hasOwnProperty.call(this._userConfig || {}, name);
-  }
-
-  async _loadIntegrationSettings() {
-    if (!this._deviceId) return;
-
-    try {
-      this._integrationSettings = await this._callResponseService(
-        "get_settings",
-        {
-          device_id: this._deviceId,
-        }
-      );
-    } catch (_err) {
-      // Keep all existing card defaults/YAML values if the backend is older
-      // or the settings action is temporarily unavailable.
-      this._integrationSettings = null;
-      return;
-    }
-
-    const settings = this._integrationSettings || {};
-
-    if (!this._hasYamlOption("call_lead_seconds")) {
-      this._config.call_lead_seconds = Number(
-        settings.call_lead_seconds ??
-        this._config.call_lead_seconds ??
-        15
-      );
-    }
-
-    if (!this._hasYamlOption("duration")) {
-      this._config.duration = Number(
-        settings.archive_default_duration_seconds ??
-        this._config.duration ??
-        300
-      );
-    }
-
-    if (!this._hasYamlOption("step")) {
-      this._config.step = Number(
-        settings.archive_default_step_seconds ??
-        this._config.step ??
-        60
-      );
-    }
-
-    if (!this._hasYamlOption("export_retention_days")) {
-      this._config.export_retention_days = Number(
-        settings.export_retention_days ?? 30
-      );
-    }
-
-    if (!this._hasYamlOption("export_max_gb")) {
-      this._config.export_max_gb =
-        Number(settings.export_max_total_mb ?? 5120) / 1024;
-    }
-
-    if (!this._hasYamlOption("export_default_duration")) {
-      this._config.export_default_duration = Number(
-        settings.export_default_duration_seconds ?? 300
-      );
-    }
-
-    const duration = this.shadowRoot.getElementById("duration");
-    if (duration && !this._hasYamlOption("duration")) {
-      duration.value = String(this._config.duration);
-    }
-
-    const step = this.shadowRoot.getElementById("step");
-    if (step && !this._hasYamlOption("step")) {
-      step.value = String(this._config.step);
-    }
-
-    const exportDuration =
-      this.shadowRoot.getElementById("archive-export-duration");
-    if (
-      exportDuration &&
-      !this._hasYamlOption("export_default_duration")
-    ) {
-      const wanted = String(this._config.export_default_duration || 300);
-
-      if (
-        ![...exportDuration.options].some(
-          (option) => option.value === wanted
-        )
-      ) {
-        const option = document.createElement("option");
-        option.value = wanted;
-        option.textContent = this._formatStep(Number(wanted));
-        exportDuration.appendChild(option);
-      }
-
-      exportDuration.value = wanted;
-    }
-
-    this._renderArchiveExports();
-    this._renderRuntimeStatus();
-  }
-
-  async _resolveLiveEntity() {
-    if (
-      this._liveEntityId &&
-      this._openDoorEntityId &&
-      this._lastCallEntityId
-    ) {
-      return this._liveEntityId;
-    }
-
-    try {
-      const entities = this._deviceRegistryEntities || await this._hass.callWS({
-        type: "config/entity_registry/list",
-      });
-      this._deviceRegistryEntities = entities;
-
-      const sameDevice = Array.isArray(entities)
-        ? entities.filter((item) => item?.device_id === this._deviceId)
-        : [];
-
-      const cameras = sameDevice.filter((item) =>
-        String(item?.entity_id || "").startsWith("camera.")
-      );
-
-      const live = cameras.find((item) => {
-        const uniqueId = String(item?.unique_id || "");
-        return (
-          !uniqueId.includes("_archive_camera_") &&
-          uniqueId.includes("_camera_")
-        );
-      });
-
-      if (live?.entity_id && !this._config.live_entity) {
-        this._liveEntityId = live.entity_id;
-      }
-
-      const nonArchive = cameras.find(
-        (item) => !String(item?.unique_id || "").includes("_archive_camera_")
-      );
-      if (!this._liveEntityId && nonArchive?.entity_id) {
-        this._liveEntityId = nonArchive.entity_id;
-      }
-
-      const doorEntities = sameDevice.filter((item) =>
-        String(item?.entity_id || "").startsWith("button.")
-      );
-      const primaryDoor = doorEntities.find(
-        (item) => String(item?.unique_id || "").endsWith("_open_door_1")
-      );
-      const anyDoor = doorEntities.find(
-        (item) => String(item?.unique_id || "").includes("_open_door_")
-      );
-      this._openDoorEntityId =
-        this._config.open_door_entity ||
-        primaryDoor?.entity_id ||
-        anyDoor?.entity_id ||
-        this._openDoorEntityId;
-
-      const sensors = sameDevice.filter((item) =>
-        String(item?.entity_id || "").startsWith("sensor.")
-      );
-      const lastCall = sensors.find(
-        (item) => String(item?.unique_id || "").endsWith("_last_call")
-      );
-      if (lastCall?.entity_id) {
-        this._lastCallEntityId = lastCall.entity_id;
-      }
-    } catch (_err) {
-      // Fall back below.
-    }
-
-    this._liveEntityId =
-      this._config.live_entity ||
-      this._liveEntityId ||
-      this._config.entity ||
-      null;
-
-    if (this._lastCallEntityId && this._hass?.states?.[this._lastCallEntityId]) {
-      this._lastCallStateSeen =
-        this._hass.states[this._lastCallEntityId].state || null;
-    }
-
-    return this._liveEntityId;
-  }
-
-  _entityAvailable(entityId) {
-    if (!entityId || !this._hass?.states?.[entityId]) return false;
-    return !["unavailable", "unknown"].includes(
-      String(this._hass.states[entityId].state || "")
-    );
-  }
-
-  _lastCallState() {
-    if (!this._lastCallEntityId || !this._hass?.states) return null;
-    const state = this._hass.states[this._lastCallEntityId];
-    if (!state || ["unknown", "unavailable"].includes(state.state)) return null;
-    const epoch = Date.parse(state.state) / 1000;
-    if (!Number.isFinite(epoch)) return null;
-    return { state, epoch };
-  }
-
-  _formatRelativeEpoch(epoch) {
-    const deltaSeconds = Math.round(epoch - Date.now() / 1000);
-    const abs = Math.abs(deltaSeconds);
-    const formatter = new Intl.RelativeTimeFormat("ru-RU", { numeric: "auto" });
-
-    if (abs < 60) return formatter.format(deltaSeconds, "second");
-    if (abs < 3600) return formatter.format(Math.round(deltaSeconds / 60), "minute");
-    if (abs < 86400) return formatter.format(Math.round(deltaSeconds / 3600), "hour");
-    return formatter.format(Math.round(deltaSeconds / 86400), "day");
-  }
-
-  _renderLiveMeta() {
-    const cameraState = this.shadowRoot.getElementById("live-camera-state");
-    const doorState = this.shadowRoot.getElementById("live-door-state");
-    const doorButton = this.shadowRoot.getElementById("live-open-door");
-    const callBox = this.shadowRoot.getElementById("live-last-call");
-    const callTime = this.shadowRoot.getElementById("live-last-call-time");
-    const callAddress = this.shadowRoot.getElementById("live-last-call-address");
-    const archiveButton = this.shadowRoot.getElementById("live-open-call-archive");
-    const previewButton = this.shadowRoot.getElementById("live-open-call-preview");
-
-    const cameraAvailable = this._entityAvailable(this._liveEntityId);
-    const doorAvailable = this._entityAvailable(this._openDoorEntityId);
-
-    if (cameraState) {
-      cameraState.textContent = cameraAvailable ? "ĞšĞ°Ğ¼ĞµÑ€Ğ° online" : "ĞšĞ°Ğ¼ĞµÑ€Ğ° Ğ½ĞµĞ´Ğ¾ÑÑ‚ÑƒĞ¿Ğ½Ğ°";
-      cameraState.dataset.available = cameraAvailable ? "true" : "false";
-    }
-    if (doorState) {
-      doorState.textContent = doorAvailable ? "Ğ”Ğ¾Ğ¼Ğ¾Ñ„Ğ¾Ğ½ Ğ´Ğ¾ÑÑ‚ÑƒĞ¿ĞµĞ½" : "Ğ”Ğ¾Ğ¼Ğ¾Ñ„Ğ¾Ğ½ Ğ½ĞµĞ´Ğ¾ÑÑ‚ÑƒĞ¿ĞµĞ½";
-      doorState.dataset.available = doorAvailable ? "true" : "false";
-    }
-    if (doorButton) {
-      doorButton.disabled = !doorAvailable;
-      doorButton.title = this._openDoorEntityId || "ĞšĞ½Ğ¾Ğ¿ĞºĞ° Ğ¾Ñ‚ĞºÑ€Ñ‹Ñ‚Ğ¸Ñ Ğ´Ğ²ĞµÑ€Ğ¸ Ğ½Ğµ Ğ½Ğ°Ğ¹Ğ´ĞµĞ½Ğ°";
-    }
-
-    const lastCall = this._lastCallState();
-    if (!lastCall) {
-      if (callBox) callBox.dataset.empty = "true";
-      if (callTime) callTime.textContent = "Ğ—Ğ²Ğ¾Ğ½ĞºĞ¾Ğ² Ğ¿Ğ¾ĞºĞ° Ğ½ĞµÑ‚";
-      if (callAddress) callAddress.textContent = "";
-      if (archiveButton) archiveButton.disabled = true;
-      if (previewButton) previewButton.hidden = true;
-      return;
-    }
-
-    if (callBox) callBox.dataset.empty = "false";
-
-    if (callTime) {
-      callTime.textContent =
-        `${this._formatDisplayTime(lastCall.epoch)} â€¢ ` +
-        `${this._formatRelativeEpoch(lastCall.epoch)}`;
-    }
-
-    const attrs = lastCall.state.attributes || {};
-    const addressParts = [];
-    if (attrs.address) addressParts.push(String(attrs.address));
-    if (attrs.porch != null && String(attrs.porch) !== "") {
-      addressParts.push(`Ğ¿Ğ¾Ğ´ÑŠĞµĞ·Ğ´ ${attrs.porch}`);
-    }
-    if (attrs.flat != null && String(attrs.flat) !== "") {
-      addressParts.push(`ĞºĞ². ${attrs.flat}`);
-    }
-    if (callAddress) {
-      callAddress.textContent = addressParts.join(", ") || "Ğ”Ğ¾Ğ¼Ğ¾Ñ„Ğ¾Ğ½";
-    }
-
-    if (archiveButton) archiveButton.disabled = false;
-    if (previewButton) {
-      previewButton.hidden = !attrs.preview_url;
-      previewButton.dataset.url = attrs.preview_url || "";
-    }
-  }
-
-  _flashNewLiveCall() {
-    const box = this.shadowRoot.getElementById("live-last-call");
-    const tab = this.shadowRoot.getElementById("tab-live");
-    box?.classList.add("new-call");
-    tab?.classList.add("new-call");
-
-    if (this._liveCallFlashTimer) {
-      clearTimeout(this._liveCallFlashTimer);
-    }
-    this._liveCallFlashTimer = setTimeout(() => {
-      box?.classList.remove("new-call");
-      tab?.classList.remove("new-call");
-      this._liveCallFlashTimer = null;
-    }, 7000);
-
-    this._setStatus("ĞĞ¾Ğ²Ñ‹Ğ¹ Ğ·Ğ²Ğ¾Ğ½Ğ¾Ğº Ğ² Ğ´Ğ¾Ğ¼Ğ¾Ñ„Ğ¾Ğ½", "warning");
-  }
-
-  async _openDoorFromLive() {
-    if (!this._openDoorEntityId || !this._entityAvailable(this._openDoorEntityId)) {
-      this._setStatus("ĞšĞ½Ğ¾Ğ¿ĞºĞ° Ğ¾Ñ‚ĞºÑ€Ñ‹Ñ‚Ğ¸Ñ Ğ´Ğ²ĞµÑ€Ğ¸ Ğ½ĞµĞ´Ğ¾ÑÑ‚ÑƒĞ¿Ğ½Ğ°", "error");
-      return;
-    }
-
-    const confirmed = window.confirm(
-      "ĞÑ‚ĞºÑ€Ñ‹Ñ‚ÑŒ Ğ´Ğ²ĞµÑ€ÑŒ Ğ´Ğ¾Ğ¼Ğ¾Ñ„Ğ¾Ğ½Ğ° ÑĞµĞ¹Ñ‡Ğ°Ñ?"
-    );
-    if (!confirmed) return;
-
-    const button = this.shadowRoot.getElementById("live-open-door");
-    if (button) button.disabled = true;
-    this._setStatus("ĞÑ‚ĞºÑ€Ñ‹Ğ²Ğ°Ñ Ğ´Ğ²ĞµÑ€ÑŒâ€¦", "info");
-
-    try {
-      await this._hass.callWS({
-        type: "call_service",
-        domain: "button",
-        service: "press",
-        service_data: { entity_id: this._openDoorEntityId },
-      });
-      this._setStatus("Ufanet Ğ¿Ğ¾Ğ´Ñ‚Ğ²ĞµÑ€Ğ´Ğ¸Ğ» ĞºĞ¾Ğ¼Ğ°Ğ½Ğ´Ñƒ Ğ¾Ñ‚ĞºÑ€Ñ‹Ñ‚Ğ¸Ñ Ğ´Ğ²ĞµÑ€Ğ¸", "ok");
-    } catch (err) {
-      this._setStatus(this._errorText(err), "error");
-    } finally {
-      this._renderLiveMeta();
-    }
-  }
-
-  async _openLastCallArchive() {
-    const lastCall = this._lastCallState();
-    if (!lastCall) return;
-
-    this._setActiveTab("archive", false);
-    await this._loadCallEvent({ timestamp: lastCall.epoch });
-  }
-
-  _openLastCallPreview() {
-    const lastCall = this._lastCallState();
-    const url = lastCall?.state?.attributes?.preview_url;
-    if (url) {
-      window.open(url, "_blank", "noopener,noreferrer");
-    }
-  }
-
-  async _refreshLivePanel() {
-    this._setStatus("ĞĞ±Ğ½Ğ¾Ğ²Ğ»ĞµĞ½Ğ¸Ğµ LIVEâ€¦", "info");
-
-    try {
-      const entities = [this._liveEntityId, this._lastCallEntityId]
-        .filter(Boolean);
-      if (entities.length) {
-        await this._hass.callWS({
-          type: "call_service",
-          domain: "homeassistant",
-          service: "update_entity",
-          service_data: { entity_id: entities },
-        });
-      }
-    } catch (_err) {
-      // Recreating the live card below is still useful if update_entity is not
-      // supported by a particular entity.
-    }
-
-    const host = this.shadowRoot.getElementById("live-host");
-    if (this._liveCard) {
-      this._liveCard.remove();
-      this._liveCard = null;
-    }
-    if (host) {
-      host.innerHTML = '<div class="panel-message">ĞŸĞµÑ€ĞµĞ·Ğ°Ğ¿ÑƒÑĞº live-Ğ¿Ğ¾Ñ‚Ğ¾ĞºĞ°â€¦</div>';
-    }
-
-    await this._ensureLiveCard();
-    this._renderLiveMeta();
-    this._setStatus("LIVE Ğ¾Ğ±Ğ½Ğ¾Ğ²Ğ»Ñ‘Ğ½", "ok");
-  }
-
-  _setActiveTab(tab, updateStatus = true) {
-    const normalized = ["live", "archive", "guests", "diagnostics"].includes(tab)
-      ? tab
-      : "archive";
-    this._activeTab = normalized;
-
-    for (const name of ["live", "archive", "guests", "diagnostics"]) {
-      const panel = this.shadowRoot.getElementById(`panel-${name}`);
-      const button = this.shadowRoot.getElementById(`tab-${name}`);
-      if (panel) {
-        panel.hidden = name !== normalized;
-      }
-      if (button) {
-        const active = name === normalized;
-        button.classList.toggle("active", active);
-        button.setAttribute("aria-selected", active ? "true" : "false");
-      }
-    }
-
-    if (normalized === "live") {
-      void this._ensureLiveCard();
-      this._renderLiveMeta();
-    } else if (normalized === "archive") {
-      if (!this._archiveExportsLoaded) {
-        void this._refreshArchiveExports(false);
-      }
-    } else if (normalized === "guests") {
-      void this._refreshGuestAccess(false);
-    } else if (normalized === "diagnostics") {
-      void this._refreshRuntimeStatus(false);
-    }
-
-    if (updateStatus) {
-      const names = {
-        live: "LIVE",
-        archive: "ĞÑ€Ñ…Ğ¸Ğ²",
-        guests: "Ğ“Ğ¾ÑÑ‚Ğ¸",
-        diagnostics: "Ğ”Ğ¸Ğ°Ğ³Ğ½Ğ¾ÑÑ‚Ğ¸ĞºĞ°",
-      };
-      this._setStatus(`Ğ Ğ°Ğ·Ğ´ĞµĞ»: ${names[normalized]}`, "info");
-    }
-  }
-
-  async _ensureLiveCard() {
-    const host = this.shadowRoot.getElementById("live-host");
-    if (!host || !this._hass) return;
-
-    await this._resolveLiveEntity();
-    if (!this._liveEntityId || !this._hass.states?.[this._liveEntityId]) {
-      host.innerHTML = `
-        <div class="panel-message">
-          Live-ĞºĞ°Ğ¼ĞµÑ€Ğ° Ğ½Ğµ Ğ½Ğ°Ğ¹Ğ´ĞµĞ½Ğ° Ğ°Ğ²Ñ‚Ğ¾Ğ¼Ğ°Ñ‚Ğ¸Ñ‡ĞµÑĞºĞ¸.<br>
-          Ğ£ĞºĞ°Ğ¶Ğ¸Ñ‚Ğµ <code>live_entity: camera....</code> Ğ² YAML ĞºĞ°Ñ€Ñ‚Ğ¾Ñ‡ĞºĞ¸.
-        </div>
-      `;
-      return;
-    }
-
-    if (this._liveCard) {
-      this._liveCard.hass = this._hass;
-      return;
-    }
-
-    try {
-      const helpers = await window.loadCardHelpers();
-      const card = await helpers.createCardElement({
-        type: "picture-entity",
-        entity: this._liveEntityId,
-        camera_view: "live",
-        show_name: false,
-        show_state: false,
-      });
-      card.hass = this._hass;
-      this._liveCard = card;
-      host.textContent = "";
-      host.appendChild(card);
-
-      const label = this.shadowRoot.getElementById("live-entity-label");
-      if (label) label.textContent = this._liveEntityId;
-      this._renderLiveMeta();
-    } catch (err) {
-      host.innerHTML = `<div class="panel-message error">${this._escapeHtml(this._errorText(err))}</div>`;
-    }
-  }
-
-  async _refreshGuestAccess(force = false) {
-    if (!this._deviceId || !this._hass) return;
-    if (this._guestLoading) return;
-    if (this._guestAccess && !force) {
-      this._renderGuestAccess();
-      return;
-    }
-
-    this._guestLoading = true;
-    this._setGuestStatus("Ğ—Ğ°Ğ³Ñ€ÑƒĞ·ĞºĞ° Ğ³Ğ¾ÑÑ‚ĞµĞ²Ñ‹Ñ… Ğ´Ğ¾ÑÑ‚ÑƒĞ¿Ğ¾Ğ²â€¦", "info");
-    this._setGuestButtonsDisabled(true);
-
-    try {
-      this._guestAccess = await this._callResponseService("get_guest_access", {
-        device_id: this._deviceId,
-      });
-      this._renderGuestAccess();
-      this._setGuestStatus("Ğ“Ğ¾ÑÑ‚ĞµĞ²Ñ‹Ğµ Ğ´Ğ¾ÑÑ‚ÑƒĞ¿Ñ‹ Ğ¾Ğ±Ğ½Ğ¾Ğ²Ğ»ĞµĞ½Ñ‹", "ok");
-    } catch (err) {
-      this._setGuestStatus(this._errorText(err), "error");
-    } finally {
-      this._guestLoading = false;
-      this._setGuestButtonsDisabled(false);
-    }
-  }
-
-  async _createGuestInvite() {
-    if (!this._deviceId || this._guestLoading) return;
-
-    const confirmed = window.confirm(
-      "Ğ¡Ğ¾Ğ·Ğ´Ğ°Ñ‚ÑŒ Ğ½Ğ¾Ğ²ÑƒÑ ÑÑÑ‹Ğ»ĞºÑƒ-Ğ¿Ñ€Ğ¸Ğ³Ğ»Ğ°ÑˆĞµĞ½Ğ¸Ğµ Ğ½Ğ° Ğ´Ğ¾ÑÑ‚ÑƒĞ¿ Ğº Ğ´Ğ¾Ğ¼Ğ¾Ñ„Ğ¾Ğ½Ñƒ? " +
-      "Ğ›ÑĞ±Ğ¾Ğ¹, ĞºÑ‚Ğ¾ Ğ¿Ğ¾Ğ»ÑƒÑ‡Ğ¸Ñ‚ ÑÑ‚Ñƒ ÑÑÑ‹Ğ»ĞºÑƒ Ğ¸ ÑĞ¼Ğ¾Ğ¶ĞµÑ‚ Ğ¿Ñ€Ğ¸Ğ½ÑÑ‚ÑŒ Ğ¿Ñ€Ğ¸Ğ³Ğ»Ğ°ÑˆĞµĞ½Ğ¸Ğµ, " +
-      "Ğ¼Ğ¾Ğ¶ĞµÑ‚ Ğ¿Ğ¾Ğ»ÑƒÑ‡Ğ¸Ñ‚ÑŒ Ğ³Ğ¾ÑÑ‚ĞµĞ²Ğ¾Ğ¹ Ğ´Ğ¾ÑÑ‚ÑƒĞ¿."
-    );
-    if (!confirmed) return;
-
-    this._guestLoading = true;
-    this._setGuestButtonsDisabled(true);
-    this._setGuestStatus("Ğ¡Ğ¾Ğ·Ğ´Ğ°Ğ½Ğ¸Ğµ Ğ¿Ñ€Ğ¸Ğ³Ğ»Ğ°ÑˆĞµĞ½Ğ¸Ñâ€¦", "info");
-
-    try {
-      const response = await this._callResponseService("create_guest_invite", {
-        device_id: this._deviceId,
-      });
-
-      if (!response?.url) {
-        throw new Error("API Ğ½Ğµ Ğ²ĞµÑ€Ğ½ÑƒĞ» ÑÑÑ‹Ğ»ĞºÑƒ Ğ¿Ñ€Ğ¸Ğ³Ğ»Ğ°ÑˆĞµĞ½Ğ¸Ñ");
-      }
-
-      this._guestInviteUrl = response.url;
-
-      if (!this._guestAccess) {
-        this._guestAccess = {};
-      }
-      const generated = Array.isArray(this._guestAccess.generated_invites)
-        ? this._guestAccess.generated_invites
-        : [];
-      this._guestAccess.generated_invites = [
-        {
-          id: response.invite_id,
-          device_id: this._deviceId,
-          skud_id: response.skud_id,
-          url: response.url,
-          created_at: response.created_at,
-          access_id: response.access_id ?? null,
-          source: "local_generated",
-        },
-        ...generated.filter((item) => item?.id !== response.invite_id),
-      ];
-      this._guestAccess.generated_count = this._guestAccess.generated_invites.length;
-
-      this._renderGuestAccess();
-      this._renderGuestInvite();
-      this._setGuestStatus(
-        "ĞŸÑ€Ğ¸Ğ³Ğ»Ğ°ÑˆĞµĞ½Ğ¸Ğµ ÑĞ¾Ğ·Ğ´Ğ°Ğ½Ğ¾ Ğ¸ ÑĞ¾Ñ…Ñ€Ğ°Ğ½ĞµĞ½Ğ¾ Ğ»Ğ¾ĞºĞ°Ğ»ÑŒĞ½Ğ¾ Ğ² Home Assistant. " +
-        "Ğ¡Ñ‚Ğ°Ñ‚ÑƒÑ Ğ¿Ñ€Ğ¸Ğ½ÑÑ‚Ğ¸Ñ ÑĞµÑ€Ğ²ĞµÑ€ Ğ´Ğ»Ñ Ñ‚Ğ°ĞºĞ¾Ğ¹ ÑÑÑ‹Ğ»ĞºĞ¸ Ğ¾Ñ‚Ğ´ĞµĞ»ÑŒĞ½Ğ¾ Ğ½Ğµ ÑĞ¾Ğ¾Ğ±Ñ‰Ğ°ĞµÑ‚.",
-        "ok"
-      );
-    } catch (err) {
-      this._setGuestStatus(this._errorText(err), "error");
-    } finally {
-      this._guestLoading = false;
-      this._setGuestButtonsDisabled(false);
-    }
-  }
-
-  async _forgetGeneratedGuestInvite(item) {
-    if (!item?.id || !this._deviceId || this._guestLoading) return;
-
-    const confirmed = window.confirm(
-      "Ğ£Ğ±Ñ€Ğ°Ñ‚ÑŒ ÑÑ‚Ñƒ ÑÑÑ‹Ğ»ĞºÑƒ Ğ¸Ğ· Ğ»Ğ¾ĞºĞ°Ğ»ÑŒĞ½Ğ¾Ğ³Ğ¾ ÑĞ¿Ğ¸ÑĞºĞ° Home Assistant? " +
-      "Ğ­Ñ‚Ğ¾ ĞĞ• Ğ¾Ñ‚Ğ·Ğ¾Ğ²Ñ‘Ñ‚ Ğ¿Ñ€Ğ¸Ğ³Ğ»Ğ°ÑˆĞµĞ½Ğ¸Ğµ Ğ½Ğ° ÑĞµÑ€Ğ²ĞµÑ€Ğµ Ufanet."
-    );
-    if (!confirmed) return;
-
-    this._guestLoading = true;
-    this._setGuestButtonsDisabled(true);
-    this._setGuestStatus("Ğ£Ğ´Ğ°Ğ»ĞµĞ½Ğ¸Ğµ Ğ»Ğ¾ĞºĞ°Ğ»ÑŒĞ½Ğ¾Ğ¹ Ğ·Ğ°Ğ¿Ğ¸ÑĞ¸â€¦", "info");
-
-    try {
-      await this._callResponseService("forget_guest_invite", {
-        device_id: this._deviceId,
-        invite_id: item.id,
-      });
-
-      if (this._guestInviteUrl === item.url) {
-        this._guestInviteUrl = null;
-      }
-
-      const generated = Array.isArray(this._guestAccess?.generated_invites)
-        ? this._guestAccess.generated_invites
-        : [];
-      this._guestAccess.generated_invites = generated.filter(
-        (candidate) => candidate?.id !== item.id
-      );
-      this._guestAccess.generated_count = this._guestAccess.generated_invites.length;
-
-      this._renderGuestAccess();
-      this._setGuestStatus(
-        "Ğ›Ğ¾ĞºĞ°Ğ»ÑŒĞ½Ğ°Ñ Ğ·Ğ°Ğ¿Ğ¸ÑÑŒ ÑƒĞ´Ğ°Ğ»ĞµĞ½Ğ°. Ğ¡ĞµÑ€Ğ²ĞµÑ€Ğ½Ğ¾Ğµ Ğ¿Ñ€Ğ¸Ğ³Ğ»Ğ°ÑˆĞµĞ½Ğ¸Ğµ Ğ½Ğµ Ğ¾Ñ‚Ğ·Ñ‹Ğ²Ğ°Ğ»Ğ¾ÑÑŒ.",
-        "ok"
-      );
-    } catch (err) {
-      this._setGuestStatus(this._errorText(err), "error");
-    } finally {
-      this._guestLoading = false;
-      this._setGuestButtonsDisabled(false);
-    }
-  }
-
-  async _revokeSharedAccess(item) {
-    if (!item?.access_id || !this._deviceId || this._guestLoading) return;
-
-    const identity = item.name || item.username || `access_id ${item.access_id}`;
-    const confirmed = window.confirm(
-      `ĞÑ‚Ğ¾Ğ·Ğ²Ğ°Ñ‚ÑŒ Ğ³Ğ¾ÑÑ‚ĞµĞ²Ğ¾Ğ¹ Ğ´Ğ¾ÑÑ‚ÑƒĞ¿ Ñƒ ${identity}?\n\n` +
-      `access_id: ${item.access_id}\n` +
-      "ĞŸĞ¾ÑĞ»Ğµ Ğ¿Ğ¾Ğ´Ñ‚Ğ²ĞµÑ€Ğ¶Ğ´ĞµĞ½Ğ¸Ñ Ğ´Ğ¾ÑÑ‚ÑƒĞ¿ Ğº Ğ´Ğ¾Ğ¼Ğ¾Ñ„Ğ¾Ğ½Ñƒ Ğ±ÑƒĞ´ĞµÑ‚ ÑƒĞ´Ğ°Ğ»Ñ‘Ğ½ Ğ½Ğ° ÑĞµÑ€Ğ²ĞµÑ€Ğµ Ufanet."
-    );
-    if (!confirmed) return;
-
-    this._guestLoading = true;
-    this._setGuestButtonsDisabled(true);
-    this._setGuestStatus(`ĞÑ‚Ğ·Ñ‹Ğ² Ğ´Ğ¾ÑÑ‚ÑƒĞ¿Ğ° ${identity}â€¦`, "info");
-
-    try {
-      await this._callResponseService("revoke_shared_access", {
-        device_id: this._deviceId,
-        access_id: Number(item.access_id),
-      });
-
-      const shared = Array.isArray(this._guestAccess?.shared_users)
-        ? this._guestAccess.shared_users
-        : [];
-      this._guestAccess.shared_users = shared.filter(
-        (candidate) => String(candidate?.access_id) !== String(item.access_id)
-      );
-      this._guestAccess.shared_count = this._guestAccess.shared_users.length;
-      this._renderGuestAccess();
-
-      this._setGuestStatus(
-        `Ğ”Ğ¾ÑÑ‚ÑƒĞ¿ ${identity} Ğ¾Ñ‚Ğ¾Ğ·Ğ²Ğ°Ğ½. ĞŸÑ€Ğ¾Ğ²ĞµÑ€ÑÑ ÑĞ¿Ğ¸ÑĞ¾Ğº Ğ½Ğ° ÑĞµÑ€Ğ²ĞµÑ€Ğµâ€¦`,
-        "ok"
-      );
-
-      // Server-side verification is also performed by the HA action.
-      // Refresh once more so the UI mirrors the authoritative list.
-      this._guestAccess = null;
-    } catch (err) {
-      this._setGuestStatus(this._errorText(err), "error");
-      this._guestLoading = false;
-      this._setGuestButtonsDisabled(false);
-      return;
-    }
-
-    this._guestLoading = false;
-    this._setGuestButtonsDisabled(false);
-    await this._refreshGuestAccess(true);
-  }
-
-  async _createTemporaryGuestLink() {
-    if (!this._deviceId || this._guestLoading) return;
-
-    const select = this.shadowRoot.getElementById("temporary-duration");
-    const durationMinutes = Number(select?.value || 60);
-    if (!Number.isFinite(durationMinutes) || durationMinutes < 1) {
-      this._setGuestStatus("ĞĞµĞºĞ¾Ñ€Ñ€ĞµĞºÑ‚Ğ½Ğ°Ñ Ğ´Ğ»Ğ¸Ñ‚ĞµĞ»ÑŒĞ½Ğ¾ÑÑ‚ÑŒ Ğ²Ñ€ĞµĞ¼ĞµĞ½Ğ½Ğ¾Ğ³Ğ¾ ĞºĞ»ÑÑ‡Ğ°", "error");
-      return;
-    }
-
-    const hours = durationMinutes / 60;
-    const label = Number.isInteger(hours)
-      ? `${hours} Ñ‡`
-      : `${durationMinutes} Ğ¼Ğ¸Ğ½`;
-
-    const confirmed = window.confirm(
-      `Ğ¡Ğ¾Ğ·Ğ´Ğ°Ñ‚ÑŒ Ğ²Ñ€ĞµĞ¼ĞµĞ½Ğ½Ñ‹Ğ¹ ĞºĞ»ÑÑ‡ Ğ½Ğ° ${label}?\n\n` +
-      "Ğ¡ÑÑ‹Ğ»ĞºĞ° Ğ¿Ğ¾Ğ·Ğ²Ğ¾Ğ»Ğ¸Ñ‚ Ğ¾Ñ‚ĞºÑ€Ñ‹Ñ‚ÑŒ Ğ²Ñ‹Ğ±Ñ€Ğ°Ğ½Ğ½Ñ‹Ğ¹ Ğ´Ğ¾Ğ¼Ğ¾Ñ„Ğ¾Ğ½ Ğ´Ğ¾ Ğ¸ÑÑ‚ĞµÑ‡ĞµĞ½Ğ¸Ñ ÑÑ€Ğ¾ĞºĞ°."
-    );
-    if (!confirmed) return;
-
-    this._guestLoading = true;
-    this._setGuestButtonsDisabled(true);
-    this._setGuestStatus(`Ğ¡Ğ¾Ğ·Ğ´Ğ°Ğ½Ğ¸Ğµ Ğ²Ñ€ĞµĞ¼ĞµĞ½Ğ½Ğ¾Ğ³Ğ¾ ĞºĞ»ÑÑ‡Ğ° Ğ½Ğ° ${label}â€¦`, "info");
-
-    try {
-      const response = await this._callResponseService(
-        "create_temporary_guest_link",
-        {
-          device_id: this._deviceId,
-          duration_minutes: durationMinutes,
-        }
-      );
-
-      if (response?.link) {
-        this._guestTemporaryCreatedUrl = response.link;
-      }
-
-      this._setGuestStatus(
-        `Ğ’Ñ€ĞµĞ¼ĞµĞ½Ğ½Ñ‹Ğ¹ ĞºĞ»ÑÑ‡ Ğ½Ğ° ${label} ÑĞ¾Ğ·Ğ´Ğ°Ğ½. ĞĞ±Ğ½Ğ¾Ğ²Ğ»ÑÑ ÑĞµÑ€Ğ²ĞµÑ€Ğ½Ñ‹Ğ¹ ÑĞ¿Ğ¸ÑĞ¾Ğºâ€¦`,
-        "ok"
-      );
-    } catch (err) {
-      this._setGuestStatus(this._errorText(err), "error");
-      this._guestLoading = false;
-      this._setGuestButtonsDisabled(false);
-      return;
-    }
-
-    this._guestLoading = false;
-    this._setGuestButtonsDisabled(false);
-    this._guestAccess = null;
-    await this._refreshGuestAccess(true);
-  }
-
-  async _revokeTemporaryGuestLink(item) {
-    if (!item?.token || !this._deviceId || this._guestLoading) return;
-
-    const expiry = this._formatGuestExpiry(item.time_end);
-    const confirmed = window.confirm(
-      `ĞÑ‚Ğ¾Ğ·Ğ²Ğ°Ñ‚ÑŒ Ğ²Ñ€ĞµĞ¼ĞµĞ½Ğ½Ñ‹Ğ¹ ĞºĞ»ÑÑ‡${expiry ? ` (${expiry})` : ""}?\n\n` +
-      "Ğ¡ÑÑ‹Ğ»ĞºĞ° Ğ¿ĞµÑ€ĞµÑÑ‚Ğ°Ğ½ĞµÑ‚ Ğ´Ğ°Ğ²Ğ°Ñ‚ÑŒ Ğ²Ñ€ĞµĞ¼ĞµĞ½Ğ½Ñ‹Ğ¹ Ğ´Ğ¾ÑÑ‚ÑƒĞ¿ Ğº Ğ´Ğ¾Ğ¼Ğ¾Ñ„Ğ¾Ğ½Ñƒ."
-    );
-    if (!confirmed) return;
-
-    this._guestLoading = true;
-    this._setGuestButtonsDisabled(true);
-    this._setGuestStatus("ĞÑ‚Ğ·Ñ‹Ğ² Ğ²Ñ€ĞµĞ¼ĞµĞ½Ğ½Ğ¾Ğ³Ğ¾ ĞºĞ»ÑÑ‡Ğ°â€¦", "info");
-
-    try {
-      await this._callResponseService("revoke_temporary_guest_link", {
-        device_id: this._deviceId,
-        token: item.token,
-      });
-
-      const current = Array.isArray(this._guestAccess?.temporary_links)
-        ? this._guestAccess.temporary_links
-        : [];
-      this._guestAccess.temporary_links = current.filter(
-        (candidate) => candidate?.token !== item.token
-      );
-      this._guestAccess.temporary_count =
-        this._guestAccess.temporary_links.length;
-      this._renderGuestAccess();
-
-      this._setGuestStatus(
-        "Ğ’Ñ€ĞµĞ¼ĞµĞ½Ğ½Ñ‹Ğ¹ ĞºĞ»ÑÑ‡ Ğ¾Ñ‚Ğ¾Ğ·Ğ²Ğ°Ğ½. ĞŸÑ€Ğ¾Ğ²ĞµÑ€ÑÑ ÑĞµÑ€Ğ²ĞµÑ€Ğ½Ñ‹Ğ¹ ÑĞ¿Ğ¸ÑĞ¾Ğºâ€¦",
-        "ok"
-      );
-    } catch (err) {
-      this._setGuestStatus(this._errorText(err), "error");
-      this._guestLoading = false;
-      this._setGuestButtonsDisabled(false);
-      return;
-    }
-
-    this._guestLoading = false;
-    this._setGuestButtonsDisabled(false);
-    this._guestAccess = null;
-    await this._refreshGuestAccess(true);
-  }
-
-  _formatGuestExpiry(value) {
-    if (!value) return "";
-    try {
-      return `Ğ´Ğ¾ ${new Intl.DateTimeFormat("ru-RU", {
-        dateStyle: "short",
-        timeStyle: "medium",
-      }).format(new Date(value))}`;
-    } catch (_err) {
-      return `Ğ´Ğ¾ ${value}`;
-    }
-  }
-
-  _renderGuestAccess() {
-    const generatedHost = this.shadowRoot.getElementById("guest-generated-list");
-    const temporaryHost = this.shadowRoot.getElementById("guest-temporary-list");
-    const sharedHost = this.shadowRoot.getElementById("guest-shared-list");
-    const counts = this.shadowRoot.getElementById("guest-counts");
-    if (!generatedHost || !temporaryHost || !sharedHost) return;
-
-    generatedHost.textContent = "";
-    temporaryHost.textContent = "";
-    sharedHost.textContent = "";
-
-    const generated = Array.isArray(this._guestAccess?.generated_invites)
-      ? this._guestAccess.generated_invites
-      : [];
-    const temporary = Array.isArray(this._guestAccess?.temporary_links)
-      ? this._guestAccess.temporary_links
-      : [];
-    const shared = Array.isArray(this._guestAccess?.shared_users)
-      ? this._guestAccess.shared_users
-      : [];
-
-    if (counts) {
-      counts.textContent =
-        `Ğ¡Ğ¾Ğ·Ğ´Ğ°Ğ½Ğ½Ñ‹Ğµ Ğ¿Ñ€Ğ¸Ğ³Ğ»Ğ°ÑˆĞµĞ½Ğ¸Ñ: ${generated.length} â€¢ ` +
-        `Ğ’Ñ€ĞµĞ¼ĞµĞ½Ğ½Ñ‹Ğµ ÑÑÑ‹Ğ»ĞºĞ¸: ${temporary.length} â€¢ ` +
-        `Shared-Ğ¿Ğ¾Ğ»ÑŒĞ·Ğ¾Ğ²Ğ°Ñ‚ĞµĞ»Ğ¸: ${shared.length}`;
-    }
-
-    if (!generated.length) {
-      const empty = document.createElement("div");
-      empty.className = "guest-empty";
-      empty.textContent =
-        "Ğ¡Ğ¾Ñ…Ñ€Ğ°Ğ½Ñ‘Ğ½Ğ½Ñ‹Ñ… Ğ¿Ñ€Ğ¸Ğ³Ğ»Ğ°ÑˆĞµĞ½Ğ¸Ğ¹ Ğ½ĞµÑ‚. ĞĞ¾Ğ²Ñ‹Ğµ ÑÑÑ‹Ğ»ĞºĞ¸ Ğ±ÑƒĞ´ÑƒÑ‚ ÑĞ¾Ñ…Ñ€Ğ°Ğ½ÑÑ‚ÑŒÑÑ Ğ² Home Assistant Ğ°Ğ²Ñ‚Ğ¾Ğ¼Ğ°Ñ‚Ğ¸Ñ‡ĞµÑĞºĞ¸.";
-      generatedHost.appendChild(empty);
-    } else {
-      for (const item of generated) {
-        const row = document.createElement("div");
-        row.className = "guest-row";
-
-        const main = document.createElement("div");
-        main.className = "guest-row-main";
-
-        const title = document.createElement("div");
-        title.className = "guest-row-title";
-        title.textContent = "Shared-Ğ¿Ñ€Ğ¸Ğ³Ğ»Ğ°ÑˆĞµĞ½Ğ¸Ğµ";
-
-        const details = [];
-        if (item.created_at) {
-          try {
-            details.push(
-              `ÑĞ¾Ğ·Ğ´Ğ°Ğ½Ğ¾ ${new Intl.DateTimeFormat("ru-RU", {
-                dateStyle: "short",
-                timeStyle: "medium",
-              }).format(new Date(item.created_at))}`
-            );
-          } catch (_err) {
-            details.push(`ÑĞ¾Ğ·Ğ´Ğ°Ğ½Ğ¾ ${item.created_at}`);
-          }
-        }
-        details.push("ÑĞ¾Ñ…Ñ€Ğ°Ğ½ĞµĞ½Ğ¾ Ğ»Ğ¾ĞºĞ°Ğ»ÑŒĞ½Ğ¾");
-        details.push("ÑÑ‚Ğ°Ñ‚ÑƒÑ Ğ¿Ñ€Ğ¸Ğ½ÑÑ‚Ğ¸Ñ Ğ½ĞµĞ¸Ğ·Ğ²ĞµÑÑ‚ĞµĞ½");
-
-        const meta = document.createElement("div");
-        meta.className = "guest-row-meta";
-        meta.textContent = details.join(" â€¢ ");
-
-        main.append(title, meta);
-
-        const actions = document.createElement("div");
-        actions.className = "guest-row-actions";
-
-        if (item.url) {
-          const copy = document.createElement("button");
-          copy.type = "button";
-          copy.className = "small-button";
-          copy.textContent = "ĞšĞ¾Ğ¿Ğ¸Ñ€Ğ¾Ğ²Ğ°Ñ‚ÑŒ";
-          copy.addEventListener("click", () => void this._copyText(item.url));
-
-          const open = document.createElement("button");
-          open.type = "button";
-          open.className = "small-button";
-          open.textContent = "ĞÑ‚ĞºÑ€Ñ‹Ñ‚ÑŒ";
-          open.addEventListener("click", () =>
-            window.open(item.url, "_blank", "noopener,noreferrer")
-          );
-
-          actions.append(copy, open);
-        }
-
-        const forget = document.createElement("button");
-        forget.type = "button";
-        forget.className = "small-button danger-button";
-        forget.textContent = "Ğ£Ğ±Ñ€Ğ°Ñ‚ÑŒ";
-        forget.title = "Ğ£Ğ´Ğ°Ğ»Ğ¸Ñ‚ÑŒ Ñ‚Ğ¾Ğ»ÑŒĞºĞ¾ Ğ»Ğ¾ĞºĞ°Ğ»ÑŒĞ½ÑƒÑ Ğ·Ğ°Ğ¿Ğ¸ÑÑŒ; ÑĞµÑ€Ğ²ĞµÑ€Ğ½Ğ¾Ğµ Ğ¿Ñ€Ğ¸Ğ³Ğ»Ğ°ÑˆĞµĞ½Ğ¸Ğµ Ğ½Ğµ Ğ¾Ñ‚Ğ·Ñ‹Ğ²Ğ°ĞµÑ‚ÑÑ";
-        forget.addEventListener("click", () =>
-          void this._forgetGeneratedGuestInvite(item)
-        );
-        actions.appendChild(forget);
-
-        row.append(main, actions);
-        generatedHost.appendChild(row);
-      }
-    }
-
-    if (!temporary.length) {
-      const empty = document.createElement("div");
-      empty.className = "guest-empty";
-      empty.textContent = "ĞĞºÑ‚Ğ¸Ğ²Ğ½Ñ‹Ñ… Ğ²Ñ€ĞµĞ¼ĞµĞ½Ğ½Ñ‹Ñ… ÑÑÑ‹Ğ»Ğ¾Ğº Ğ½ĞµÑ‚.";
-      temporaryHost.appendChild(empty);
-    } else {
-      for (const item of temporary) {
-        const row = document.createElement("div");
-        row.className = "guest-row";
-
-        const main = document.createElement("div");
-        main.className = "guest-row-main";
-        const title = document.createElement("div");
-        title.className = "guest-row-title";
-        title.textContent =
-          item.custom_name || item.name || "Ğ’Ñ€ĞµĞ¼ĞµĞ½Ğ½Ñ‹Ğ¹ ĞºĞ»ÑÑ‡";
-
-        const details = [];
-        const expiry = this._formatGuestExpiry(item.time_end);
-        if (expiry) details.push(expiry);
-        if (item.address) details.push(item.address);
-
-        const meta = document.createElement("div");
-        meta.className = "guest-row-meta";
-        meta.textContent = details.join(" â€¢ ") || "ĞĞºÑ‚Ğ¸Ğ²Ğ½Ñ‹Ğ¹ Ğ²Ñ€ĞµĞ¼ĞµĞ½Ğ½Ñ‹Ğ¹ ĞºĞ»ÑÑ‡";
-        main.append(title, meta);
-
-        const actions = document.createElement("div");
-        actions.className = "guest-row-actions";
-        if (item.link) {
-          const copy = document.createElement("button");
-          copy.type = "button";
-          copy.className = "small-button";
-          copy.textContent = "ĞšĞ¾Ğ¿Ğ¸Ñ€Ğ¾Ğ²Ğ°Ñ‚ÑŒ";
-          copy.addEventListener("click", () => void this._copyText(item.link));
-
-          const open = document.createElement("button");
-          open.type = "button";
-          open.className = "small-button";
-          open.textContent = "ĞÑ‚ĞºÑ€Ñ‹Ñ‚ÑŒ";
-          open.addEventListener("click", () =>
-            window.open(item.link, "_blank", "noopener,noreferrer")
-          );
-
-          actions.append(copy, open);
-        }
-
-        if (item.token) {
-          const revoke = document.createElement("button");
-          revoke.type = "button";
-          revoke.className = "small-button danger-button";
-          revoke.textContent = "ĞÑ‚Ğ¾Ğ·Ğ²Ğ°Ñ‚ÑŒ";
-          revoke.title = "Ğ£Ğ´Ğ°Ğ»Ğ¸Ñ‚ÑŒ Ğ²Ñ€ĞµĞ¼ĞµĞ½Ğ½Ñ‹Ğ¹ ĞºĞ»ÑÑ‡ Ğ½Ğ° ÑĞµÑ€Ğ²ĞµÑ€Ğµ Ufanet";
-          revoke.addEventListener("click", () =>
-            void this._revokeTemporaryGuestLink(item)
-          );
-          actions.appendChild(revoke);
-        }
-
-        row.append(main, actions);
-        temporaryHost.appendChild(row);
-      }
-    }
-
-    if (!shared.length) {
-      const empty = document.createElement("div");
-      empty.className = "guest-empty";
-      empty.textContent = "Shared-Ğ´Ğ¾ÑÑ‚ÑƒĞ¿ Ğ¿Ğ¾ĞºĞ° Ğ½Ğ¸ĞºĞ¾Ğ¼Ñƒ Ğ½Ğµ Ğ²Ñ‹Ğ´Ğ°Ğ½.";
-      sharedHost.appendChild(empty);
-    } else {
-      for (const item of shared) {
-        const row = document.createElement("div");
-        row.className = "guest-row";
-
-        const main = document.createElement("div");
-        main.className = "guest-row-main";
-        const title = document.createElement("div");
-        title.className = "guest-row-title";
-        title.textContent = item.name || item.username || `Ğ”Ğ¾ÑÑ‚ÑƒĞ¿ ${item.access_id ?? ""}`;
-
-        const details = [];
-        if (item.username && item.username !== item.name) details.push(item.username);
-        if (item.scope) details.push(`scope: ${item.scope}`);
-        if (item.expires_at) details.push(`Ğ´Ğ¾ ${item.expires_at}`);
-
-        const meta = document.createElement("div");
-        meta.className = "guest-row-meta";
-        meta.textContent = details.join(" â€¢ ") || "Shared access";
-
-        main.append(title, meta);
-
-        const actions = document.createElement("div");
-        actions.className = "guest-row-actions";
-
-        if (item.access_id) {
-          const revoke = document.createElement("button");
-          revoke.type = "button";
-          revoke.className = "small-button danger-button";
-          revoke.textContent = "ĞÑ‚Ğ¾Ğ·Ğ²Ğ°Ñ‚ÑŒ Ğ´Ğ¾ÑÑ‚ÑƒĞ¿";
-          revoke.title = `ĞÑ‚Ğ¾Ğ·Ğ²Ğ°Ñ‚ÑŒ accepted shared access ${item.access_id}`;
-          revoke.addEventListener("click", () =>
-            void this._revokeSharedAccess(item)
-          );
-          actions.appendChild(revoke);
-        }
-
-        row.append(main, actions);
-        sharedHost.appendChild(row);
-      }
-    }
-
-    this._renderGuestInvite();
-  }
-
-  _renderGuestInvite() {
-    const box = this.shadowRoot.getElementById("guest-invite-box");
-    const input = this.shadowRoot.getElementById("guest-invite-url");
-    if (!box || !input) return;
-
-    if (!this._guestInviteUrl) {
-      box.hidden = true;
-      input.value = "";
-      return;
-    }
-
-    box.hidden = false;
-    input.value = this._guestInviteUrl;
-  }
-
-  async _copyText(text) {
-    if (!text) return;
-
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        this._setGuestStatus("Ğ¡ÑÑ‹Ğ»ĞºĞ° ÑĞºĞ¾Ğ¿Ğ¸Ñ€Ğ¾Ğ²Ğ°Ğ½Ğ° Ğ² Ğ±ÑƒÑ„ĞµÑ€ Ğ¾Ğ±Ğ¼ĞµĞ½Ğ°", "ok");
-        return;
-      }
-    } catch (_err) {
-      // Fallback below.
-    }
-
-    const input = this.shadowRoot.getElementById("guest-invite-url");
-    if (input && input.value === text) {
-      input.focus();
-      input.select();
-      try {
-        document.execCommand("copy");
-        this._setGuestStatus("Ğ¡ÑÑ‹Ğ»ĞºĞ° ÑĞºĞ¾Ğ¿Ğ¸Ñ€Ğ¾Ğ²Ğ°Ğ½Ğ°", "ok");
-        return;
-      } catch (_err) {
-        // Fall through.
-      }
-    }
-
-    this._setGuestStatus("ĞĞµ ÑƒĞ´Ğ°Ğ»Ğ¾ÑÑŒ ÑĞºĞ¾Ğ¿Ğ¸Ñ€Ğ¾Ğ²Ğ°Ñ‚ÑŒ Ğ°Ğ²Ñ‚Ğ¾Ğ¼Ğ°Ñ‚Ğ¸Ñ‡ĞµÑĞºĞ¸ â€” Ğ²Ñ‹Ğ´ĞµĞ»Ğ¸Ñ‚Ğµ ÑÑÑ‹Ğ»ĞºÑƒ Ğ²Ñ€ÑƒÑ‡Ğ½ÑƒÑ.", "warning");
-  }
-
-  _setGuestButtonsDisabled(disabled) {
-    for (const id of ["refresh-guests", "create-guest-invite", "create-temporary-guest"]) {
-      const button = this.shadowRoot.getElementById(id);
-      if (button) button.disabled = disabled;
-    }
-  }
-
-  _setGuestStatus(message, type = "info") {
-    const status = this.shadowRoot.getElementById("guest-status");
-    if (!status) return;
-    status.textContent = message || "";
-    status.dataset.type = type;
-  }
-
-  _escapeHtml(value) {
-    return String(value ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
-  }
-
-  async _ensureHlsPlayer() {
-    if (customElements.get("ha-hls-player")) {
-      return;
-    }
-
-    if (window.loadCardHelpers) {
-      try {
-        const helpers = await window.loadCardHelpers();
-        if (helpers?.createCardElement && this._config.entity) {
-          await helpers.createCardElement({
-            type: "picture-entity",
-            entity: this._config.entity,
-            camera_view: "live",
-          });
-        }
-      } catch (_err) {
-        // Fall through to whenDefined below.
-      }
-    }
-
-    if (!customElements.get("ha-hls-player")) {
-      await Promise.race([
-        customElements.whenDefined("ha-hls-player"),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("HA HLS player is not available")), 10000)
-        ),
-      ]);
-    }
-  }
-
-  async _callResponseService(service, serviceData) {
-    const result = await this._hass.callWS({
-      type: "call_service",
-      domain: "ufanet_intercom",
-      service,
-      service_data: serviceData,
-      return_response: true,
-    });
-    return result?.response ?? result;
-  }
-
-  async _refreshRanges() {
-    const response = await this._callResponseService("get_archive_ranges", {
-      device_id: this._deviceId,
-    });
-
-    this._timezone = response?.timezone || "UTC";
-    this._earliest = Number.isFinite(Number(response?.earliest))
-      ? Number(response.earliest)
-      : null;
-    this._latest = Number.isFinite(Number(response?.latest))
-      ? Number(response.latest)
-      : null;
-
-    this._ranges = Array.isArray(response?.ranges)
-      ? response.ranges
-          .map((item) => ({
-            from: Number(item.from),
-            duration: Number(item.duration),
-          }))
-          .filter(
-            (item) =>
-              Number.isFinite(item.from) &&
-              Number.isFinite(item.duration) &&
-              item.duration > 0
-          )
-          .sort((a, b) => a.from - b.from)
-      : [];
-
-    this._days = Array.isArray(response?.days)
-      ? response.days
-          .filter((day) => day?.date && Array.isArray(day?.intervals))
-          .sort((a, b) => String(a.date).localeCompare(String(b.date)))
-      : [];
-    this._daysByDate = new Map(this._days.map((day) => [day.date, day]));
-
-    const tz = this.shadowRoot.getElementById("timezone");
-    if (tz) {
-      tz.textContent = this._timezone;
-    }
-
-    const dateInput = this.shadowRoot.getElementById("date");
-    if (dateInput && this._days.length) {
-      dateInput.min = response?.first_date || this._days[0].date;
-      dateInput.max = response?.last_date || this._days[this._days.length - 1].date;
-    }
-
-    const windowInfo = this.shadowRoot.getElementById("archive-window");
-    if (windowInfo && this._earliest != null && this._latest != null) {
-      windowInfo.textContent =
-        `Ğ”Ğ¾ÑÑ‚ÑƒĞ¿Ğ½Ñ‹Ğ¹ Ğ°Ñ€Ñ…Ğ¸Ğ²: ${this._formatDisplayTime(this._earliest)} â€” ` +
-        `${this._formatDisplayTime(this._latest)}`;
-    }
-
-    this._renderDayIntervals(dateInput?.value || null);
-  }
-
-  async _refreshCallEvents(dateText, force = false) {
-    if (!dateText || !this._deviceId) return;
-
-    if (!force && this._callEventsCache.has(dateText)) {
-      this._callEvents = this._callEventsCache.get(dateText) || [];
-      this._callEventsDate = dateText;
-      this._renderCallEvents(dateText);
-      this._renderTimeline(dateText);
-      return;
-    }
-
-    const label = this.shadowRoot.getElementById("calls-label");
-    if (label) label.textContent = `Ğ—Ğ²Ğ¾Ğ½ĞºĞ¸ Ğ·Ğ° ${dateText}: Ğ·Ğ°Ğ³Ñ€ÑƒĞ·ĞºĞ°â€¦`;
-
-    try {
-      const response = await this._callResponseService("get_call_events", {
-        device_id: this._deviceId,
-        date: dateText,
-      });
-
-      const events = Array.isArray(response?.events)
-        ? response.events
-            .map((item) => ({
-              ...item,
-              timestamp: Number(item.timestamp),
-              second_of_day: Number(item.second_of_day),
-            }))
-            .filter(
-              (item) =>
-                Number.isFinite(item.timestamp) &&
-                Number.isFinite(item.second_of_day)
-            )
-            .sort((a, b) => a.timestamp - b.timestamp)
-        : [];
-
-      this._callEventsCache.set(dateText, events);
-      const selectedDate = this.shadowRoot.getElementById("date")?.value;
-      if (selectedDate === dateText) {
-        this._callEvents = events;
-        this._callEventsDate = dateText;
-        this._renderCallEvents(dateText);
-        this._renderTimeline(dateText);
-      }
-    } catch (err) {
-      if (label) label.textContent = `Ğ—Ğ²Ğ¾Ğ½ĞºĞ¸: ${this._errorText(err)}`;
-    }
-  }
-
-  _callAddress(event) {
-    const parts = [];
-    if (event?.address) parts.push(String(event.address));
-    if (event?.porch != null && String(event.porch) !== "") {
-      parts.push(`Ğ¿Ğ¾Ğ´ÑŠĞµĞ·Ğ´ ${event.porch}`);
-    }
-    if (event?.flat != null && String(event.flat) !== "") {
-      parts.push(`ĞºĞ². ${event.flat}`);
-    }
-    return parts.join(", ");
-  }
-
-  _callLeadSeconds() {
-    return Math.max(0, Math.min(60, Number(this._config.call_lead_seconds ?? 15)));
-  }
-
-  async _loadCallEvent(event) {
-    if (!event || !Number.isFinite(Number(event.timestamp))) return;
-    const requested = Number(event.timestamp) - this._callLeadSeconds();
-    let resolved = this._resolveTarget(requested, 1);
-    if (resolved == null) resolved = this._resolveTarget(Number(event.timestamp), -1);
-    if (resolved == null) {
-      this._setStatus("Ğ”Ğ»Ñ ÑÑ‚Ğ¾Ğ³Ğ¾ Ğ·Ğ²Ğ¾Ğ½ĞºĞ° ÑĞ¾Ğ¾Ñ‚Ğ²ĞµÑ‚ÑÑ‚Ğ²ÑƒÑÑ‰Ğ°Ñ Ğ·Ğ°Ğ¿Ğ¸ÑÑŒ Ğ°Ñ€Ñ…Ğ¸Ğ²Ğ° Ğ½ĞµĞ´Ğ¾ÑÑ‚ÑƒĞ¿Ğ½Ğ°", "warning");
-      return;
-    }
-    await this._loadEpoch(resolved);
-  }
-
-  _renderCallEvents(dateText) {
-    const host = this.shadowRoot.getElementById("call-events");
-    const label = this.shadowRoot.getElementById("calls-label");
-    if (!host || !label) return;
-
-    host.textContent = "";
-    const events = this._callEventsDate === dateText ? this._callEvents : [];
-    label.textContent = `Ğ—Ğ²Ğ¾Ğ½ĞºĞ¸ Ğ·Ğ° ${dateText || "â€”"}: ${events.length}`;
-
-    if (!events.length) {
-      const empty = document.createElement("div");
-      empty.className = "calls-empty";
-      empty.textContent = "Ğ’Ñ‹Ğ·Ğ¾Ğ²Ğ¾Ğ² Ğ·Ğ° Ğ²Ñ‹Ğ±Ñ€Ğ°Ğ½Ğ½Ñ‹Ğ¹ Ğ´ĞµĞ½ÑŒ Ğ½ĞµÑ‚";
-      host.appendChild(empty);
-      return;
-    }
-
-    for (const event of events) {
-      const row = document.createElement("button");
-      row.type = "button";
-      row.className = "call-row";
-      const address = this._callAddress(event);
-
-      const icon = document.createElement("span");
-      icon.className = "call-row-icon";
-      icon.textContent = "ğŸ””";
-
-      const main = document.createElement("span");
-      main.className = "call-row-main";
-      const time = document.createElement("span");
-      time.className = "call-row-time";
-      time.textContent = String(event.local_time || "").slice(0, 8);
-      const addressNode = document.createElement("span");
-      addressNode.className = "call-row-address";
-      addressNode.textContent = address || "Ğ’Ñ‹Ğ·Ğ¾Ğ² Ğ´Ğ¾Ğ¼Ğ¾Ñ„Ğ¾Ğ½Ğ°";
-      main.append(time, addressNode);
-
-      const action = document.createElement("span");
-      action.className = "call-row-action";
-      action.textContent = "ĞŸĞµÑ€ĞµĞ¹Ñ‚Ğ¸";
-
-      row.append(icon, main, action);
-      row.title = "ĞÑ‚ĞºÑ€Ñ‹Ñ‚ÑŒ Ğ°Ñ€Ñ…Ğ¸Ğ² Ğ²Ğ¾ĞºÑ€ÑƒĞ³ Ğ¼Ğ¾Ğ¼ĞµĞ½Ñ‚Ğ° Ğ·Ğ²Ğ¾Ğ½ĞºĞ°";
-      row.addEventListener("click", () => void this._loadCallEvent(event));
-      host.appendChild(row);
-    }
-  }
-
-  _duration() {
-    const input = this.shadowRoot.getElementById("duration");
-    return Math.max(30, Number(input?.value || this._config.duration || 300));
-  }
-
-  _step() {
-    const input = this.shadowRoot.getElementById("step");
-    return Math.max(10, Number(input?.value || this._config.step || 60));
-  }
-
-  _formatStep(value) {
-    if (value % 3600 === 0) {
-      return `${value / 3600} Ñ‡`;
-    }
-    if (value % 60 === 0) {
-      return `${value / 60} Ğ¼Ğ¸Ğ½`;
-    }
-    return `${value} Ñ`;
-  }
-
-  _updateStepButtons() {
-    const label = this._formatStep(this._step());
-    const previous = this.shadowRoot.getElementById("previous");
-    const next = this.shadowRoot.getElementById("next");
-    if (previous) previous.textContent = `âª ĞĞ°Ğ·Ğ°Ğ´ ${label}`;
-    if (next) next.textContent = `Ğ’Ğ¿ĞµÑ€Ñ‘Ğ´ ${label} â©`;
-  }
-
-  async _goLatest(refresh = true) {
-    if (refresh || !this._ranges.length) {
-      await this._refreshRanges();
-    }
-    if (!this._ranges.length) {
-      throw new Error("ĞÑ€Ñ…Ğ¸Ğ²Ğ½Ñ‹Ñ… Ğ·Ğ°Ğ¿Ğ¸ÑĞµĞ¹ Ğ½Ğµ Ğ½Ğ°Ğ¹Ğ´ĞµĞ½Ğ¾");
-    }
-
-    const newest = this._ranges.reduce((best, item) => {
-      const end = item.from + item.duration;
-      const bestEnd = best.from + best.duration;
-      return end > bestEnd ? item : best;
-    });
-
-    const duration = this._duration();
-    const start = Math.max(newest.from, newest.from + newest.duration - duration);
-    await this._loadEpoch(start);
-  }
-
-  async _shift(direction) {
-    if (this._currentEpoch == null) {
-      await this._goLatest();
-      return;
-    }
-
-    const target = this._currentEpoch + direction * this._step();
-    let resolved = this._resolveTarget(target, direction);
-
-    // A card can stay open while new archive appears. Refresh once at the
-    // newest edge before reporting that there is no newer recording.
-    if (resolved == null && direction > 0) {
-      await this._refreshRanges();
-      resolved = this._resolveTarget(target, direction);
-    }
-
-    if (resolved == null) {
-      this._setStatus(
-        direction < 0 ? "Ğ‘Ğ¾Ğ»ĞµĞµ ÑÑ‚Ğ°Ñ€Ğ¾Ğ¹ Ğ·Ğ°Ğ¿Ğ¸ÑĞ¸ Ğ½ĞµÑ‚" : "Ğ‘Ğ¾Ğ»ĞµĞµ Ğ½Ğ¾Ğ²Ğ¾Ğ¹ Ğ·Ğ°Ğ¿Ğ¸ÑĞ¸ Ğ½ĞµÑ‚",
-        "warning"
-      );
-      return;
-    }
-
-    await this._loadEpoch(resolved);
-  }
-
-  _resolveTarget(target, direction) {
-    for (const range of this._ranges) {
-      const end = range.from + range.duration;
-      if (range.from <= target && target < end) {
-        return target;
-      }
-    }
-
-    if (direction > 0) {
-      const next = this._ranges.find((range) => range.from > target);
-      return next ? next.from : null;
-    }
-
-    for (let i = this._ranges.length - 1; i >= 0; i -= 1) {
-      const range = this._ranges[i];
-      const end = range.from + range.duration;
-      if (end <= target) {
-        return Math.max(range.from, end - 1);
-      }
-    }
-    return null;
-  }
-
-  _timeToSeconds(value) {
-    const parts = String(value || "00:00:00").split(":").map(Number);
-    return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
-  }
-
-  _secondsToTime(value) {
-    const seconds = Math.max(0, Math.min(86399, Math.floor(value)));
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = seconds % 60;
-    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  }
-
-  _nearestRecordedDate(dateText) {
-    if (!this._days.length) return null;
-    if (this._daysByDate.has(dateText)) return dateText;
-
-    const target = Date.parse(`${dateText}T00:00:00Z`);
-    let best = this._days[0].date;
-    let bestDistance = Math.abs(Date.parse(`${best}T00:00:00Z`) - target);
-    for (const day of this._days.slice(1)) {
-      const distance = Math.abs(Date.parse(`${day.date}T00:00:00Z`) - target);
-      if (distance < bestDistance) {
-        best = day.date;
-        bestDistance = distance;
-      }
-    }
-    return best;
-  }
-
-  _resolveLocalSelection(dateText, seconds) {
-    const resolvedDate = this._nearestRecordedDate(dateText);
-    if (!resolvedDate) return null;
-
-    const day = this._daysByDate.get(resolvedDate);
-    if (!day?.intervals?.length) return null;
-
-    for (const interval of day.intervals) {
-      const start = Number(interval.start_second);
-      const end = Number(interval.end_second);
-      if (start <= seconds && seconds < end) {
-        return {
-          date: resolvedDate,
-          seconds,
-          epoch: Number(interval.from) + (seconds - start),
-          adjusted: resolvedDate !== dateText,
-        };
-      }
-    }
-
-    let best = null;
-    for (const interval of day.intervals) {
-      const start = Number(interval.start_second);
-      const end = Number(interval.end_second);
-      const candidates = [
-        { seconds: start, epoch: Number(interval.from) },
-        {
-          seconds: Math.max(start, Math.min(86399, end - 1)),
-          epoch: Math.max(Number(interval.from), Number(interval.to) - 1),
-        },
-      ];
-      for (const candidate of candidates) {
-        const distance = Math.abs(candidate.seconds - seconds);
-        if (best == null || distance < best.distance) {
-          best = { ...candidate, distance };
-        }
-      }
-    }
-
-    return best
-      ? {
-          date: resolvedDate,
-          seconds: best.seconds,
-          epoch: best.epoch,
-          adjusted: true,
-        }
-      : null;
-  }
-
-  async _handleDateChange() {
-    const dateInput = this.shadowRoot.getElementById("date");
-    const timeInput = this.shadowRoot.getElementById("time");
-    if (!dateInput?.value) return;
-
-    const originalDate = dateInput.value;
-    const resolvedDate = this._nearestRecordedDate(originalDate);
-    if (!resolvedDate) return;
-
-    if (resolvedDate !== originalDate) {
-      dateInput.value = resolvedDate;
-      this._setStatus(
-        `Ğ—Ğ° ${originalDate} Ğ·Ğ°Ğ¿Ğ¸ÑĞ¸ Ğ½ĞµÑ‚. Ğ’Ñ‹Ğ±Ñ€Ğ°Ğ½Ğ° Ğ±Ğ»Ğ¸Ğ¶Ğ°Ğ¹ÑˆĞ°Ñ Ğ´Ğ°Ñ‚Ğ° ${resolvedDate}.`,
-        "warning"
-      );
-    }
-
-    this._renderDayIntervals(resolvedDate);
-    await this._refreshCallEvents(resolvedDate);
-    const day = this._daysByDate.get(resolvedDate);
-    if (!day?.intervals?.length) return;
-
-    const currentSeconds = this._timeToSeconds(timeInput?.value || "00:00:00");
-    const resolved = this._resolveLocalSelection(resolvedDate, currentSeconds);
-    if (resolved && timeInput) {
-      timeInput.value = this._secondsToTime(resolved.seconds);
-    }
-    await this._loadFromInputs();
-  }
-
-  async _loadFromInputs() {
-    const dateInput = this.shadowRoot.getElementById("date");
-    const timeInput = this.shadowRoot.getElementById("time");
-    if (!dateInput?.value || !timeInput?.value) return;
-
-    const requestedDate = dateInput.value;
-    const requestedSeconds = this._timeToSeconds(timeInput.value);
-    const resolved = this._resolveLocalSelection(requestedDate, requestedSeconds);
-    if (!resolved) {
-      this._setStatus("Ğ”Ğ»Ñ Ğ²Ñ‹Ğ±Ñ€Ğ°Ğ½Ğ½Ğ¾Ğ¹ Ğ´Ğ°Ñ‚Ñ‹ Ğ°Ñ€Ñ…Ğ¸Ğ²Ğ½Ñ‹Ñ… Ğ·Ğ°Ğ¿Ğ¸ÑĞµĞ¹ Ğ½ĞµÑ‚", "warning");
-      return;
-    }
-
-    if (resolved.adjusted) {
-      dateInput.value = resolved.date;
-      timeInput.value = this._secondsToTime(resolved.seconds);
-      this._renderDayIntervals(resolved.date);
-      this._setStatus(
-        `Ğ’ Ğ²Ñ‹Ğ±Ñ€Ğ°Ğ½Ğ½Ğ¾Ğµ Ğ²Ñ€ĞµĞ¼Ñ Ğ·Ğ°Ğ¿Ğ¸ÑĞ¸ Ğ½ĞµÑ‚. ĞŸĞµÑ€ĞµĞ½ĞµÑĞµĞ½Ğ¾ Ğ½Ğ° ${resolved.date} ${timeInput.value}.`,
-        "warning"
-      );
-    }
-
-    const start = `${resolved.date}T${this._secondsToTime(resolved.seconds)}`;
-    await this._loadStart(start);
-  }
-
-  async _loadEpoch(epoch) {
-    await this._loadStart(new Date(epoch * 1000).toISOString());
-  }
-
-  async _loadStart(start) {
-    if (this._loading) return;
-
-    this._loading = true;
-    this._setButtonsDisabled(true);
-    this._setStatus("Ğ—Ğ°Ğ³Ñ€ÑƒĞ·ĞºĞ° Ğ²Ğ¸Ğ´ĞµĞ¾â€¦", "info");
-
-    try {
-      const response = await this._callResponseService("get_archive_url", {
-        device_id: this._deviceId,
-        start,
-        duration: this._duration(),
-      });
-
-      if (!response?.url) {
-        throw new Error("Ğ¡ĞµÑ€Ğ²Ğ¸Ñ Ğ½Ğµ Ğ²ĞµÑ€Ğ½ÑƒĞ» URL Ğ°Ñ€Ñ…Ğ¸Ğ²Ğ°");
-      }
-
-      this._currentEpoch = Date.parse(response.start_utc) / 1000;
-      this._archiveDownload = null;
-      this._renderArchiveDownloadReady();
-      this._setDateTimeInputs(this._currentEpoch);
-
-      const effective = this.shadowRoot.getElementById("effective-duration");
-      if (effective) {
-        effective.textContent =
-          Number(response.duration) !== Number(response.requested_duration)
-            ? `Ğ¤Ñ€Ğ°Ğ³Ğ¼ĞµĞ½Ñ‚ Ğ¾Ğ±Ñ€ĞµĞ·Ğ°Ğ½ Ğ´Ğ¾ ${response.duration} Ñ Ğ¸Ğ·-Ğ·Ğ° ĞºĞ¾Ğ½Ñ†Ğ° Ğ½ĞµĞ¿Ñ€ĞµÑ€Ñ‹Ğ²Ğ½Ğ¾Ğ¹ Ğ·Ğ°Ğ¿Ğ¸ÑĞ¸`
-            : "";
-      }
-
-      await this._setPlayerUrl(response.url);
-      this._setStatus(`ĞÑ€Ñ…Ğ¸Ğ²: ${this._formatDisplayTime(this._currentEpoch)}`, "ok");
-    } catch (err) {
-      this._setStatus(this._errorText(err), "error");
-    } finally {
-      this._loading = false;
-      this._setButtonsDisabled(false);
-    }
-  }
-
-  _exportRetentionDays() {
-    const value = Number(this._config?.export_retention_days ?? 30);
-    if (!Number.isFinite(value)) return 30;
-    return Math.max(0, Math.min(3650, Math.round(value)));
-  }
-
-  _exportMaxTotalMb() {
-    const gb = Number(this._config?.export_max_gb ?? 5);
-    if (!Number.isFinite(gb)) return 5120;
-    return Math.max(0, Math.round(gb * 1024));
-  }
-
-  _formatBytes(bytes) {
-    const value = Number(bytes || 0);
-    if (!Number.isFinite(value) || value <= 0) return "0 Ğ‘";
-    if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(value >= 10 * 1024 ** 3 ? 1 : 2)} Ğ“Ğ‘`;
-    if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toFixed(value >= 10 * 1024 ** 2 ? 1 : 2)} ĞœĞ‘`;
-    if (value >= 1024) return `${(value / 1024).toFixed(1)} ĞšĞ‘`;
-    return `${value} Ğ‘`;
-  }
-
-  _formatDurationShort(seconds) {
-    const value = Number(seconds);
-    if (!Number.isFinite(value) || value < 0) return "â€”";
-    const total = Math.round(value);
-    const hours = Math.floor(total / 3600);
-    const minutes = Math.floor((total % 3600) / 60);
-    const secs = total % 60;
-    if (hours) return `${hours}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
-    return `${minutes}:${String(secs).padStart(2, "0")}`;
-  }
-
-  async _refreshArchiveExports(force = false) {
-    if (!this._deviceId || !this._hass) return;
-    if (this._archiveExportsLoading) return;
-    if (this._archiveExportsLoaded && !force) {
-      this._renderArchiveExports();
-      return;
-    }
-
-    this._archiveExportsLoading = true;
-    const refresh = this.shadowRoot.getElementById("archive-library-refresh");
-    if (refresh) refresh.disabled = true;
-
-    try {
-      const response = await this._callResponseService("list_archive_exports", {
-        device_id: this._deviceId,
-      });
-      this._archiveExports = Array.isArray(response?.items) ? response.items : [];
-      this._archiveExportsTotalBytes = Number(response?.total_bytes || 0);
-      this._archiveExportsLoaded = true;
-      this._renderArchiveExports();
-    } catch (err) {
-      this._setStatus(this._errorText(err), "error");
-    } finally {
-      this._archiveExportsLoading = false;
-      if (refresh) refresh.disabled = false;
-    }
-  }
-
-  _renderArchiveExports() {
-    const host = this.shadowRoot.getElementById("archive-library-list");
-    const summary = this.shadowRoot.getElementById("archive-library-summary");
-    const policy = this.shadowRoot.getElementById("archive-library-policy");
-    if (!host) return;
-
-    const items = Array.isArray(this._archiveExports) ? this._archiveExports : [];
-    if (summary) {
-      summary.textContent =
-        `${items.length} Ñ„Ğ°Ğ¹Ğ»(Ğ¾Ğ²) â€¢ ${this._formatBytes(this._archiveExportsTotalBytes || 0)}`;
-    }
-    if (policy) {
-      const days = this._exportRetentionDays();
-      const maxMb = this._exportMaxTotalMb();
-      const ageText = days > 0 ? `${days} Ğ´Ğ½.` : "Ğ±ĞµĞ· ÑÑ€Ğ¾ĞºĞ°";
-      const sizeText = maxMb > 0
-        ? this._formatBytes(maxMb * 1024 * 1024)
-        : "Ğ±ĞµĞ· Ğ»Ğ¸Ğ¼Ğ¸Ñ‚Ğ°";
-      policy.textContent = `ĞĞ²Ñ‚Ğ¾Ğ¾Ñ‡Ğ¸ÑÑ‚ĞºĞ°: ${ageText} â€¢ ${sizeText}`;
-    }
-
-    host.textContent = "";
-    if (!items.length) {
-      const empty = document.createElement("div");
-      empty.className = "archive-library-empty";
-      empty.textContent = "Ğ¡Ğ¾Ñ…Ñ€Ğ°Ğ½Ñ‘Ğ½Ğ½Ñ‹Ñ… MP4 Ğ¿Ğ¾ĞºĞ° Ğ½ĞµÑ‚.";
-      host.appendChild(empty);
-      return;
-    }
-
-    for (const item of items) {
-      const row = document.createElement("div");
-      row.className = "archive-library-row";
-
-      const main = document.createElement("div");
-      main.className = "archive-library-main";
-
-      const title = document.createElement("div");
-      title.className = "archive-library-title";
-      const baseTitle = item.recorded_local || item.filename || "Ğ­ĞºÑĞ¿Ğ¾Ñ€Ñ‚ MP4";
-      title.textContent =
-        item.source === "call" ? `ğŸ”” Ğ—Ğ²Ğ¾Ğ½Ğ¾Ğº â€¢ ${baseTitle}` : baseTitle;
-
-      const details = [];
-      if (item.duration_seconds != null) {
-        details.push(this._formatDurationShort(item.duration_seconds));
-      }
-      details.push(this._formatBytes(item.size_bytes));
-      if (item.modified_at) {
-        try {
-          details.push(
-            `ÑĞ¾Ñ…Ñ€Ğ°Ğ½ĞµĞ½Ğ¾ ${new Intl.DateTimeFormat("ru-RU", {
-              dateStyle: "short",
-              timeStyle: "short",
-            }).format(new Date(item.modified_at))}`
-          );
-        } catch (_err) {
-          // Ignore formatting failure.
-        }
-      }
-
-      const meta = document.createElement("div");
-      meta.className = "archive-library-meta";
-      meta.textContent = details.join(" â€¢ ");
-
-      main.append(title, meta);
-
-      const actions = document.createElement("div");
-      actions.className = "archive-library-actions";
-
-      const open = document.createElement("button");
-      open.type = "button";
-      open.className = "small-button";
-      open.textContent = "ĞÑ‚ĞºÑ€Ñ‹Ñ‚ÑŒ";
-      open.addEventListener("click", () => void this._openStoredArchiveExport(item, false));
-
-      const download = document.createElement("button");
-      download.type = "button";
-      download.className = "small-button";
-      download.textContent = "Ğ¡ĞºĞ°Ñ‡Ğ°Ñ‚ÑŒ";
-      download.addEventListener("click", () => void this._openStoredArchiveExport(item, true));
-
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.className = "small-button danger-button";
-      remove.textContent = "Ğ£Ğ´Ğ°Ğ»Ğ¸Ñ‚ÑŒ";
-      remove.addEventListener("click", () => void this._deleteStoredArchiveExport(item));
-
-      actions.append(open, download, remove);
-      row.append(main, actions);
-      host.appendChild(row);
-    }
-  }
-
-  async _resolveStoredExport(item) {
-    if (!item?.media_content_id) {
-      throw new Error("Ğ£ Ñ„Ğ°Ğ¹Ğ»Ğ° Ğ¾Ñ‚ÑÑƒÑ‚ÑÑ‚Ğ²ÑƒĞµÑ‚ media_content_id");
-    }
-    const resolved = await this._hass.callWS({
-      type: "media_source/resolve_media",
-      media_content_id: item.media_content_id,
-      expires: 21600,
-    });
-    if (!resolved?.url) {
-      throw new Error("Media Source Ğ½Ğµ Ğ²ĞµÑ€Ğ½ÑƒĞ» URL");
-    }
-    return resolved.url;
-  }
-
-  async _openStoredArchiveExport(item, download = false) {
-    try {
-      const url = await this._resolveStoredExport(item);
-      if (!download) {
-        window.open(url, "_blank", "noopener,noreferrer");
-        return;
-      }
-
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = item.filename || "ufanet_archive.mp4";
-      anchor.target = "_blank";
-      anchor.rel = "noopener noreferrer";
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-    } catch (err) {
-      this._setStatus(this._errorText(err), "error");
-    }
-  }
-
-  async _deleteStoredArchiveExport(item) {
-    if (!item?.filename) return;
-    const confirmed = window.confirm(
-      `Ğ£Ğ´Ğ°Ğ»Ğ¸Ñ‚ÑŒ ÑĞ¾Ñ…Ñ€Ğ°Ğ½Ñ‘Ğ½Ğ½Ñ‹Ğ¹ Ñ€Ğ¾Ğ»Ğ¸Ğº?\n\n${item.filename}\n\n` +
-      "Ğ¤Ğ°Ğ¹Ğ» Ğ±ÑƒĞ´ĞµÑ‚ Ñ„Ğ¸Ğ·Ğ¸Ñ‡ĞµÑĞºĞ¸ ÑƒĞ´Ğ°Ğ»Ñ‘Ğ½ Ğ¸Ğ· Home Assistant Media."
-    );
-    if (!confirmed) return;
-
-    try {
-      await this._callResponseService("delete_archive_export", {
-        device_id: this._deviceId,
-        filename: item.filename,
-      });
-      this._archiveExports = this._archiveExports.filter(
-        (candidate) => candidate?.filename !== item.filename
-      );
-      this._archiveExportsTotalBytes = this._archiveExports.reduce(
-        (sum, candidate) => sum + Number(candidate?.size_bytes || 0),
-        0
-      );
-      this._renderArchiveExports();
-      this._setStatus("Ğ­ĞºÑĞ¿Ğ¾Ñ€Ñ‚Ğ¸Ñ€Ğ¾Ğ²Ğ°Ğ½Ğ½Ñ‹Ğ¹ MP4 ÑƒĞ´Ğ°Ğ»Ñ‘Ğ½", "ok");
-    } catch (err) {
-      this._setStatus(this._errorText(err), "error");
-    }
-  }
-
-  async _cleanupStoredArchiveExports() {
-    const days = this._exportRetentionDays();
-    const maxMb = this._exportMaxTotalMb();
-    const confirmed = window.confirm(
-      "ĞŸÑ€Ğ¸Ğ¼ĞµĞ½Ğ¸Ñ‚ÑŒ Ğ¿Ñ€Ğ°Ğ²Ğ¸Ğ»Ğ° Ğ°Ğ²Ñ‚Ğ¾Ğ¾Ñ‡Ğ¸ÑÑ‚ĞºĞ¸ ÑĞµĞ¹Ñ‡Ğ°Ñ?\n\n" +
-      `Ğ’Ğ¾Ğ·Ñ€Ğ°ÑÑ‚: ${days > 0 ? `${days} Ğ´Ğ½ĞµĞ¹` : "Ğ±ĞµĞ· Ğ¾Ğ³Ñ€Ğ°Ğ½Ğ¸Ñ‡ĞµĞ½Ğ¸Ñ"}\n` +
-      `ĞĞ±ÑŠÑ‘Ğ¼: ${maxMb > 0 ? this._formatBytes(maxMb * 1024 * 1024) : "Ğ±ĞµĞ· Ğ¾Ğ³Ñ€Ğ°Ğ½Ğ¸Ñ‡ĞµĞ½Ğ¸Ñ"}`
-    );
-    if (!confirmed) return;
-
-    const button = this.shadowRoot.getElementById("archive-library-cleanup");
-    if (button) button.disabled = true;
-    try {
-      const serviceData = { device_id: this._deviceId };
-      if (this._hasYamlOption("export_retention_days")) {
-        serviceData.retention_days = days;
-      }
-      if (this._hasYamlOption("export_max_gb")) {
-        serviceData.max_total_mb = maxMb;
-      }
-      const response = await this._callResponseService(
-        "cleanup_archive_exports",
-        serviceData
-      );
-      this._setStatus(
-        `ĞÑ‡Ğ¸ÑÑ‚ĞºĞ° Ğ·Ğ°Ğ²ĞµÑ€ÑˆĞµĞ½Ğ°: ÑƒĞ´Ğ°Ğ»ĞµĞ½Ğ¾ ${response?.deleted_count || 0} Ñ„Ğ°Ğ¹Ğ»(Ğ¾Ğ²), ` +
-        `${this._formatBytes(response?.deleted_bytes || 0)}`,
-        response?.limit_satisfied === false ? "warning" : "ok"
-      );
-      this._archiveExportsLoaded = false;
-      await this._refreshArchiveExports(true);
-    } catch (err) {
-      this._setStatus(this._errorText(err), "error");
-    } finally {
-      if (button) button.disabled = false;
-    }
-  }
-
-  _formatExpiry(value) {
-    const epoch = Number(value);
-    if (!Number.isFinite(epoch) || epoch <= 0) return "â€”";
-    const delta = epoch - Date.now() / 1000;
-    if (delta <= 0) return "Ğ¸ÑÑ‚Ñ‘Ğº";
-    if (delta < 3600) return `${Math.round(delta / 60)} Ğ¼Ğ¸Ğ½`;
-    return `${(delta / 3600).toFixed(delta >= 36000 ? 0 : 1)} Ñ‡`;
-  }
-
-  async _refreshRuntimeStatus(force = false) {
-    if (!this._deviceId || !this._hass || this._runtimeStatusLoading) return;
-    if (this._runtimeStatus && !force) {
-      this._renderRuntimeStatus();
-      return;
-    }
-
-    this._runtimeStatusLoading = true;
-    const button = this.shadowRoot.getElementById("diagnostics-refresh");
-    if (button) button.disabled = true;
-
-    try {
-      this._runtimeStatus = await this._callResponseService(
-        "get_runtime_status",
-        { device_id: this._deviceId }
-      );
-      this._renderRuntimeStatus();
-    } catch (err) {
-      this._setStatus(this._errorText(err), "error");
-    } finally {
-      this._runtimeStatusLoading = false;
-      if (button) button.disabled = false;
-    }
-  }
-
-  _diagnosticSection(host, titleText, rows) {
-    const section = document.createElement("div");
-    section.className = "diagnostics-section";
-
-    const title = document.createElement("div");
-    title.className = "diagnostics-section-title";
-    title.textContent = titleText;
-    section.appendChild(title);
-
-    for (const [labelText, valueRaw, state] of rows) {
-      const row = document.createElement("div");
-      row.className = "diagnostics-row";
-
-      const label = document.createElement("span");
-      label.className = "diagnostics-label";
-      label.textContent = labelText;
-
-      const value = document.createElement("span");
-      value.className = "diagnostics-value";
-      value.textContent =
-        valueRaw === null || valueRaw === undefined || valueRaw === ""
-          ? "â€”"
-          : String(valueRaw);
-      if (state) value.dataset.state = state;
-
-      row.append(label, value);
-      section.appendChild(row);
-    }
-
-    host.appendChild(section);
-  }
-
-  _renderRuntimeStatus() {
-    const host = this.shadowRoot.getElementById("diagnostics-content");
-    if (!host) return;
-
-    host.textContent = "";
-    const status = this._runtimeStatus;
-    if (!status) {
-      const empty = document.createElement("div");
-      empty.className = "panel-message";
-      empty.textContent = "ĞĞ°Ğ¶Ğ¼Ğ¸Ñ‚Ğµ Â«ĞĞ±Ğ½Ğ¾Ğ²Ğ¸Ñ‚ÑŒÂ», Ñ‡Ñ‚Ğ¾Ğ±Ñ‹ Ğ¿Ğ¾Ğ»ÑƒÑ‡Ğ¸Ñ‚ÑŒ Ğ´Ğ¸Ğ°Ğ³Ğ½Ğ¾ÑÑ‚Ğ¸ĞºÑƒ.";
-      host.appendChild(empty);
-      return;
-    }
-
-    const skud = status.skud || {};
-    const camera = status.camera || {};
-    const auth = status.auth || {};
-    const coordinator = status.coordinator || {};
-    const calls = status.call_coordinator || {};
-    const fcm = status.fcm || {};
-    const archive = status.archive || {};
-    const auto = status.auto_save || {};
-    const exports = status.exports || {};
-
-    this._diagnosticSection(host, "Ğ˜Ğ½Ñ‚ĞµĞ³Ñ€Ğ°Ñ†Ğ¸Ñ", [
-      ["Ğ’ĞµÑ€ÑĞ¸Ñ", status.version],
-      ["Device ID", status.device_id],
-      ["SKUD ID", skud.id],
-      ["Ğ Ğ¾Ğ»ÑŒ / Ğ¼Ğ¾Ğ´ĞµĞ»ÑŒ", `${skud.role || "â€”"} / ${skud.model ?? "â€”"}`],
-      ["Open", `${skud.open_type || "â€”"} / ${skud.open_in_talk || "â€”"}`],
-    ]);
-
-    this._diagnosticSection(host, "ĞšĞ°Ğ¼ĞµÑ€Ğ° / UCAMS", [
-      ["Camera number", camera.number],
-      ["Server", camera.server_domain],
-      ["Vendor", camera.server_vendor],
-      ["Timezone", camera.timezone],
-      ["ĞŸĞ¾Ñ‚Ğ¾ĞºĞ¾Ğ²", camera.streams_count],
-      ["Ğ¢Ğ°Ñ€Ğ¸Ñ„", camera.tariff_name],
-      ["ĞÑ€Ñ…Ğ¸Ğ²", camera.dvr_hours != null ? `${camera.dvr_hours} Ñ‡` : null],
-      ["ĞÑˆĞ¸Ğ±ĞºĞ° camera API", status.camera_error_type],
-    ]);
-
-    this._diagnosticSection(host, "ĞĞ²Ñ‚Ğ¾Ñ€Ğ¸Ğ·Ğ°Ñ†Ğ¸Ñ", [
-      [
-        "Ufanet access",
-        auth.ufanet_access_present
-          ? `ĞµÑÑ‚ÑŒ â€¢ ĞµÑ‰Ñ‘ ${this._formatExpiry(auth.ufanet_access_expires_at)}`
-          : "Ğ½ĞµÑ‚",
-        auth.ufanet_access_present ? "ok" : "error",
-      ],
-      [
-        "Refresh token",
-        auth.ufanet_refresh_present
-          ? `ĞµÑÑ‚ÑŒ â€¢ ĞµÑ‰Ñ‘ ${this._formatExpiry(auth.ufanet_refresh_expires_at)}`
-          : "Ğ½ĞµÑ‚",
-        auth.ufanet_refresh_present ? "ok" : "error",
-      ],
-      [
-        "UCAMS token",
-        auth.ucams_access_present
-          ? `ĞµÑÑ‚ÑŒ â€¢ ĞµÑ‰Ñ‘ ${this._formatExpiry(auth.ucams_access_expires_at)}`
-          : "Ğ½ĞµÑ‚",
-        auth.ucams_access_present ? "ok" : "warning",
-      ],
-    ]);
-
-    this._diagnosticSection(host, "Polling / Ğ°Ñ€Ñ…Ğ¸Ğ²", [
-      ["Ğ ĞµĞ¶Ğ¸Ğ¼ Ğ·Ğ²Ğ¾Ğ½ĞºĞ¾Ğ²", status.call_update_mode || "polling"],
-      [
-        "SKUD coordinator",
-        `${coordinator.update_interval_seconds ?? "â€”"} Ñ â€¢ ${
-          coordinator.last_update_success ? "OK" : "Ğ¾ÑˆĞ¸Ğ±ĞºĞ°"
-        }`,
-        coordinator.last_update_success ? "ok" : "error",
-      ],
-      [
-        "Call coordinator",
-        `${calls.update_interval_seconds ?? "â€”"} Ñ â€¢ ${
-          calls.last_update_success ? "OK" : "Ğ¾ÑˆĞ¸Ğ±ĞºĞ°"
-        }`,
-        calls.last_update_success ? "ok" : "error",
-      ],
-      ["ĞŸĞ¾ÑĞ»ĞµĞ´Ğ½Ğ¸Ğ¹ Ğ·Ğ²Ğ¾Ğ½Ğ¾Ğº Ğ´Ğ¾ÑÑ‚ÑƒĞ¿ĞµĞ½", calls.latest_call_present ? "Ğ´Ğ°" : "Ğ½ĞµÑ‚"],
-      ["Archive controller", archive.ready ? "ready" : "not ready", archive.ready ? "ok" : "warning"],
-      ["Archive duration / step", `${archive.duration_seconds ?? "â€”"} / ${archive.step_seconds ?? "â€”"} Ñ`],
-    ]);
-
-    if (status.call_update_mode === "fcm") {
-      this._diagnosticSection(host, "FCM (ÑĞºÑĞ¿ĞµÑ€Ğ¸Ğ¼ĞµĞ½Ñ‚Ğ°Ğ»ÑŒĞ½Ğ¾)", [
-        ["ĞĞ°ÑÑ‚Ñ€Ğ¾ĞµĞ½", fcm.configured ? "Ğ´Ğ°" : "Ğ½ĞµÑ‚", fcm.configured ? "ok" : "error"],
-        [
-          "Ğ ĞµĞ³Ğ¸ÑÑ‚Ñ€Ğ°Ñ†Ğ¸Ñ Firebase/FCM",
-          fcm.firebase_registration_succeeded ? "ÑƒÑĞ¿ĞµÑˆĞ½Ğ¾" : "Ğ½Ğµ Ğ²Ñ‹Ğ¿Ğ¾Ğ»Ğ½ĞµĞ½Ğ°",
-          fcm.firebase_registration_succeeded ? "ok" : "error",
-        ],
-        [
-          "Ğ ĞµĞ³Ğ¸ÑÑ‚Ñ€Ğ°Ñ†Ğ¸Ñ Ğ² Ufanet",
-          fcm.ufanet_registration_succeeded ? "Ğ¿Ñ€Ğ¸Ğ½ÑÑ‚Ğ°" : "Ğ½Ğµ Ğ²Ñ‹Ğ¿Ğ¾Ğ»Ğ½ĞµĞ½Ğ°",
-          fcm.ufanet_registration_succeeded ? "ok" : "error",
-        ],
-        [
-          "Ğ—Ğ°Ğ´Ğ°Ñ‡Ğ¸ listener",
-          fcm.listener_started ? "Ğ·Ğ°Ğ¿ÑƒÑ‰ĞµĞ½" : "Ğ½Ğµ Ğ·Ğ°Ğ¿ÑƒÑ‰ĞµĞ½",
-          fcm.listener_started ? "ok" : "error",
-        ],
-        [
-          "Headless listener",
-          fcm.listener_running ? "Ğ¿Ğ¾Ğ´ĞºĞ»ÑÑ‡Ñ‘Ğ½" : "Ğ½Ğµ Ğ¿Ğ¾Ğ´ĞºĞ»ÑÑ‡Ñ‘Ğ½",
-          fcm.listener_running ? "ok" : "warning",
-        ],
-        ["Ğ¢Ñ€Ğ°Ğ½ÑĞ¿Ğ¾Ñ€Ñ‚", fcm.transport_state, fcm.active ? "ok" : "warning"],
-        [
-          "Ğ ĞµĞ·ĞµÑ€Ğ²Ğ½Ñ‹Ğ¹ polling",
-          fcm.fallback_polling_active ? "Ğ°ĞºÑ‚Ğ¸Ğ²ĞµĞ½" : "Ñ€ĞµĞ´ĞºĞ¸Ğ¹ ĞºĞ¾Ğ½Ñ‚Ñ€Ğ¾Ğ»ÑŒĞ½Ñ‹Ğ¹",
-          fcm.fallback_polling_active ? "warning" : "ok",
-        ],
-        ["Watchdog", fcm.watchdog_running ? "Ñ€Ğ°Ğ±Ğ¾Ñ‚Ğ°ĞµÑ‚" : "Ğ¾ÑÑ‚Ğ°Ğ½Ğ¾Ğ²Ğ»ĞµĞ½", fcm.watchdog_running ? "ok" : "error"],
-        ["ĞŸĞµÑ€ĞµĞ¿Ğ¾Ğ´ĞºĞ»ÑÑ‡ĞµĞ½Ğ¸Ñ / Ğ¾ÑˆĞ¸Ğ±ĞºĞ¸", `${fcm.reconnect_count ?? 0} / ${fcm.consecutive_failures ?? 0}`],
-        ["Push / SIP", `${fcm.received_push_count ?? 0} / ${fcm.received_sip_push_count ?? 0}`],
-        ["ĞŸĞ¾ÑĞ»ĞµĞ´Ğ½ĞµĞµ Ğ¿Ğ¾Ğ´ĞºĞ»ÑÑ‡ĞµĞ½Ğ¸Ğµ", fcm.last_connected_at],
-        ["ĞŸĞ¾ÑĞ»ĞµĞ´Ğ½ĞµĞµ Ğ¾Ñ‚ĞºĞ»ÑÑ‡ĞµĞ½Ğ¸Ğµ", fcm.last_disconnected_at],
-        ["ĞŸĞ¾ÑĞ»ĞµĞ´Ğ½Ğ¸Ğ¹ SIP push", fcm.last_sip_push_at],
-        ["ĞŸĞ¾ÑĞ»ĞµĞ´Ğ½ÑÑ Ğ¾ÑˆĞ¸Ğ±ĞºĞ°", fcm.last_error_type, fcm.last_error_type ? "error" : null],
-      ]);
-    }
-
-    this._diagnosticSection(host, "ĞĞ²Ñ‚Ğ¾ÑĞ¾Ñ…Ñ€Ğ°Ğ½ĞµĞ½Ğ¸Ğµ Ğ·Ğ²Ğ¾Ğ½ĞºĞ¾Ğ²", [
-      ["Ğ’ĞºĞ»ÑÑ‡ĞµĞ½Ğ¾", auto.enabled ? "Ğ´Ğ°" : "Ğ½ĞµÑ‚", auto.enabled ? "ok" : "warning"],
-      ["Ğ¤Ñ€Ğ°Ğ³Ğ¼ĞµĞ½Ñ‚", `${auto.lead_seconds ?? 0} Ñ Ğ´Ğ¾ + ${auto.after_seconds ?? 0} Ñ Ğ¿Ğ¾ÑĞ»Ğµ`],
-      ["ĞĞ¶Ğ¸Ğ´Ğ°ÑÑ‚", auto.pending_count ?? 0],
-      ["Ğ—Ğ°Ğ¿Ğ»Ğ°Ğ½Ğ¸Ñ€Ğ¾Ğ²Ğ°Ğ½Ğ¾", auto.scheduled_count ?? 0],
-      ["Ğ£ÑĞ¿ĞµÑˆĞ½Ğ¾", auto.success_count ?? 0, Number(auto.success_count || 0) > 0 ? "ok" : null],
-      ["ĞÑˆĞ¸Ğ±Ğ¾Ğº", auto.failure_count ?? 0, Number(auto.failure_count || 0) > 0 ? "error" : null],
-      ["ĞŸĞ¾ÑĞ»ĞµĞ´Ğ½Ğ¸Ğ¹ Ñ„Ğ°Ğ¹Ğ»", auto.last_filename],
-      ["ĞŸĞ¾ÑĞ»ĞµĞ´Ğ½ÑÑ Ğ¾ÑˆĞ¸Ğ±ĞºĞ°", auto.last_error_type || auto.last_error_message],
-    ]);
-
-    this._diagnosticSection(host, "ĞœĞµĞ´Ğ¸Ğ°Ñ‚ĞµĞºĞ°", [
-      ["Ğ’ÑĞµĞ³Ğ¾ Ñ„Ğ°Ğ¹Ğ»Ğ¾Ğ²", exports.count ?? 0],
-      ["ĞĞ²Ñ‚Ğ¾ ğŸ””", exports.auto_saved_count ?? 0],
-      ["Ğ ÑƒÑ‡Ğ½Ñ‹Ñ…", exports.manual_count ?? 0],
-      ["ĞĞ±ÑŠÑ‘Ğ¼", this._formatBytes(exports.total_bytes || 0)],
-    ]);
-  }
-
-  async _copyRuntimeStatus() {
-    if (!this._runtimeStatus) {
-      await this._refreshRuntimeStatus(true);
-    }
-    if (!this._runtimeStatus) return;
-
-    const text = JSON.stringify(this._runtimeStatus, null, 2);
-    try {
-      await navigator.clipboard.writeText(text);
-      this._setStatus("Ğ”Ğ¸Ğ°Ğ³Ğ½Ğ¾ÑÑ‚Ğ¸ĞºĞ° ÑĞºĞ¾Ğ¿Ğ¸Ñ€Ğ¾Ğ²Ğ°Ğ½Ğ° Ğ² Ğ±ÑƒÑ„ĞµÑ€ Ğ¾Ğ±Ğ¼ĞµĞ½Ğ°", "ok");
-    } catch (_err) {
-      this._setStatus("ĞĞµ ÑƒĞ´Ğ°Ğ»Ğ¾ÑÑŒ ÑĞºĞ¾Ğ¿Ğ¸Ñ€Ğ¾Ğ²Ğ°Ñ‚ÑŒ Ğ´Ğ¸Ğ°Ğ³Ğ½Ğ¾ÑÑ‚Ğ¸ĞºÑƒ", "error");
-    }
-  }
-
-  async _copyArchiveDownloadUrl() {
-    const url = this._archiveDownload?.url;
-    if (!url) return;
-
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(url);
-        this._setStatus("Ğ—Ğ°Ñ‰Ğ¸Ñ‰Ñ‘Ğ½Ğ½Ñ‹Ğ¹ URL MP4 ÑĞºĞ¾Ğ¿Ğ¸Ñ€Ğ¾Ğ²Ğ°Ğ½", "ok");
-        return;
-      }
-    } catch (_err) {
-      // Fall back to selecting the visible link below.
-    }
-
-    this._setStatus(
-      "ĞĞµ ÑƒĞ´Ğ°Ğ»Ğ¾ÑÑŒ ÑĞºĞ¾Ğ¿Ğ¸Ñ€Ğ¾Ğ²Ğ°Ñ‚ÑŒ Ğ°Ğ²Ñ‚Ğ¾Ğ¼Ğ°Ñ‚Ğ¸Ñ‡ĞµÑĞºĞ¸ â€” Ğ¾Ñ‚ĞºÑ€Ğ¾Ğ¹Ñ‚Ğµ Ğ³Ğ¾Ñ‚Ğ¾Ğ²ÑƒÑ MP4-ÑÑÑ‹Ğ»ĞºÑƒ.",
-      "warning"
-    );
-  }
-
-  _archiveExportDuration() {
-    const value = Number(
-      this.shadowRoot.getElementById("archive-export-duration")?.value ||
-      this._config?.export_default_duration ||
-      300
-    );
-    return Math.max(1, Math.min(21600, value));
-  }
-
-  async _prepareArchiveDownload() {
-    if (this._currentEpoch == null || this._loading) {
-      this._setStatus("Ğ¡Ğ½Ğ°Ñ‡Ğ°Ğ»Ğ° Ğ²Ñ‹Ğ±ĞµÑ€Ğ¸Ñ‚Ğµ Ñ‚Ğ¾Ñ‡ĞºÑƒ Ğ°Ñ€Ñ…Ğ¸Ğ²Ğ°", "warning");
-      return;
-    }
-
-    const button = this.shadowRoot.getElementById("prepare-archive-download");
-    if (button) button.disabled = true;
-    this._setStatus("Ğ­ĞºÑĞ¿Ğ¾Ñ€Ñ‚Ğ¸Ñ€ÑƒÑ HLS Ğ² MP4 Ñ‡ĞµÑ€ĞµĞ· ffmpegâ€¦", "info");
-
-    try {
-      const serviceData = {
-        device_id: this._deviceId,
-        start: new Date(this._currentEpoch * 1000).toISOString(),
-        duration: this._archiveExportDuration(),
-      };
-      if (this._hasYamlOption("export_retention_days")) {
-        serviceData.retention_days = this._exportRetentionDays();
-      }
-      if (this._hasYamlOption("export_max_gb")) {
-        serviceData.max_total_mb = this._exportMaxTotalMb();
-      }
-
-      const response = await this._callResponseService(
-        "get_archive_download_url",
-        serviceData
-      );
-
-      if (!response?.media_content_id) {
-        throw new Error("Ğ¡ĞµÑ€Ğ²Ğ¸Ñ Ğ½Ğµ Ğ²ĞµÑ€Ğ½ÑƒĞ» media_content_id ÑĞºÑĞ¿Ğ¾Ñ€Ñ‚Ğ¸Ñ€Ğ¾Ğ²Ğ°Ğ½Ğ½Ğ¾Ğ³Ğ¾ MP4");
-      }
-
-      let resolved;
-      try {
-        resolved = await this._hass.callWS({
-          type: "media_source/resolve_media",
-          media_content_id: response.media_content_id,
-          expires: 21600,
-        });
-      } catch (err) {
-        throw new Error(
-          `MP4 ÑĞ¾Ñ…Ñ€Ğ°Ğ½Ñ‘Ğ½ Ğ² Home Assistant Media, Ğ½Ğ¾ Ğ½Ğµ ÑƒĞ´Ğ°Ğ»Ğ¾ÑÑŒ Ğ¿Ğ¾Ğ»ÑƒÑ‡Ğ¸Ñ‚ÑŒ ÑÑÑ‹Ğ»ĞºÑƒ: ${this._errorText(err)}`
-        );
-      }
-
-      if (!resolved?.url) {
-        throw new Error("Media Source Ğ½Ğµ Ğ²ĞµÑ€Ğ½ÑƒĞ» URL ÑĞºÑĞ¿Ğ¾Ñ€Ñ‚Ğ¸Ñ€Ğ¾Ğ²Ğ°Ğ½Ğ½Ğ¾Ğ³Ğ¾ MP4");
-      }
-
-      this._archiveDownload = {
-        ...response,
-        url: resolved.url,
-        mime_type: resolved.mime_type || response.content_type || "video/mp4",
-      };
-      this._renderArchiveDownloadReady();
-
-      const clipped =
-        Number(response.duration) !== Number(response.requested_duration)
-          ? `; Ğ¾Ğ±Ñ€ĞµĞ·Ğ°Ğ½ Ğ´Ğ¾ ${response.duration} Ñ Ğ½Ğ° Ğ³Ñ€Ğ°Ğ½Ğ¸Ñ†Ğµ Ğ·Ğ°Ğ¿Ğ¸ÑĞ¸`
-          : "";
-      const cleanupDeleted = Number(response.cleanup?.deleted_count || 0);
-      const cleanupText = cleanupDeleted
-        ? `; Ğ°Ğ²Ñ‚Ğ¾Ğ¾Ñ‡Ğ¸ÑÑ‚ĞºĞ° ÑƒĞ´Ğ°Ğ»Ğ¸Ğ»Ğ° ${cleanupDeleted} Ñ„Ğ°Ğ¹Ğ»(Ğ¾Ğ²)`
-        : "";
-      const limitWarning = response.cleanup?.limit_satisfied === false
-        ? "; Ğ½Ğ¾Ğ²Ñ‹Ğ¹ Ñ„Ğ°Ğ¹Ğ» Ğ¾ÑÑ‚Ğ°Ğ²Ğ»ĞµĞ½, Ğ½Ğ¾ Ğ»Ğ¸Ğ¼Ğ¸Ñ‚ Ğ¾Ğ±ÑŠÑ‘Ğ¼Ğ° Ğ²ÑÑ‘ ĞµÑ‰Ñ‘ Ğ¿Ñ€ĞµĞ²Ñ‹ÑˆĞµĞ½"
-        : "";
-      this._setStatus(
-        `MP4 ÑĞ¾Ñ…Ñ€Ğ°Ğ½Ñ‘Ğ½ Ğ² Home Assistant Media${clipped}${cleanupText}${limitWarning}`,
-        response.cleanup?.limit_satisfied === false ? "warning" : "ok"
-      );
-      this._archiveExportsLoaded = false;
-      void this._refreshArchiveExports(true);
-    } catch (err) {
-      this._archiveDownload = null;
-      this._renderArchiveDownloadReady();
-      this._setStatus(this._errorText(err), "error");
-    } finally {
-      if (button) button.disabled = false;
-    }
-  }
-
-  _renderArchiveDownloadReady() {
-    const box = this.shadowRoot.getElementById("archive-download-ready");
-    const link = this.shadowRoot.getElementById("archive-download-link");
-    const copy = this.shadowRoot.getElementById("archive-download-copy");
-    const meta = this.shadowRoot.getElementById("archive-download-meta");
-    if (!box || !link || !meta) return;
-
-    if (!this._archiveDownload?.url) {
-      box.hidden = true;
-      link.removeAttribute("href");
-      return;
-    }
-
-    const response = this._archiveDownload;
-    box.hidden = false;
-    link.href = response.url;
-    link.download = response.filename || "ufanet_archive.mp4";
-    link.textContent = "Ğ¡ĞºĞ°Ñ‡Ğ°Ñ‚ÑŒ / Ğ¾Ñ‚ĞºÑ€Ñ‹Ñ‚ÑŒ MP4";
-
-    if (copy) {
-      copy.disabled = false;
-    }
-
-    const details = [`${response.duration} Ñ`];
-    if (Number(response.content_length) > 0) {
-      const mb = Number(response.content_length) / 1024 / 1024;
-      details.push(`â‰ˆ ${mb.toFixed(mb >= 10 ? 1 : 2)} ĞœĞ‘`);
-    }
-    if (response.storage === "home_assistant_media") {
-      details.push("ÑĞ¾Ñ…Ñ€Ğ°Ğ½ĞµĞ½Ğ¾ Ğ² Media");
-    }
-    meta.textContent = details.join(" â€¢ ");
-  }
-
-  async _setPlayerUrl(url) {
-    await this._ensureHlsPlayer();
-
-    if (!this._player) {
-      const host = this.shadowRoot.getElementById("player-host");
-      host.textContent = "";
-
-      this._player = document.createElement("ha-hls-player");
-      this._player.controls = true;
-      this._player.autoPlay = true;
-      this._player.playsInline = true;
-      this._player.muted = false;
-      this._player.aspectRatio = 16 / 9;
-      this._player.fitMode = "contain";
-      host.appendChild(this._player);
-    }
-
-    this._player.url = url;
-  }
-
-  _formatLocalParts(epoch) {
-    const parts = new Intl.DateTimeFormat("sv-SE", {
-      timeZone: this._timezone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hourCycle: "h23",
-    }).formatToParts(new Date(epoch * 1000));
-
-    const map = {};
-    for (const part of parts) {
-      if (part.type !== "literal") map[part.type] = part.value;
-    }
-    return {
-      date: `${map.year}-${map.month}-${map.day}`,
-      time: `${map.hour}:${map.minute}:${map.second}`,
-    };
-  }
-
-  _formatDisplayTime(epoch) {
-    return new Intl.DateTimeFormat("ru-RU", {
-      timeZone: this._timezone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hourCycle: "h23",
-    }).format(new Date(epoch * 1000));
-  }
-
-  _setDateTimeInputs(epoch) {
-    const local = this._formatLocalParts(epoch);
-    const dateInput = this.shadowRoot.getElementById("date");
-    const timeInput = this.shadowRoot.getElementById("time");
-    if (dateInput) dateInput.value = local.date;
-    if (timeInput) timeInput.value = local.time;
-    if (Number(this._timelineZoomHours) < 24) {
-      this._timelineCenterSeconds = this._timeToSeconds(local.time);
-    }
-    this._renderDayIntervals(local.date);
-    if (this._callEventsDate !== local.date) {
-      void this._refreshCallEvents(local.date);
-    } else {
-      this._renderCallEvents(local.date);
-    }
-  }
-
-  _formatIntervalTime(value) {
-    const raw = String(value || "");
-    if (raw.startsWith("24:00")) return "24:00";
-    return raw.slice(0, 5);
-  }
-
-  _timelineWindow() {
-    const zoomHours = [24, 6, 1].includes(Number(this._timelineZoomHours))
-      ? Number(this._timelineZoomHours)
-      : 24;
-    const span = zoomHours * 3600;
-
-    if (span >= 86400) {
-      return { start: 0, end: 86400, span: 86400 };
-    }
-
-    let center = Number(this._timelineCenterSeconds);
-    if (!Number.isFinite(center)) {
-      center = this._timeToSeconds(
-        this.shadowRoot.getElementById("time")?.value || "12:00:00"
-      );
-    }
-
-    let windowStart = center - span / 2;
-    windowStart = Math.max(0, Math.min(86400 - span, windowStart));
-    return {
-      start: windowStart,
-      end: windowStart + span,
-      span,
-    };
-  }
-
-  _formatAxisTime(seconds) {
-    if (seconds >= 86400 - 0.5) return "24:00";
-    const value = Math.max(0, Math.min(86399, Math.round(seconds)));
-    const h = Math.floor(value / 3600);
-    const m = Math.floor((value % 3600) / 60);
-    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-  }
-
-  _renderTimelineAxis(windowRange) {
-    const axis = this.shadowRoot.getElementById("timeline-axis");
-    const windowLabel = this.shadowRoot.getElementById("timeline-window-label");
-    if (!axis) return;
-
-    axis.textContent = "";
-    for (let i = 0; i <= 4; i += 1) {
-      const seconds = windowRange.start + (windowRange.span * i) / 4;
-      const span = document.createElement("span");
-      span.textContent = this._formatAxisTime(seconds);
-      axis.appendChild(span);
-    }
-
-    if (windowLabel) {
-      windowLabel.textContent =
-        `${this._formatAxisTime(windowRange.start)}â€“${this._formatAxisTime(windowRange.end)}`;
-    }
-  }
-
-  _currentLocalSecondsForTimeline() {
-    const selectedDate = this.shadowRoot.getElementById("date")?.value;
-    if (this._currentEpoch != null && selectedDate) {
-      const local = this._formatLocalParts(this._currentEpoch);
-      if (local.date === selectedDate) {
-        return this._timeToSeconds(local.time);
-      }
-    }
-    return this._timeToSeconds(
-      this.shadowRoot.getElementById("time")?.value || "12:00:00"
-    );
-  }
-
-  _updateZoomButtons() {
-    for (const hours of [24, 6, 1]) {
-      const button = this.shadowRoot.getElementById(`zoom-${hours}`);
-      if (!button) continue;
-      const active = Number(this._timelineZoomHours) === hours;
-      button.classList.toggle("active", active);
-      button.setAttribute("aria-pressed", active ? "true" : "false");
-    }
-  }
-
-  _setTimelineZoom(hours, centerSeconds = null, announce = false) {
-    const normalized = [24, 6, 1].includes(Number(hours)) ? Number(hours) : 24;
-    this._timelineZoomHours = normalized;
-
-    if (normalized < 24) {
-      const center = centerSeconds == null
-        ? this._currentLocalSecondsForTimeline()
-        : Number(centerSeconds);
-      if (Number.isFinite(center)) {
-        this._timelineCenterSeconds = Math.max(0, Math.min(86399, center));
-      }
-    }
-
-    this._updateZoomButtons();
-    const dateText = this.shadowRoot.getElementById("date")?.value || null;
-    this._renderTimeline(dateText);
-
-    if (announce) {
-      this._setStatus(
-        normalized === 24
-          ? "Timeline: Ğ²ĞµÑÑŒ Ğ´ĞµĞ½ÑŒ"
-          : `Timeline: Ğ¼Ğ°ÑÑˆÑ‚Ğ°Ğ± ${normalized} Ñ‡`,
-        "info"
-      );
-    }
-  }
-
-  _timelineSecondsFromPointer(clientX) {
-    const track = this.shadowRoot.getElementById("timeline-track");
-    if (!track) return null;
-    const rect = track.getBoundingClientRect();
-    if (rect.width <= 0) return null;
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    const windowRange = this._timelineWindow();
-    return Math.max(
-      0,
-      Math.min(86399, windowRange.start + ratio * windowRange.span)
-    );
-  }
-
-  _handleTimelineWheel(event) {
-    if (!event || Math.abs(Number(event.deltaY || 0)) < 1) return;
-
-    const levels = [24, 6, 1];
-    const currentIndex = levels.indexOf(Number(this._timelineZoomHours));
-    const index = currentIndex >= 0 ? currentIndex : 0;
-    const zoomIn = event.deltaY < 0;
-    const nextIndex = zoomIn
-      ? Math.min(levels.length - 1, index + 1)
-      : Math.max(0, index - 1);
-
-    if (nextIndex === index) {
-      // At the end of the zoom range, allow normal page scrolling.
-      return;
-    }
-
-    const now = Date.now();
-    if (now - this._lastTimelineWheelAt < 120) {
-      event.preventDefault();
-      return;
-    }
-    this._lastTimelineWheelAt = now;
-    event.preventDefault();
-
-    const track = this.shadowRoot.getElementById("timeline-track");
-    if (!track) return;
-    const rect = track.getBoundingClientRect();
-    if (rect.width <= 0) return;
-
-    const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-    const oldWindow = this._timelineWindow();
-    const focusSeconds = oldWindow.start + ratio * oldWindow.span;
-    const newHours = levels[nextIndex];
-    const newSpan = newHours * 3600;
-
-    // Keep the time under the mouse pointer approximately under the same
-    // pointer position after zooming, then clamp the window to 00:00â€“24:00.
-    let desiredStart = focusSeconds - ratio * newSpan;
-    desiredStart = Math.max(0, Math.min(86400 - newSpan, desiredStart));
-    const center = desiredStart + newSpan / 2;
-    this._setTimelineZoom(newHours, center, false);
-  }
-
-  _timelineCanPan() {
-    return Number(this._timelineZoomHours) < 24;
-  }
-
-  _clampTimelineCenter(centerSeconds) {
-    const windowRange = this._timelineWindow();
-    const halfSpan = windowRange.span / 2;
-    const minCenter = halfSpan;
-    const maxCenter = 86400 - halfSpan;
-    return Math.max(minCenter, Math.min(maxCenter, Number(centerSeconds)));
-  }
-
-  _handleTimelinePointerDown(event) {
-    if (!this._timelineCanPan()) return;
-    if (!event || event.button !== 0 || event.isPrimary === false) return;
-
-    const track = this.shadowRoot.getElementById("timeline-track");
-    if (!track) return;
-
-    const rect = track.getBoundingClientRect();
-    if (rect.width <= 0) return;
-
-    const windowRange = this._timelineWindow();
-    this._timelineDrag = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startCenter: windowRange.start + windowRange.span / 2,
-      width: rect.width,
-      span: windowRange.span,
-      moved: false,
-    };
-
-    track.dataset.dragging = "false";
-  }
-
-  _handleTimelinePointerMove(event) {
-    const drag = this._timelineDrag;
-    if (!drag || event.pointerId !== drag.pointerId) return;
-
-    const track = this.shadowRoot.getElementById("timeline-track");
-    if (!track) return;
-
-    const deltaX = event.clientX - drag.startX;
-
-    // Keep small pointer jitter as an ordinary click.
-    if (!drag.moved && Math.abs(deltaX) < 5) return;
-
-    if (!drag.moved) {
-      drag.moved = true;
-      try {
-        track.setPointerCapture(event.pointerId);
-      } catch (_err) {
-        // Pointer capture is an enhancement; panning still works without it.
-      }
-      track.dataset.dragging = "true";
-    }
-
-    event.preventDefault();
-
-    // DVR/map-like behavior: dragging content to the right reveals earlier time;
-    // dragging left reveals later time.
-    const deltaSeconds = -(deltaX / drag.width) * drag.span;
-    const nextCenter = this._clampTimelineCenter(
-      drag.startCenter + deltaSeconds
-    );
-
-    this._timelineCenterSeconds = nextCenter;
-    const dateText = this.shadowRoot.getElementById("date")?.value || null;
-    this._renderTimeline(dateText);
-  }
-
-  _finishTimelinePointerDrag(event) {
-    const drag = this._timelineDrag;
-    if (!drag || (event && event.pointerId !== drag.pointerId)) return;
-
-    const track = this.shadowRoot.getElementById("timeline-track");
-
-    if (drag.moved) {
-      // Pointerup normally generates a click. Suppress that click so a finished
-      // pan never seeks the archive accidentally.
-      this._timelineSuppressClickUntil = Date.now() + 350;
-      if (track) {
-        track.dataset.dragging = "false";
-        try {
-          if (track.hasPointerCapture(drag.pointerId)) {
-            track.releasePointerCapture(drag.pointerId);
-          }
-        } catch (_err) {
-          // Ignore unsupported/expired capture.
-        }
-      }
-
-      const windowRange = this._timelineWindow();
-      this._setStatus(
-        `Timeline: ${this._formatAxisTime(windowRange.start)}â€“${this._formatAxisTime(windowRange.end)}`,
-        "info"
-      );
-    } else if (track) {
-      track.dataset.dragging = "false";
-    }
-
-    this._timelineDrag = null;
-  }
-
-  _renderTimeline(dateText) {
-    const track = this.shadowRoot.getElementById("timeline-track");
-    const hint = this.shadowRoot.getElementById("timeline-hint");
-    if (!track) return;
-
-    for (const node of [...track.querySelectorAll(".timeline-segment, .call-marker")]) {
-      node.remove();
-    }
-
-    const windowRange = this._timelineWindow();
-    track.dataset.pannable = this._timelineCanPan() ? "true" : "false";
-    this._renderTimelineAxis(windowRange);
-    this._updateZoomButtons();
-
-    const day = dateText ? this._daysByDate.get(dateText) : null;
-    if (!day?.intervals?.length) {
-      track.dataset.empty = "true";
-      if (hint) {
-        hint.textContent = dateText
-          ? `Ğ—Ğ° ${dateText} Ğ·Ğ°Ğ¿Ğ¸ÑĞ¸ Ğ½ĞµÑ‚`
-          : "Ğ’Ñ‹Ğ±ĞµÑ€Ğ¸Ñ‚Ğµ Ğ´Ğ°Ñ‚Ñƒ";
-      }
-      this._updateTimelineMarker(dateText);
-      return;
-    }
-
-    track.dataset.empty = "false";
-    if (hint) {
-      hint.textContent = Number(this._timelineZoomHours) === 24
-        ? "ĞšĞ»Ğ¸Ğº â€” Ğ¿ĞµÑ€ĞµÑ…Ğ¾Ğ´ â€¢ ĞºĞ¾Ğ»ĞµÑĞ¾ â†‘ â€” ÑƒĞ²ĞµĞ»Ğ¸Ñ‡Ğ¸Ñ‚ÑŒ"
-        : "ĞšĞ»Ğ¸Ğº â€” Ğ¿ĞµÑ€ĞµÑ…Ğ¾Ğ´ â€¢ drag â€” Ğ¿Ñ€Ğ¾ĞºÑ€ÑƒÑ‚ĞºĞ° â€¢ ĞºĞ¾Ğ»ĞµÑĞ¾ â€” Ğ¼Ğ°ÑÑˆÑ‚Ğ°Ğ±";
-    }
-
-    for (const interval of day.intervals) {
-      const originalStart = Math.max(0, Math.min(86400, Number(interval.start_second)));
-      const originalEnd = Math.max(originalStart, Math.min(86400, Number(interval.end_second)));
-      if (originalEnd <= originalStart) continue;
-
-      const visibleStart = Math.max(originalStart, windowRange.start);
-      const visibleEnd = Math.min(originalEnd, windowRange.end);
-      if (visibleEnd <= visibleStart) continue;
-
-      const segment = document.createElement("button");
-      segment.type = "button";
-      segment.className = "timeline-segment";
-      segment.style.left = `${((visibleStart - windowRange.start) / windowRange.span) * 100}%`;
-      segment.style.width = `${((visibleEnd - visibleStart) / windowRange.span) * 100}%`;
-      segment.title = `${this._formatIntervalTime(interval.start)}â€“${this._formatIntervalTime(interval.end)}`;
-      segment.setAttribute("aria-label", `Ğ—Ğ°Ğ¿Ğ¸ÑÑŒ ${segment.title}`);
-      segment.addEventListener("click", (event) => {
-        event.stopPropagation();
-        if (Date.now() < this._timelineSuppressClickUntil) return;
-        const rect = segment.getBoundingClientRect();
-        const ratio = rect.width > 0
-          ? Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
-          : 0;
-        const seconds = Math.min(
-          86399,
-          Math.floor(visibleStart + ratio * (visibleEnd - visibleStart))
-        );
-        const epoch = Number(interval.from) + Math.max(0, seconds - originalStart);
-        void this._loadEpoch(epoch);
-      });
-      track.appendChild(segment);
-    }
-
-    if (this._callEventsDate === dateText && this._callEvents.length) {
-      for (const event of this._callEvents) {
-        const seconds = Number(event.second_of_day);
-        if (!Number.isFinite(seconds)) continue;
-        if (seconds < windowRange.start || seconds > windowRange.end) continue;
-
-        const left = ((seconds - windowRange.start) / windowRange.span) * 100;
-        const marker = document.createElement("button");
-        marker.type = "button";
-        marker.className = "call-marker";
-        marker.style.left = `${Math.max(0, Math.min(100, left))}%`;
-        marker.textContent = "ğŸ””";
-        const address = this._callAddress(event);
-        marker.title = `${event.local_time || ""}${address ? ` â€¢ ${address}` : ""}`;
-        marker.setAttribute("aria-label", `Ğ—Ğ²Ğ¾Ğ½Ğ¾Ğº ${marker.title}`);
-        marker.addEventListener("pointerdown", (ev) => ev.stopPropagation());
-        marker.addEventListener("click", (ev) => {
-          ev.stopPropagation();
-          void this._loadCallEvent(event);
-        });
-        track.appendChild(marker);
-      }
-    }
-
-    this._updateTimelineMarker(dateText);
-  }
-
-  _updateTimelineMarker(dateText) {
-    const marker = this.shadowRoot.getElementById("timeline-marker");
-    const markerLabel = this.shadowRoot.getElementById("timeline-marker-label");
-    if (!marker) return;
-
-    if (this._currentEpoch == null || !dateText) {
-      marker.hidden = true;
-      if (markerLabel) markerLabel.hidden = true;
-      return;
-    }
-
-    const local = this._formatLocalParts(this._currentEpoch);
-    if (local.date !== dateText) {
-      marker.hidden = true;
-      if (markerLabel) markerLabel.hidden = true;
-      return;
-    }
-
-    const seconds = this._timeToSeconds(local.time);
-    const windowRange = this._timelineWindow();
-    if (seconds < windowRange.start || seconds > windowRange.end) {
-      marker.hidden = true;
-      if (markerLabel) markerLabel.hidden = true;
-      return;
-    }
-
-    const left = Math.max(
-      0,
-      Math.min(100, ((seconds - windowRange.start) / windowRange.span) * 100)
-    );
-    marker.style.left = `${left}%`;
-    marker.hidden = false;
-
-    if (markerLabel) {
-      markerLabel.textContent = local.time.slice(0, 5);
-      markerLabel.style.left = `${left}%`;
-      markerLabel.hidden = false;
-    }
-  }
-
-  async _handleTimelineClick(event) {
-    if (Date.now() < this._timelineSuppressClickUntil) return;
-
-    const dateInput = this.shadowRoot.getElementById("date");
-    const timeInput = this.shadowRoot.getElementById("time");
-    if (!dateInput?.value) return;
-
-    const requested = this._timelineSecondsFromPointer(event.clientX);
-    if (requested == null) return;
-    const requestedSeconds = Math.min(86399, Math.floor(requested));
-    const resolved = this._resolveLocalSelection(dateInput.value, requestedSeconds);
-    if (!resolved) {
-      this._setStatus("Ğ”Ğ»Ñ Ğ²Ñ‹Ğ±Ñ€Ğ°Ğ½Ğ½Ğ¾Ğ¹ Ğ´Ğ°Ñ‚Ñ‹ Ğ°Ñ€Ñ…Ğ¸Ğ²Ğ½Ñ‹Ñ… Ğ·Ğ°Ğ¿Ğ¸ÑĞµĞ¹ Ğ½ĞµÑ‚", "warning");
-      return;
-    }
-
-    if (timeInput) timeInput.value = this._secondsToTime(resolved.seconds);
-    if (resolved.adjusted) {
-      this._setStatus(
-        `Ğ’ ${this._secondsToTime(requestedSeconds)} Ğ·Ğ°Ğ¿Ğ¸ÑĞ¸ Ğ½ĞµÑ‚. ` +
-        `ĞŸĞµÑ€ĞµÑ…Ğ¾Ğ´ Ğº Ğ±Ğ»Ğ¸Ğ¶Ğ°Ğ¹ÑˆĞµĞ¹ Ğ·Ğ°Ğ¿Ğ¸ÑĞ¸ ${this._secondsToTime(resolved.seconds)}.`,
-        "warning"
-      );
-    }
-    await this._loadEpoch(resolved.epoch);
-  }
-
-  _renderDayIntervals(dateText) {
-    this._renderTimeline(dateText);
-    const host = this.shadowRoot.getElementById("day-intervals");
-    const label = this.shadowRoot.getElementById("day-label");
-    if (!host || !label) return;
-
-    host.textContent = "";
-    if (!dateText) {
-      label.textContent = "Ğ”Ğ¾ÑÑ‚ÑƒĞ¿Ğ½Ñ‹Ğµ Ğ¸Ğ½Ñ‚ĞµÑ€Ğ²Ğ°Ğ»Ñ‹";
-      return;
-    }
-
-    const day = this._daysByDate.get(dateText);
-    if (!day?.intervals?.length) {
-      label.textContent = `Ğ—Ğ° ${dateText} Ğ·Ğ°Ğ¿Ğ¸ÑĞ¸ Ğ½ĞµÑ‚`;
-      return;
-    }
-
-    const totalMinutes = Math.round(Number(day.total_duration || 0) / 60);
-    label.textContent = `Ğ—Ğ°Ğ¿Ğ¸ÑÑŒ Ğ·Ğ° ${dateText}: ${day.intervals.length} Ğ¸Ğ½Ñ‚ĞµÑ€Ğ²Ğ°Ğ»(Ğ¾Ğ²), ${totalMinutes} Ğ¼Ğ¸Ğ½`;
-
-    for (const interval of day.intervals) {
-      const button = document.createElement("button");
-      button.className = "interval-chip";
-      button.textContent = `${this._formatIntervalTime(interval.start)}â€“${this._formatIntervalTime(interval.end)}`;
-      button.title = "ĞŸĞµÑ€ĞµĞ¹Ñ‚Ğ¸ Ğº Ğ½Ğ°Ñ‡Ğ°Ğ»Ñƒ ÑÑ‚Ğ¾Ğ³Ğ¾ ÑƒÑ‡Ğ°ÑÑ‚ĞºĞ° Ğ·Ğ°Ğ¿Ğ¸ÑĞ¸";
-      button.addEventListener("click", () => void this._loadEpoch(Number(interval.from)));
-      host.appendChild(button);
-    }
-
-    if (this._callEventsDate === dateText) {
-      this._renderCallEvents(dateText);
-    }
-  }
-
-  _setButtonsDisabled(disabled) {
-    for (const button of this.shadowRoot.querySelectorAll("button")) {
-      button.disabled = disabled;
-    }
-  }
-
-  _setStatus(message, type = "info") {
-    const status = this.shadowRoot.getElementById("status");
-    if (!status) return;
-    status.textContent = message || "";
-    status.dataset.type = type;
-  }
-
-  _errorText(err) {
-    if (!err) return "ĞĞµĞ¸Ğ·Ğ²ĞµÑÑ‚Ğ½Ğ°Ñ Ğ¾ÑˆĞ¸Ğ±ĞºĞ°";
-    if (typeof err === "string") return err;
-    if (err.message) return err.message;
-    return String(err);
-  }
-
-  _renderSkeleton() {
-    if (!this.shadowRoot || !this._config) return;
-
-    this._liveCard = null;
-
-    this.shadowRoot.innerHTML = `
-      <style>
-        :host { display: block; }
-        ha-card { overflow: hidden; }
-        [hidden] { display: none !important; }
-        .header { font-size: 20px; font-weight: 500; padding: 16px 16px 8px; }
-
-        .tabs {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 4px;
-          padding: 0 12px 12px;
-          border-bottom: 1px solid var(--divider-color);
-        }
-        .tab-button {
-          min-height: 40px;
-          border-radius: 9px;
-          background: transparent;
-          color: var(--secondary-text-color);
-          font-size: 13px;
-          font-weight: 600;
-        }
-        .tab-button.active {
-          color: var(--primary-color);
-          background: color-mix(in srgb, var(--primary-color) 12%, transparent);
-        }
-        .panel { min-width: 0; }
-        .panel-message {
-          padding: 26px 16px;
-          color: var(--secondary-text-color);
-          text-align: center;
-          line-height: 1.5;
-        }
-        .panel-message.error { color: var(--error-color); }
-
-        /* LIVE */
-        #live-host {
-          min-height: 260px;
-          background: #000;
-        }
-        #live-host > * { display: block; }
-        .live-controls {
-          padding: 12px 16px;
-          display: grid;
-          gap: 10px;
-        }
-        .live-status-row {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 7px;
-          align-items: center;
-        }
-        .live-status-pill {
-          padding: 5px 9px;
-          border-radius: 999px;
-          font-size: 11px;
-          background: var(--secondary-background-color);
-          color: var(--secondary-text-color);
-        }
-        .live-status-pill[data-available="true"] {
-          color: var(--success-color, #43a047);
-        }
-        .live-status-pill[data-available="false"] {
-          color: var(--error-color);
-        }
-        .live-main-actions {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) auto;
-          gap: 8px;
-        }
-        .open-door-button {
-          min-height: 54px;
-          color: var(--text-primary-color, #fff);
-          background: var(--primary-color);
-          font-size: 16px;
-          font-weight: 700;
-        }
-        .live-last-call {
-          padding: 11px;
-          border-radius: 10px;
-          background: var(--secondary-background-color);
-          border: 1px solid transparent;
-          transition: box-shadow .2s ease, border-color .2s ease;
-        }
-        .live-last-call.new-call {
-          border-color: var(--warning-color, #f0a000);
-          box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning-color, #f0a000) 22%, transparent);
-        }
-        .tab-button.new-call {
-          color: var(--warning-color, #f0a000);
-          box-shadow: inset 0 0 0 1px var(--warning-color, #f0a000);
-        }
-        .live-last-call-title {
-          font-size: 12px;
-          color: var(--secondary-text-color);
-          margin-bottom: 4px;
-        }
-        .live-last-call-time {
-          font-size: 14px;
-          font-weight: 600;
-          font-variant-numeric: tabular-nums;
-        }
-        .live-last-call-address {
-          color: var(--secondary-text-color);
-          font-size: 12px;
-          margin-top: 3px;
-        }
-        .live-call-actions {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 6px;
-          margin-top: 8px;
-        }
-        .live-footer {
-          padding: 0 16px 12px;
-          color: var(--secondary-text-color);
-          font-size: 11px;
-        }
-
-        /* ARCHIVE */
-        #archive-window { padding: 10px 16px 10px; font-size: 12px; color: var(--secondary-text-color); }
-        .controls {
-          padding: 6px 16px 12px;
-          display: grid;
-          grid-template-columns: minmax(145px, 1.2fr) minmax(120px, 1fr) minmax(105px, .8fr) minmax(105px, .8fr);
-          gap: 10px;
-          align-items: end;
-        }
-        label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--secondary-text-color); }
-        input, select {
-          box-sizing: border-box; width: 100%; min-height: 40px; padding: 7px 9px;
-          color: var(--primary-text-color); background: var(--card-background-color, var(--ha-card-background));
-          border: 1px solid var(--divider-color); border-radius: 8px; font: inherit;
-        }
-        .timeline-wrap { padding: 0 16px 14px; }
-        .timeline-head {
-          display: flex; justify-content: space-between; gap: 8px; align-items: center;
-          margin-bottom: 5px; color: var(--secondary-text-color); font-size: 12px;
-        }
-        .timeline-zoom { display: inline-flex; gap: 4px; align-items: center; }
-        .zoom-button {
-          min-height: 28px; padding: 3px 9px; border-radius: 8px; font-size: 11px; font-weight: 500;
-        }
-        .zoom-button.active { color: var(--text-primary-color, #fff); background: var(--primary-color); }
-        .timeline-subhead {
-          display: flex; justify-content: space-between; gap: 8px; margin-bottom: 5px;
-          color: var(--secondary-text-color); font-size: 10px;
-        }
-        #timeline-hint { text-align: right; }
-        #timeline-axis {
-          display: grid; grid-template-columns: repeat(5, 1fr); margin: 0 0 4px;
-          color: var(--secondary-text-color); font-size: 10px; line-height: 1;
-        }
-        #timeline-axis span:nth-child(2), #timeline-axis span:nth-child(3), #timeline-axis span:nth-child(4) { text-align: center; }
-        #timeline-axis span:last-child { text-align: right; }
-        #timeline-track {
-          position: relative; width: 100%; height: 34px; overflow: visible;
-          border-radius: 8px; background: var(--divider-color); cursor: crosshair;
-          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary-text-color) 12%, transparent);
-          touch-action: pan-y;
-        }
-        #timeline-track::before {
-          content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
-          background: repeating-linear-gradient(
-            to right,
-            transparent 0,
-            transparent calc(25% - 1px),
-            color-mix(in srgb, var(--primary-text-color) 16%, transparent) calc(25% - 1px),
-            color-mix(in srgb, var(--primary-text-color) 16%, transparent) 25%
-          );
-          z-index: 3;
-        }
-        .timeline-segment {
-          position: absolute; top: 0; bottom: 0; min-height: 0; padding: 0; border-radius: 0;
-          background: var(--primary-color); opacity: .78; z-index: 1; cursor: pointer;
-        }
-        .timeline-segment:first-of-type { border-radius: 7px 0 0 7px; }
-        .timeline-segment:hover { opacity: 1; background: var(--primary-color); }
-        .call-marker {
-          position: absolute; top: -11px; width: 24px; height: 24px; min-height: 24px;
-          padding: 0; transform: translateX(-50%); border-radius: 50%; z-index: 5;
-          display: flex; align-items: center; justify-content: center; font-size: 13px;
-          background: var(--card-background-color, var(--ha-card-background));
-          border: 2px solid var(--warning-color, #f0a000); cursor: pointer;
-          box-shadow: 0 1px 3px rgba(0,0,0,.28);
-        }
-        .call-marker:hover { transform: translateX(-50%) scale(1.12); }
-        #timeline-marker {
-          position: absolute; top: -5px; bottom: -5px; width: 3px; transform: translateX(-1px);
-          background: var(--error-color); border-radius: 2px; z-index: 6; pointer-events: none;
-          box-shadow: 0 0 0 1px color-mix(in srgb, var(--card-background-color) 75%, transparent);
-        }
-        #timeline-marker-label {
-          position: absolute; top: -25px; transform: translateX(-50%); z-index: 7; pointer-events: none;
-          padding: 2px 5px; border-radius: 5px; background: var(--primary-text-color);
-          color: var(--card-background-color, var(--ha-card-background)); font-size: 10px; font-weight: 600;
-          white-space: nowrap;
-        }
-        #timeline-track[data-pannable="true"] { cursor: grab; }
-        #timeline-track[data-pannable="true"][data-dragging="true"] { cursor: grabbing; user-select: none; }
-        #timeline-track[data-pannable="true"][data-dragging="true"] .timeline-segment { cursor: grabbing; }
-        #timeline-track[data-empty="true"] { opacity: .55; cursor: default; }
-        .day-ranges { padding: 0 16px 12px; }
-        #day-label { font-size: 12px; color: var(--secondary-text-color); margin-bottom: 7px; }
-        #day-intervals { display: flex; flex-wrap: wrap; gap: 6px; max-height: 86px; overflow-y: auto; }
-
-        button {
-          min-height: 42px; border: 0; border-radius: 10px; color: var(--primary-text-color);
-          background: var(--secondary-background-color); cursor: pointer; font: inherit; font-weight: 500;
-        }
-        button:hover { background: var(--divider-color); }
-        button:disabled { opacity: .5; cursor: wait; }
-        .interval-chip { min-height: 30px; padding: 4px 9px; border-radius: 14px; font-size: 12px; font-weight: 400; }
-
-        .calls { padding: 0 16px 14px; }
-        .calls-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 7px; }
-        #calls-label { font-size: 12px; color: var(--secondary-text-color); }
-        #refresh-calls { min-height: 30px; padding: 4px 10px; font-size: 12px; border-radius: 14px; }
-        #call-events { display: grid; gap: 6px; }
-        .calls-empty { color: var(--secondary-text-color); font-size: 12px; padding: 4px 0; }
-        .call-row {
-          width: 100%; min-height: 46px; display: grid; grid-template-columns: 30px 1fr auto;
-          gap: 8px; align-items: center; padding: 6px 10px; text-align: left; font-weight: 400;
-        }
-        .call-row-icon { font-size: 17px; text-align: center; }
-        .call-row-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-        .call-row-time { font-weight: 600; font-variant-numeric: tabular-nums; }
-        .call-row-address { color: var(--secondary-text-color); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .call-row-action { color: var(--primary-color); font-size: 12px; font-weight: 600; }
-
-        .buttons { padding: 0 16px 14px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-        #player-host {
-          width: 100%; min-height: 240px; background: #000; display: flex; align-items: center; justify-content: center;
-        }
-        #player-host ha-hls-player { width: 100%; min-height: 240px; aspect-ratio: 16 / 9; background: #000; }
-
-        .archive-export {
-          padding: 12px 16px 14px;
-          border-top: 1px solid var(--divider-color);
-        }
-        .archive-export-row {
-          display: grid;
-          grid-template-columns: minmax(140px, 200px) minmax(170px, max-content);
-          gap: 8px;
-          align-items: end;
-        }
-        .archive-download-ready {
-          margin-top: 9px;
-          padding: 9px 10px;
-          border-radius: 9px;
-          background: var(--secondary-background-color);
-          display: flex;
-          gap: 8px;
-          align-items: center;
-          flex-wrap: wrap;
-        }
-        .archive-download-ready a {
-          color: var(--primary-color);
-          font-weight: 600;
-          text-decoration: none;
-        }
-        .archive-download-meta {
-          color: var(--secondary-text-color);
-          font-size: 11px;
-          flex: 1 1 150px;
-        }
-        .archive-library {
-          padding: 0 16px 16px;
-          border-top: 1px solid var(--divider-color);
-        }
-        .archive-library-head {
-          display: flex;
-          gap: 8px;
-          align-items: center;
-          flex-wrap: wrap;
-          padding: 12px 0 8px;
-        }
-        .archive-library-head-title {
-          font-size: 13px;
-          font-weight: 600;
-        }
-        .archive-library-summary {
-          color: var(--secondary-text-color);
-          font-size: 11px;
-          flex: 1 1 140px;
-        }
-        .archive-library-policy {
-          color: var(--secondary-text-color);
-          font-size: 11px;
-          margin-bottom: 8px;
-        }
-        .archive-library-list {
-          display: grid;
-          gap: 6px;
-        }
-        .archive-library-empty {
-          color: var(--secondary-text-color);
-          font-size: 12px;
-          padding: 8px 0;
-        }
-        .archive-library-row {
-          display: flex;
-          gap: 10px;
-          align-items: center;
-          padding: 9px 10px;
-          border-radius: 9px;
-          background: var(--secondary-background-color);
-        }
-        .archive-library-main {
-          min-width: 0;
-          flex: 1;
-        }
-        .archive-library-title {
-          font-size: 13px;
-          font-weight: 600;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-        .archive-library-meta {
-          color: var(--secondary-text-color);
-          font-size: 11px;
-          margin-top: 2px;
-        }
-        .archive-library-actions {
-          display: flex;
-          gap: 5px;
-          flex-wrap: wrap;
-          justify-content: flex-end;
-        }
-
-        /* GUESTS */
-        .guest-toolbar {
-          padding: 14px 16px 10px;
-          display: flex;
-          gap: 8px;
-          align-items: center;
-          flex-wrap: wrap;
-        }
-        .guest-toolbar .primary-action {
-          color: var(--text-primary-color, #fff);
-          background: var(--primary-color);
-        }
-        .guest-summary {
-          flex: 1 1 220px;
-          min-width: 0;
-          color: var(--secondary-text-color);
-          font-size: 12px;
-        }
-        .diagnostics-toolbar {
-          display: flex;
-          gap: 8px;
-          align-items: center;
-          flex-wrap: wrap;
-          padding: 12px 16px;
-          border-bottom: 1px solid var(--divider-color);
-        }
-        .diagnostics-toolbar-title {
-          font-size: 13px;
-          font-weight: 600;
-          flex: 1 1 160px;
-        }
-        .diagnostics-content {
-          padding: 12px 16px 16px;
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-          gap: 10px;
-        }
-        .diagnostics-section {
-          border-radius: 10px;
-          background: var(--secondary-background-color);
-          padding: 10px 12px;
-          min-width: 0;
-        }
-        .diagnostics-section-title {
-          font-size: 12px;
-          font-weight: 700;
-          margin-bottom: 7px;
-        }
-        .diagnostics-row {
-          display: grid;
-          grid-template-columns: minmax(105px, 0.9fr) minmax(100px, 1.1fr);
-          gap: 8px;
-          padding: 3px 0;
-          font-size: 11px;
-          border-top: 1px solid color-mix(in srgb, var(--divider-color) 65%, transparent);
-        }
-        .diagnostics-row:first-of-type { border-top: 0; }
-        .diagnostics-label { color: var(--secondary-text-color); }
-        .diagnostics-value {
-          text-align: right;
-          overflow-wrap: anywhere;
-          font-variant-numeric: tabular-nums;
-        }
-        .diagnostics-value[data-state="ok"] { color: var(--success-color, #43a047); }
-        .diagnostics-value[data-state="warning"] { color: var(--warning-color, #f0a000); }
-        .diagnostics-value[data-state="error"] { color: var(--error-color); }
-
-        .guest-section { padding: 4px 16px 14px; }
-        .temporary-create {
-          display: grid;
-          grid-template-columns: minmax(120px, 180px) minmax(170px, max-content);
-          gap: 8px;
-          align-items: end;
-          margin: 0 0 8px;
-        }
-        .temporary-duration-label { margin: 0; }
-        .guest-section-title {
-          font-size: 13px;
-          font-weight: 600;
-          margin: 0 0 8px;
-        }
-        .guest-list { display: grid; gap: 6px; }
-        .guest-empty {
-          color: var(--secondary-text-color);
-          font-size: 12px;
-          padding: 8px 0;
-        }
-        .guest-row {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          padding: 9px 10px;
-          border-radius: 9px;
-          background: var(--secondary-background-color);
-        }
-        .guest-row-main { flex: 1; min-width: 0; }
-        .guest-row-title {
-          font-size: 13px;
-          font-weight: 600;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-        .guest-row-meta {
-          margin-top: 2px;
-          color: var(--secondary-text-color);
-          font-size: 11px;
-          overflow-wrap: anywhere;
-        }
-        .guest-row-actions { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
-        .small-button {
-          min-height: 32px;
-          padding: 4px 9px;
-          border-radius: 8px;
-          font-size: 11px;
-        }
-        .danger-button {
-          color: var(--error-color);
-        }
-        .guest-invite {
-          margin: 4px 16px 14px;
-          padding: 12px;
-          border-radius: 10px;
-          background: color-mix(in srgb, var(--primary-color) 8%, var(--card-background-color));
-          border: 1px solid color-mix(in srgb, var(--primary-color) 28%, transparent);
-        }
-        .guest-invite-title { font-size: 13px; font-weight: 600; margin-bottom: 7px; }
-        .guest-invite-warning { color: var(--secondary-text-color); font-size: 11px; margin-bottom: 8px; }
-        .guest-invite-controls {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) auto auto;
-          gap: 6px;
-        }
-        .guest-status {
-          padding: 0 16px 14px;
-          color: var(--secondary-text-color);
-          font-size: 12px;
-        }
-        #guest-status[data-type="error"] { color: var(--error-color); }
-        #guest-status[data-type="warning"] { color: var(--warning-color, #f0a000); }
-        #guest-status[data-type="ok"] { color: var(--success-color, #43a047); }
-
-        .footer {
-          padding: 10px 16px 14px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: space-between;
-          color: var(--secondary-text-color); font-size: 12px;
-        }
-        #status[data-type="error"] { color: var(--error-color); }
-        #status[data-type="warning"] { color: var(--warning-color, #f0a000); }
-        #status[data-type="ok"] { color: var(--success-color, #43a047); }
-        #effective-duration { color: var(--warning-color, #f0a000); }
-
-        @media (max-width: 700px) {
-          .controls { grid-template-columns: 1fr 1fr; }
-          .guest-invite-controls { grid-template-columns: 1fr 1fr; }
-          .guest-invite-controls input { grid-column: 1 / -1; }
-          .temporary-create { grid-template-columns: 1fr; }
-          .archive-export-row { grid-template-columns: 1fr; }
-          .live-main-actions { grid-template-columns: 1fr; }
-          .archive-library-row { align-items: flex-start; flex-direction: column; }
-          .archive-library-actions { width: 100%; justify-content: flex-start; }
-        }
-      </style>
-
-      <ha-card>
-        <div class="header">${this._config.title || "Ğ”Ğ¾Ğ¼Ğ¾Ñ„Ğ¾Ğ½ Ufanet"}</div>
-
-        <div class="tabs" role="tablist" aria-label="Ğ Ğ°Ğ·Ğ´ĞµĞ» Ğ´Ğ¾Ğ¼Ğ¾Ñ„Ğ¾Ğ½Ğ°">
-          <button id="tab-live" class="tab-button" type="button" role="tab">LIVE</button>
-          <button id="tab-archive" class="tab-button" type="button" role="tab">ĞĞ Ğ¥Ğ˜Ğ’</button>
-          <button id="tab-guests" class="tab-button" type="button" role="tab">Ğ“ĞĞ¡Ğ¢Ğ˜</button>
-          <button id="tab-diagnostics" class="tab-button" type="button" role="tab">Ğ”Ğ˜ĞĞ“ĞĞĞ¡Ğ¢Ğ˜ĞšĞ</button>
-        </div>
-
-        <section id="panel-live" class="panel" role="tabpanel" hidden>
-          <div id="live-host">
-            <div class="panel-message">Ğ—Ğ°Ğ³Ñ€ÑƒĞ·ĞºĞ° live-ĞºĞ°Ğ¼ĞµÑ€Ñ‹â€¦</div>
-          </div>
-
-          <div class="live-controls">
-            <div class="live-status-row">
-              <span id="live-camera-state" class="live-status-pill">ĞšĞ°Ğ¼ĞµÑ€Ğ°â€¦</span>
-              <span id="live-door-state" class="live-status-pill">Ğ”Ğ¾Ğ¼Ğ¾Ñ„Ğ¾Ğ½â€¦</span>
-            </div>
-
-            <div class="live-main-actions">
-              <button id="live-open-door" type="button" class="open-door-button">
-                ğŸšª ĞÑ‚ĞºÑ€Ñ‹Ñ‚ÑŒ Ğ´Ğ²ĞµÑ€ÑŒ
-              </button>
-              <button id="live-refresh" type="button">ĞĞ±Ğ½Ğ¾Ğ²Ğ¸Ñ‚ÑŒ LIVE</button>
-            </div>
-
-            <div id="live-last-call" class="live-last-call" data-empty="true">
-              <div class="live-last-call-title">ĞŸĞ¾ÑĞ»ĞµĞ´Ğ½Ğ¸Ğ¹ Ğ·Ğ²Ğ¾Ğ½Ğ¾Ğº</div>
-              <div id="live-last-call-time" class="live-last-call-time">Ğ—Ğ°Ğ³Ñ€ÑƒĞ·ĞºĞ°â€¦</div>
-              <div id="live-last-call-address" class="live-last-call-address"></div>
-              <div class="live-call-actions">
-                <button id="live-open-call-archive" type="button" class="small-button">
-                  ĞŸĞ¾ÑĞ¼Ğ¾Ñ‚Ñ€ĞµÑ‚ÑŒ Ğ·Ğ°Ğ¿Ğ¸ÑÑŒ
-                </button>
-                <button id="live-open-call-preview" type="button" class="small-button" hidden>
-                  Preview
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div class="live-footer">
-            Live entity: <span id="live-entity-label">Ğ¾Ğ¿Ñ€ĞµĞ´ĞµĞ»ÑĞµÑ‚ÑÑâ€¦</span>
-          </div>
-        </section>
-
-        <section id="panel-archive" class="panel" role="tabpanel" hidden>
-          <div id="archive-window">ĞĞ¿Ñ€ĞµĞ´ĞµĞ»ĞµĞ½Ğ¸Ğµ Ğ´Ğ¾ÑÑ‚ÑƒĞ¿Ğ½Ğ¾Ğ³Ğ¾ Ğ´Ğ¸Ğ°Ğ¿Ğ°Ğ·Ğ¾Ğ½Ğ°â€¦</div>
-
-          <div class="controls">
-            <label>Ğ”Ğ°Ñ‚Ğ°<input id="date" type="date"></label>
-            <label>Ğ’Ñ€ĞµĞ¼Ñ<input id="time" type="time" step="1"></label>
-            <label>
-              Ğ”Ğ»Ğ¸Ñ‚ĞµĞ»ÑŒĞ½Ğ¾ÑÑ‚ÑŒ, Ñ
-              <input id="duration" type="number" min="30" max="3600" step="30" value="${Number(this._config.duration || 300)}">
-            </label>
-            <label>
-              Ğ¨Ğ°Ğ³
-              <select id="step">
-                ${[10, 30, 60, 120, 300, 600, 1800, 3600]
-                  .map((value) => `<option value="${value}" ${Number(this._config.step || 60) === value ? "selected" : ""}>${this._formatStep(value)}</option>`)
-                  .join("")}
-              </select>
-            </label>
-          </div>
-
-          <div class="timeline-wrap">
-            <div class="timeline-head">
-              <span>Timeline Ğ°Ñ€Ñ…Ğ¸Ğ²Ğ°</span>
-              <div class="timeline-zoom" role="group" aria-label="ĞœĞ°ÑÑˆÑ‚Ğ°Ğ± timeline">
-                <button id="zoom-24" class="zoom-button" type="button" aria-pressed="true">24 Ñ‡</button>
-                <button id="zoom-6" class="zoom-button" type="button" aria-pressed="false">6 Ñ‡</button>
-                <button id="zoom-1" class="zoom-button" type="button" aria-pressed="false">1 Ñ‡</button>
-              </div>
-            </div>
-            <div class="timeline-subhead">
-              <span id="timeline-window-label">00:00â€“24:00</span>
-              <span id="timeline-hint">Ğ—Ğ°Ğ³Ñ€ÑƒĞ·ĞºĞ° Ğ´Ğ¸Ğ°Ğ¿Ğ°Ğ·Ğ¾Ğ½Ğ¾Ğ²â€¦</span>
-            </div>
-            <div id="timeline-axis" aria-hidden="true">
-              <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span>
-            </div>
-            <div id="timeline-track" role="group" aria-label="ĞÑ€Ñ…Ğ¸Ğ²Ğ½Ğ°Ñ ÑˆĞºĞ°Ğ»Ğ° Ğ²Ñ€ĞµĞ¼ĞµĞ½Ğ¸">
-              <div id="timeline-marker" hidden></div>
-              <div id="timeline-marker-label" hidden></div>
-            </div>
-          </div>
-
-          <div class="day-ranges">
-            <div id="day-label">Ğ”Ğ¾ÑÑ‚ÑƒĞ¿Ğ½Ñ‹Ğµ Ğ¸Ğ½Ñ‚ĞµÑ€Ğ²Ğ°Ğ»Ñ‹</div>
-            <div id="day-intervals"></div>
-          </div>
-
-          <div class="calls">
-            <div class="calls-head">
-              <div id="calls-label">Ğ—Ğ²Ğ¾Ğ½ĞºĞ¸: Ğ·Ğ°Ğ³Ñ€ÑƒĞ·ĞºĞ°â€¦</div>
-              <button id="refresh-calls" type="button">ĞĞ±Ğ½Ğ¾Ğ²Ğ¸Ñ‚ÑŒ</button>
-            </div>
-            <div id="call-events"></div>
-          </div>
-
-          <div class="buttons">
-            <button id="previous">âª ĞĞ°Ğ·Ğ°Ğ´</button>
-            <button id="latest">ĞŸĞ¾ÑĞ»ĞµĞ´Ğ½ĞµĞµ</button>
-            <button id="next">Ğ’Ğ¿ĞµÑ€Ñ‘Ğ´ â©</button>
-          </div>
-
-          <div id="player-host"><span style="color:#aaa">Ğ—Ğ°Ğ³Ñ€ÑƒĞ·ĞºĞ° Ğ°Ñ€Ñ…Ğ¸Ğ²Ğ°â€¦</span></div>
-
-          <div class="archive-export">
-            <div class="archive-export-row">
-              <label>
-                Ğ¡Ğ¾Ñ…Ñ€Ğ°Ğ½Ğ¸Ñ‚ÑŒ Ğ¾Ñ‚ Ñ‚ĞµĞºÑƒÑ‰ĞµĞ¹ Ğ¾Ñ‚Ğ¼ĞµÑ‚ĞºĞ¸
-                <select id="archive-export-duration">
-                  <option value="30">30 ÑĞµĞºÑƒĞ½Ğ´</option>
-                  <option value="60">1 Ğ¼Ğ¸Ğ½ÑƒÑ‚Ğ°</option>
-                  <option value="120">2 Ğ¼Ğ¸Ğ½ÑƒÑ‚Ñ‹</option>
-                  <option value="300" selected>5 Ğ¼Ğ¸Ğ½ÑƒÑ‚</option>
-                  <option value="600">10 Ğ¼Ğ¸Ğ½ÑƒÑ‚</option>
-                  <option value="1800">30 Ğ¼Ğ¸Ğ½ÑƒÑ‚</option>
-                </select>
-              </label>
-              <button id="prepare-archive-download" type="button">
-                ĞŸĞ¾Ğ´Ğ³Ğ¾Ñ‚Ğ¾Ğ²Ğ¸Ñ‚ÑŒ MP4
-              </button>
-            </div>
-
-            <div id="archive-download-ready" class="archive-download-ready" hidden>
-              <a id="archive-download-link" target="_blank" rel="noopener noreferrer">
-                Ğ¡ĞºĞ°Ñ‡Ğ°Ñ‚ÑŒ / Ğ¾Ñ‚ĞºÑ€Ñ‹Ñ‚ÑŒ MP4
-              </a>
-              <span id="archive-download-meta" class="archive-download-meta"></span>
-              <button id="archive-download-copy" type="button" class="small-button">
-                ĞšĞ¾Ğ¿Ğ¸Ñ€Ğ¾Ğ²Ğ°Ñ‚ÑŒ URL
-              </button>
-            </div>
-          </div>
-
-          <div class="archive-library">
-            <div class="archive-library-head">
-              <span class="archive-library-head-title">Ğ¡Ğ¾Ñ…Ñ€Ğ°Ğ½Ñ‘Ğ½Ğ½Ñ‹Ğµ Ğ²Ğ¸Ğ´ĞµĞ¾</span>
-              <span id="archive-library-summary" class="archive-library-summary">Ğ—Ğ°Ğ³Ñ€ÑƒĞ·ĞºĞ°â€¦</span>
-              <button id="archive-library-refresh" type="button" class="small-button">ĞĞ±Ğ½Ğ¾Ğ²Ğ¸Ñ‚ÑŒ</button>
-              <button id="archive-library-cleanup" type="button" class="small-button">ĞÑ‡Ğ¸ÑÑ‚Ğ¸Ñ‚ÑŒ Ğ¿Ğ¾ Ğ¿Ñ€Ğ°Ğ²Ğ¸Ğ»Ğ°Ğ¼</button>
-            </div>
-            <div id="archive-library-policy" class="archive-library-policy"></div>
-            <div id="archive-library-list" class="archive-library-list">
-              <div class="archive-library-empty">Ğ—Ğ°Ğ³Ñ€ÑƒĞ·ĞºĞ° Ğ¼ĞµĞ´Ğ¸Ğ°Ñ‚ĞµĞºĞ¸â€¦</div>
-            </div>
-          </div>
-        </section>
-
-        <section id="panel-guests" class="panel" role="tabpanel" hidden>
-          <div class="guest-toolbar">
-            <div id="guest-counts" class="guest-summary">Ğ“Ğ¾ÑÑ‚ĞµĞ²Ñ‹Ğµ Ğ´Ğ¾ÑÑ‚ÑƒĞ¿Ñ‹ ĞµÑ‰Ñ‘ Ğ½Ğµ Ğ·Ğ°Ğ³Ñ€ÑƒĞ¶ĞµĞ½Ñ‹</div>
-            <button id="refresh-guests" type="button" class="small-button">ĞĞ±Ğ½Ğ¾Ğ²Ğ¸Ñ‚ÑŒ</button>
-            <button id="create-guest-invite" type="button" class="primary-action">Ğ¡Ğ¾Ğ·Ğ´Ğ°Ñ‚ÑŒ Ğ¿Ñ€Ğ¸Ğ³Ğ»Ğ°ÑˆĞµĞ½Ğ¸Ğµ</button>
-          </div>
-
-          <div id="guest-invite-box" class="guest-invite" hidden>
-            <div class="guest-invite-title">ĞĞ¾Ğ²Ğ¾Ğµ Ğ¿Ñ€Ğ¸Ğ³Ğ»Ğ°ÑˆĞµĞ½Ğ¸Ğµ</div>
-            <div class="guest-invite-warning">
-              Ğ¡ÑÑ‹Ğ»ĞºĞ° ÑĞ²Ğ»ÑĞµÑ‚ÑÑ ĞºĞ»ÑÑ‡Ğ¾Ğ¼ Ğ´Ğ¾ÑÑ‚ÑƒĞ¿Ğ°. ĞŸĞµÑ€ĞµĞ´Ğ°Ğ²Ğ°Ğ¹Ñ‚Ğµ ĞµÑ‘ Ñ‚Ğ¾Ğ»ÑŒĞºĞ¾ Ğ½ÑƒĞ¶Ğ½Ğ¾Ğ¼Ñƒ Ğ¿Ğ¾Ğ»ÑƒÑ‡Ğ°Ñ‚ĞµĞ»Ñ.
-              ĞŸĞ¾Ğ»ÑŒĞ·Ğ¾Ğ²Ğ°Ñ‚ĞµĞ»ÑŒ Ğ¿Ğ¾ÑĞ²Ğ¸Ñ‚ÑÑ Ğ² Shared access Ğ¿Ğ¾ÑĞ»Ğµ Ğ¿Ñ€Ğ¸Ğ½ÑÑ‚Ğ¸Ñ Ğ¿Ñ€Ğ¸Ğ³Ğ»Ğ°ÑˆĞµĞ½Ğ¸Ñ.
-            </div>
-            <div class="guest-invite-controls">
-              <input id="guest-invite-url" type="text" readonly aria-label="Ğ¡ÑÑ‹Ğ»ĞºĞ° Ğ¿Ñ€Ğ¸Ğ³Ğ»Ğ°ÑˆĞµĞ½Ğ¸Ñ">
-              <button id="copy-guest-invite" type="button" class="small-button">ĞšĞ¾Ğ¿Ğ¸Ñ€Ğ¾Ğ²Ğ°Ñ‚ÑŒ</button>
-              <button id="open-guest-invite" type="button" class="small-button">ĞÑ‚ĞºÑ€Ñ‹Ñ‚ÑŒ</button>
-            </div>
-          </div>
-
-          <div class="guest-section">
-            <div class="guest-section-title">Ğ¡Ğ¾Ğ·Ğ´Ğ°Ğ½Ğ½Ñ‹Ğµ Ğ¿Ñ€Ğ¸Ğ³Ğ»Ğ°ÑˆĞµĞ½Ğ¸Ñ</div>
-            <div class="guest-row-meta" style="margin-bottom:8px">
-              Ufanet Ğ½Ğµ Ğ¿Ñ€ĞµĞ´Ğ¾ÑÑ‚Ğ°Ğ²Ğ»ÑĞµÑ‚ API ÑĞ¿Ğ¸ÑĞºĞ° Ğ½ĞµĞ¿Ñ€Ğ¸Ğ½ÑÑ‚Ñ‹Ñ… create_token-ÑÑÑ‹Ğ»Ğ¾Ğº,
-              Ğ¿Ğ¾ÑÑ‚Ğ¾Ğ¼Ñƒ Ğ½Ğ¾Ğ²Ñ‹Ğµ Ğ¿Ñ€Ğ¸Ğ³Ğ»Ğ°ÑˆĞµĞ½Ğ¸Ñ ÑĞ¾Ñ…Ñ€Ğ°Ğ½ÑÑÑ‚ÑÑ Ğ»Ğ¾ĞºĞ°Ğ»ÑŒĞ½Ğ¾ Ğ² Home Assistant.
-            </div>
-            <div id="guest-generated-list" class="guest-list">
-              <div class="guest-empty">ĞĞ°Ğ¶Ğ¼Ğ¸Ñ‚Ğµ Â«ĞĞ±Ğ½Ğ¾Ğ²Ğ¸Ñ‚ÑŒÂ» Ğ´Ğ»Ñ Ğ·Ğ°Ğ³Ñ€ÑƒĞ·ĞºĞ¸.</div>
-            </div>
-          </div>
-
-          <div class="guest-section">
-            <div class="guest-section-title">Ğ’Ñ€ĞµĞ¼ĞµĞ½Ğ½Ñ‹Ğµ ĞºĞ»ÑÑ‡Ğ¸</div>
-            <div class="temporary-create">
-              <label class="temporary-duration-label">
-                Ğ¡Ñ€Ğ¾Ğº
-                <select id="temporary-duration">
-                  <option value="60">1 Ñ‡Ğ°Ñ</option>
-                  <option value="180">3 Ñ‡Ğ°ÑĞ°</option>
-                  <option value="360">6 Ñ‡Ğ°ÑĞ¾Ğ²</option>
-                  <option value="720">12 Ñ‡Ğ°ÑĞ¾Ğ²</option>
-                  <option value="1440">24 Ñ‡Ğ°ÑĞ°</option>
-                </select>
-              </label>
-              <button id="create-temporary-guest" type="button" class="primary-action">
-                Ğ¡Ğ¾Ğ·Ğ´Ğ°Ñ‚ÑŒ Ğ²Ñ€ĞµĞ¼ĞµĞ½Ğ½Ñ‹Ğ¹ ĞºĞ»ÑÑ‡
-              </button>
-            </div>
-            <div class="guest-row-meta" style="margin:0 0 8px">
-              Ğ­Ñ‚Ğ¸ ÑÑÑ‹Ğ»ĞºĞ¸ Ñ…Ñ€Ğ°Ğ½ÑÑ‚ÑÑ Ğ½Ğ° ÑĞµÑ€Ğ²ĞµÑ€Ğµ Ufanet Ğ¸ Ğ°Ğ²Ñ‚Ğ¾Ğ¼Ğ°Ñ‚Ğ¸Ñ‡ĞµÑĞºĞ¸ Ğ¸ÑÑ‡ĞµĞ·Ğ°ÑÑ‚ Ğ¿Ğ¾ÑĞ»Ğµ Ğ¾ĞºĞ¾Ğ½Ñ‡Ğ°Ğ½Ğ¸Ñ ÑÑ€Ğ¾ĞºĞ°.
-            </div>
-            <div id="guest-temporary-list" class="guest-list">
-              <div class="guest-empty">ĞĞ°Ğ¶Ğ¼Ğ¸Ñ‚Ğµ Â«ĞĞ±Ğ½Ğ¾Ğ²Ğ¸Ñ‚ÑŒÂ» Ğ´Ğ»Ñ Ğ·Ğ°Ğ³Ñ€ÑƒĞ·ĞºĞ¸.</div>
-            </div>
-          </div>
-
-          <div class="guest-section">
-            <div class="guest-section-title">Shared access</div>
-            <div id="guest-shared-list" class="guest-list">
-              <div class="guest-empty">ĞĞ°Ğ¶Ğ¼Ğ¸Ñ‚Ğµ Â«ĞĞ±Ğ½Ğ¾Ğ²Ğ¸Ñ‚ÑŒÂ» Ğ´Ğ»Ñ Ğ·Ğ°Ğ³Ñ€ÑƒĞ·ĞºĞ¸.</div>
-            </div>
-          </div>
-
-          <div id="guest-status" class="guest-status">Ğ“Ğ¾Ñ‚Ğ¾Ğ²Ğ¾</div>
-        </section>
-
-        <section id="panel-diagnostics" class="panel" role="tabpanel" hidden>
-          <div class="diagnostics-toolbar">
-            <span class="diagnostics-toolbar-title">Ğ¢ĞµÑ…Ğ½Ğ¸Ñ‡ĞµÑĞºĞ¾Ğµ ÑĞ¾ÑÑ‚Ğ¾ÑĞ½Ğ¸Ğµ Ufanet Intercom</span>
-            <button id="diagnostics-refresh" type="button" class="small-button">ĞĞ±Ğ½Ğ¾Ğ²Ğ¸Ñ‚ÑŒ</button>
-            <button id="diagnostics-copy" type="button" class="small-button">ĞšĞ¾Ğ¿Ğ¸Ñ€Ğ¾Ğ²Ğ°Ñ‚ÑŒ JSON</button>
-          </div>
-          <div id="diagnostics-content" class="diagnostics-content">
-            <div class="panel-message">ĞĞ°Ğ¶Ğ¼Ğ¸Ñ‚Ğµ Â«ĞĞ±Ğ½Ğ¾Ğ²Ğ¸Ñ‚ÑŒÂ», Ñ‡Ñ‚Ğ¾Ğ±Ñ‹ Ğ¿Ğ¾Ğ»ÑƒÑ‡Ğ¸Ñ‚ÑŒ Ğ´Ğ¸Ğ°Ğ³Ğ½Ğ¾ÑÑ‚Ğ¸ĞºÑƒ.</div>
-          </div>
-        </section>
-
-        <div class="footer">
-          <span id="status">Ğ˜Ğ½Ğ¸Ñ†Ğ¸Ğ°Ğ»Ğ¸Ğ·Ğ°Ñ†Ğ¸Ñâ€¦</span>
-          <span>TZ: <span id="timezone">â€”</span> <span id="effective-duration"></span></span>
-        </div>
-      </ha-card>
-    `;
-
-    this._updateStepButtons();
-    this._updateZoomButtons();
-
-    this.shadowRoot.getElementById("tab-live")?.addEventListener("click", () => this._setActiveTab("live"));
-    this.shadowRoot.getElementById("tab-archive")?.addEventListener("click", () => this._setActiveTab("archive"));
-    this.shadowRoot.getElementById("tab-guests")?.addEventListener("click", () => this._setActiveTab("guests"));
-    this.shadowRoot.getElementById("tab-diagnostics")?.addEventListener("click", () => this._setActiveTab("diagnostics"));
-
-    this.shadowRoot.getElementById("live-open-door")?.addEventListener(
-      "click",
-      () => void this._openDoorFromLive()
-    );
-    this.shadowRoot.getElementById("live-refresh")?.addEventListener(
-      "click",
-      () => void this._refreshLivePanel()
-    );
-    this.shadowRoot.getElementById("live-open-call-archive")?.addEventListener(
-      "click",
-      () => void this._openLastCallArchive()
-    );
-    this.shadowRoot.getElementById("live-open-call-preview")?.addEventListener(
-      "click",
-      () => this._openLastCallPreview()
-    );
-
-    const timelineTrack = this.shadowRoot.getElementById("timeline-track");
-    timelineTrack?.addEventListener("click", (event) => void this._handleTimelineClick(event));
-    timelineTrack?.addEventListener("wheel", (event) => this._handleTimelineWheel(event), { passive: false });
-    timelineTrack?.addEventListener("pointerdown", (event) => this._handleTimelinePointerDown(event));
-    timelineTrack?.addEventListener("pointermove", (event) => this._handleTimelinePointerMove(event));
-    timelineTrack?.addEventListener("pointerup", (event) => this._finishTimelinePointerDrag(event));
-    timelineTrack?.addEventListener("pointercancel", (event) => this._finishTimelinePointerDrag(event));
-
-    this.shadowRoot.getElementById("zoom-24")?.addEventListener("click", () => this._setTimelineZoom(24, null, true));
-    this.shadowRoot.getElementById("zoom-6")?.addEventListener("click", () => this._setTimelineZoom(6, null, true));
-    this.shadowRoot.getElementById("zoom-1")?.addEventListener("click", () => this._setTimelineZoom(1, null, true));
-    this.shadowRoot.getElementById("date")?.addEventListener("change", () => void this._handleDateChange());
-    this.shadowRoot.getElementById("time")?.addEventListener("change", () => void this._loadFromInputs());
-    this.shadowRoot.getElementById("duration")?.addEventListener("change", () => {
-      if (this._currentEpoch != null) void this._loadEpoch(this._currentEpoch);
-    });
-    this.shadowRoot.getElementById("step")?.addEventListener("change", () => this._updateStepButtons());
-    this.shadowRoot.getElementById("previous")?.addEventListener("click", () => void this._shift(-1));
-    this.shadowRoot.getElementById("next")?.addEventListener("click", () => void this._shift(1));
-    this.shadowRoot.getElementById("latest")?.addEventListener("click", () => void this._goLatest(true));
-    this.shadowRoot.getElementById("refresh-calls")?.addEventListener("click", () => {
-      const dateText = this.shadowRoot.getElementById("date")?.value;
-      if (dateText) void this._refreshCallEvents(dateText, true);
-    });
-
-    this.shadowRoot.getElementById("prepare-archive-download")?.addEventListener(
-      "click",
-      () => void this._prepareArchiveDownload()
-    );
-    this.shadowRoot.getElementById("archive-download-copy")?.addEventListener(
-      "click",
-      () => void this._copyArchiveDownloadUrl()
-    );
-    this.shadowRoot.getElementById("archive-library-refresh")?.addEventListener(
-      "click",
-      () => void this._refreshArchiveExports(true)
-    );
-    this.shadowRoot.getElementById("archive-library-cleanup")?.addEventListener(
-      "click",
-      () => void this._cleanupStoredArchiveExports()
-    );
-    this.shadowRoot.getElementById("diagnostics-refresh")?.addEventListener(
-      "click",
-      () => void this._refreshRuntimeStatus(true)
-    );
-    this.shadowRoot.getElementById("diagnostics-copy")?.addEventListener(
-      "click",
-      () => void this._copyRuntimeStatus()
-    );
-
-    this.shadowRoot.getElementById("refresh-guests")?.addEventListener("click", () => void this._refreshGuestAccess(true));
-    this.shadowRoot.getElementById("create-guest-invite")?.addEventListener("click", () => void this._createGuestInvite());
-    this.shadowRoot.getElementById("create-temporary-guest")?.addEventListener("click", () => void this._createTemporaryGuestLink());
-    this.shadowRoot.getElementById("copy-guest-invite")?.addEventListener("click", () => {
-      if (this._guestInviteUrl) void this._copyText(this._guestInviteUrl);
-    });
-    this.shadowRoot.getElementById("open-guest-invite")?.addEventListener("click", () => {
-      if (this._guestInviteUrl) window.open(this._guestInviteUrl, "_blank", "noopener,noreferrer");
-    });
-
-    this._setActiveTab(this._activeTab, false);
-    this._renderLiveMeta();
-    this._renderArchiveDownloadReady();
-    this._renderArchiveExports();
-    this._renderRuntimeStatus();
-  }
-
-}
-
-if (!customElements.get("ufanet-archive-card")) {
-  customElements.define("ufanet-archive-card", UfanetArchiveCard);
-}
-
-if (!customElements.get("ufanet-intercom-card")) {
-  class UfanetIntercomCard extends UfanetArchiveCard {}
-  customElements.define("ufanet-intercom-card", UfanetIntercomCard);
-}
-
-window.customCards = window.customCards || [];
-
-if (!window.customCards.some((card) => card.type === "ufanet-intercom-card")) {
-  window.customCards.push({
-    type: "ufanet-intercom-card",
-    name: "Ufanet Intercom",
-    description: "LIVE, Ğ°Ñ€Ñ…Ğ¸Ğ², Ğ·Ğ²Ğ¾Ğ½ĞºĞ¸ Ğ¸ Ğ³Ğ¾ÑÑ‚ĞµĞ²Ñ‹Ğµ Ğ´Ğ¾ÑÑ‚ÑƒĞ¿Ñ‹ Ufanet",
-    preview: false,
-  });
-}
-
-if (!window.customCards.some((card) => card.type === "ufanet-archive-card")) {
-  window.customCards.push({
-    type: "ufanet-archive-card",
-    name: "Ufanet Intercom (legacy card type)",
-    description: "Ğ¡Ğ¾Ğ²Ğ¼ĞµÑÑ‚Ğ¸Ğ¼Ñ‹Ğ¹ Ğ°Ğ»Ğ¸Ğ°Ñ ĞµĞ´Ğ¸Ğ½Ğ¾Ğ¹ ĞºĞ°Ñ€Ñ‚Ğ¾Ñ‡ĞºĞ¸ Ufanet",
-    preview: false,
-  });
-}
-
-console.info(
-  `%c Ufanet Archive Card %c v${CARD_VERSION} `,
-  "background:#0CBA9B;color:white;padding:2px 4px;border-radius:3px 0 0 3px",
-  "background:#444;color:white;padding:2px 4px;border-radius:0 3px 3px 0"
-);
+YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éíã­»å:-jZ.¶›­–)Ş³V6öç7B4$EõdU%4”ôâÒ#ã#Bã#° ¦6Æ72VfæWD&6†—fT6&BW‡FVæG2…DÔÄVÆVÖVçB°¢6öç7G'V7F÷"‚’°¢7WW"‚“°¢F†—2æGF6…6†F÷r‡²ÖöFS¢&÷Vâ"Ò“°¢F†—2åö†72ÒçVÆÃ°¢F†—2åö6öæf–rÒçVÆÃ°¢F†—2å÷W6W$6öæf–rÒçVÆÃ°¢F†—2åö–çFVw&F–öå6WGF–æw2ÒçVÆÃ°¢F†—2åö–æ—F–Æ—¦VBÒfÇ6S°¢F†—2åö–æ—F–Æ—¦–ærÒfÇ6S°¢F†—2åöFWf–6T–BÒçVÆÃ°¢F†—2å÷&ævW2ÒµÓ°¢F†—2åöF—2ÒµÓ°¢F†—2åöF—4'”FFRÒæWrÖ‚“°¢F†—2å÷F–ÖW¦öæRÒ%UD2#°¢F†—2åöV&Æ–W7BÒçVÆÃ°¢F†—2åöÆFW7BÒçVÆÃ°¢F†—2åö7W'&VçDWö6‚ÒçVÆÃ°¢F†—2å÷Æ–W"ÒçVÆÃ°¢F†—2åöÆöF–ærÒfÇ6S°¢F†—2å÷F–ÖVÆ–æU¦ööÔ†÷W'2Ò#C°¢F†—2å÷F–ÖVÆ–æT6VçFW%6V6öæG2ÒC3#°¢F†—2åöÆ7EF–ÖVÆ–æUv†VVÄBÒ°¢F†—2å÷F–ÖVÆ–æTG&rÒçVÆÃ°¢F†—2å÷F–ÖVÆ–æU7W&W746Æ–6µVçF–ÂÒ°¢F†—2åö6ÆÄWfVçG2ÒµÓ°¢F†—2åö6ÆÄWfVçG4FFRÒçVÆÃ°¢F†—2åö6ÆÄWfVçG466†RÒæWrÖ‚“°¢F†—2åö7F—fUF"Ò&&6†—fR#°¢F†—2åöÆ—fTVçF—G”–BÒçVÆÃ°¢F†—2åö÷VäFö÷$VçF—G”–BÒçVÆÃ°¢F†—2åöÆ7D6ÆÄVçF—G”–BÒçVÆÃ°¢F†—2åöFWf–6U&Vv—7G'”VçF—F–W2ÒçVÆÃ°¢F†—2åöÆ7D6ÆÅ7FFU6VVâÒçVÆÃ°¢F†—2åöÆ—fT6ÆÄfÆ6…F–ÖW"ÒçVÆÃ°¢F†—2åöÆ—fT6&BÒçVÆÃ°¢F†—2åö&6†—fTF÷væÆöBÒçVÆÃ°¢F†—2åö&6†—fTW‡÷'G2ÒµÓ°¢F†—2åö&6†—fTW‡÷'G4ÆöFVBÒfÇ6S°¢F†—2åö&6†—fTW‡÷'G4ÆöF–ærÒfÇ6S°¢F†—2åöwVW7D66W72ÒçVÆÃ°¢F†—2åöwVW7DÆöF–ærÒfÇ6S°¢F†—2åöwVW7D–çf—FUW&ÂÒçVÆÃ°¢F†—2å÷'VçF–ÖU7FGW2ÒçVÆÃ°¢F†—2å÷'VçF–ÖU7FGW4ÆöF–ærÒfÇ6S°¢Ğ ¢7FF–2vWE7GV$6öæf–r‚’°¢&WGW&â°¢GW&F–öã¢3À¢7FW¢cÀ¢F–ÖVÆ–æU÷¦ööÓ¢#BÀ¢6ÆÅöÆVE÷6V6öæG3¢RÀ¢FVfVÇE÷F#¢&&6†—fR"À¢W‡÷'E÷&WFVçF–öåöF—3¢3À¢W‡÷'EöÖ…öv#¢RÀ¢F—FÆS¢-	MíÍíMíÒVfæWB"À¢Ó°¢Ğ ¢7FF–2vWD6öæf–tf÷&Ò‚’°¢&WGW&â°¢66†VÖ¢°¢°¢æÖS¢&VçF—G’"À¢&WV—&VC¢G'VRÀ¢6VÆV7F÷#¢²VçF—G“¢²FöÖ–ã¢&6ÖW&"ÒÒÀ¢ÒÀ¢°¢æÖS¢&Æ—fUöVçF—G’"À¢6VÆV7F÷#¢²VçF—G“¢²FöÖ–ã¢&6ÖW&"ÒÒÀ¢ÒÀ¢°¢æÖS¢&FVfVÇE÷F""À¢6VÆV7F÷#¢°¢6VÆV7C¢°¢÷F–öç3¢°¢²fÇVS¢&Æ—fR"ÂÆ&VÃ¢$Æ—fR"ÒÀ¢²fÇVS¢&&6†—fR"ÂÆ&VÃ¢-	]""ÒÀ¢²fÇVS¢&wVW7G2"ÂÆ&VÃ¢-	=í-‚"ÒÀ¢²fÇVS¢&F–væ÷7F–72"ÂÆ&VÃ¢-	M=İí-­"ÒÀ¢ÒÀ¢ÒÀ¢ÒÀ¢ÒÀ¢²æÖS¢'F—FÆR"Â6VÆV7F÷#¢²FW‡C¢·ÒÒÒÀ¢°¢æÖS¢&GW&F–öâ"À¢6VÆV7F÷#¢°¢çVÖ&W#¢²Ö–ã¢3ÂÖƒ¢3cÂ7FW¢3ÂVæ—EööeöÖV7W&VÖVçC¢'2"ÒÀ¢ÒÀ¢ÒÀ¢°¢æÖS¢'7FW"À¢6VÆV7F÷#¢°¢çVÖ&W#¢²Ö–ã¢ÂÖƒ¢3cÂ7FW¢ÂVæ—EööeöÖV7W&VÖVçC¢'2"ÒÀ¢ÒÀ¢ÒÀ¢°¢æÖS¢'F–ÖVÆ–æU÷¦ööÒ"À¢6VÆV7F÷#¢°¢6VÆV7C¢°¢÷F–öç3¢°¢²fÇVS¢##B"ÂÆ&VÃ¢##B}"ÒÀ¢²fÇVS¢#b"ÂÆ&VÃ¢#b}í""ÒÀ¢²fÇVS¢#"ÂÆ&VÃ¢#}"ÒÀ¢ÒÀ¢ÒÀ¢ÒÀ¢ÒÀ¢°¢æÖS¢&6ÆÅöÆVE÷6V6öæG2"À¢6VÆV7F÷#¢°¢çVÖ&W#¢²Ö–ã¢ÂÖƒ¢cÂ7FW¢ÂVæ—EööeöÖV7W&VÖVçC¢'2"ÒÀ¢ÒÀ¢ÒÀ¢°¢æÖS¢&W‡÷'E÷&WFVçF–öåöF—2"À¢6VÆV7F÷#¢°¢çVÖ&W#¢²Ö–ã¢ÂÖƒ¢3cSÂ7FW¢ÂVæ—EööeöÖV7W&VÖVçC¢&B"ÒÀ¢ÒÀ¢ÒÀ¢°¢æÖS¢&W‡÷'EöÖ…öv""À¢6VÆV7F÷#¢°¢çVÖ&W#¢²Ö–ã¢ÂÖƒ¢#BÂ7FW¢ãRÂVæ—EööeöÖV7W&VÖVçC¢$t""ÒÀ¢ÒÀ¢ÒÀ¢ÒÀ¢6ö×WFTÆ&VÃ¢‡66†VÖ’Óâ‡°¢VçF—G“¢-	­Í]VfæWBM½òíı]M]½]İò=-í--’"À¢Æ—fUöVçF—G“¢$Æ—fRİ­Í]İ]íı}-]½ÍİâÂíı]M]½ı]-ò--íÍ-}]­‚’"À¢FVfVÇE÷F#¢-	-­½M­ıâ=Íí½}İâ"À¢F—FÆS¢-	}=í½í-í¢"À¢GW&F–öã¢-	M½-]½Íİí-ÂM=Í]İ-"À¢7FW¢-
+2İ}Bı-ı]B"À¢F–ÖVÆ–æU÷¦ööÓ¢-	İ}½Íİ½’Í-F–ÖVÆ–æR"À¢6ÆÅöÆVE÷6V6öæG3¢-	İ}İ-Â-M]â}â]­=İBMâ}-íİ­"À¢W‡÷'E÷&WFVçF–öåöF—3¢-
+]İ-Âİ­ıí-í-İİ½R-M]âÂMİ]’ƒÒ]rí=İ}]İò’"À¢W‡÷'EöÖ…öv#¢-	Í­Í½Íİ½’í­Âİ­ıí-í"Â	=	ƒÒ]rí=İ}]İò’"À¢Ò•·66†VÖææÖUÒÇÂ66†VÖææÖRÀ¢Ó°¢Ğ ¢6WD6öæf–r†6öæf–r’°¢–b‚6öæf–rÇÂ‚6öæf–ræVçF—G’bb6öæf–ræFWf–6Uö–B’’°¢F‡&÷ræWrW'&÷"‚%7V6–g’VfæWB6ÖW&VçF—G’÷"FWf–6Uö–B"“°¢Ğ ¢F†—2å÷W6W$6öæf–rÒ²ââæ6öæf–rÓ°¢F†—2åö–çFVw&F–öå6WGF–æw2ÒçVÆÃ° ¢F†—2åö6öæf–rÒ°¢F—FÆS¢-	MíÍíMíÒVfæWB"À¢GW&F–öã¢3À¢7FW¢cÀ¢F–ÖVÆ–æU÷¦ööÓ¢#BÀ¢6ÆÅöÆVE÷6V6öæG3¢RÀ¢FVfVÇE÷F#¢&&6†—fR"À¢ââæ6öæf–rÀ¢Ó° ¢F†—2åö7F—fUF"Ò²&Æ—fR"Â&&6†—fR"Â&wVW7G2"Â&F–væ÷7F–72%Òæ–æ6ÇVFW2‡F†—2åö6öæf–ræFVfVÇE÷F"¢òF†—2åö6öæf–ræFVfVÇE÷F ¢¢&&6†—fR#°¢F†—2åöÆ—fTVçF—G”–BÒF†—2åö6öæf–ræÆ—fUöVçF—G’ÇÂçVÆÃ° ¢6öç7B6öæf–wW&VE¦ööÒÒçVÖ&W"‡F†—2åö6öæf–rçF–ÖVÆ–æU÷¦ööÒ“°¢F†—2å÷F–ÖVÆ–æU¦ööÔ†÷W'2Ò³#BÂbÂÒæ–æ6ÇVFW2†6öæf–wW&VE¦ööÒ¢ò6öæf–wW&VE¦ööĞ¢¢#C° ¢F†—2åö–æ—F–Æ—¦VBÒfÇ6S°¢F†—2åöFWf–6T–BÒF†—2åö6öæf–ræFWf–6Uö–BÇÂçVÆÃ°¢F†—2å÷&VæFW%6¶VÆWFöâ‚“° ¢–b‡F†—2æ—46öææV7FVBbbF†—2åö†72’°¢fö–BF†—2åö–æ—F–Æ—¦R‚“°¢Ğ¢Ğ ¢6WB†72††72’°¢F†—2åö†72Ò†73°¢–b‡F†—2åöÆ—fT6&B’°¢F†—2åöÆ—fT6&Bæ†72Ò†73°¢Ğ ¢–b‡F†—2åö–æ—F–Æ—¦VBbbF†—2åöÆ7D6ÆÄVçF—G”–B’°¢6öç7BæW‡E7FFRÒ†73òç7FFW3òå·F†—2åöÆ7D6ÆÄVçF—G”–EÓòç7FFRÇÂçVÆÃ°¢–b€¢F†—2åöÆ7D6ÆÅ7FFU6VVâb`¢æW‡E7FFRb`¢²'Væ¶æ÷vâ"Â'Væf–Æ&ÆR%Òæ–æ6ÇVFW2†æW‡E7FFR’b`¢æW‡E7FFRÓÒF†—2åöÆ7D6ÆÅ7FFU6VVà¢’°¢F†—2åöfÆ6„æWtÆ—fT6ÆÂ‚“°¢Ğ¢–b†æW‡E7FFR’°¢F†—2åöÆ7D6ÆÅ7FFU6VVâÒæW‡E7FFS°¢Ğ¢F†—2å÷&VæFW$Æ—fTÖWF‚“°¢Ğ ¢–b‡F†—2æ—46öææV7FVBbbF†—2åö6öæf–rbbF†—2åö–æ—F–Æ—¦VB’°¢fö–BF†—2åö–æ—F–Æ—¦R‚“°¢Ğ¢Ğ ¢6öææV7FVD6ÆÆ&6²‚’°¢–b‡F†—2åö6öæf–r’°¢F†—2å÷&VæFW%6¶VÆWFöâ‚“°¢Ğ¢–b‡F†—2åö†72bbF†—2åö6öæf–rbbF†—2åö–æ—F–Æ—¦VB’°¢fö–BF†—2åö–æ—F–Æ—¦R‚“°¢Ğ¢Ğ ¢F—66öææV7FVD6ÆÆ&6²‚’°¢–b‡F†—2åöÆ—fT6ÆÄfÆ6…F–ÖW"’°¢6ÆV%F–ÖV÷WB‡F†—2åöÆ—fT6ÆÄfÆ6…F–ÖW"“°¢F†—2åöÆ—fT6ÆÄfÆ6…F–ÖW"ÒçVÆÃ°¢Ğ¢Ğ ¢vWD6&E6—¦R‚’°¢&WGW&âƒ°¢Ğ ¢7–æ2ö–æ—F–Æ—¦R‚’°¢–b‡F†—2åö–æ—F–Æ—¦–ærÇÂF†—2åö–æ—F–Æ—¦VBÇÂF†—2åö†72ÇÂF†—2åö6öæf–r’°¢&WGW&ã°¢Ğ ¢F†—2åö–æ—F–Æ—¦–ærÒG'VS°¢F†—2å÷6WE7FGW2‚-	}==}­Mı}íİí"]-(
+b"Â&–æfò"“° ¢G'’°¢v—BF†—2åöVç7W&T†Ç5Æ–W"‚“° ¢–b‚F†—2åöFWf–6T–B’°¢6öç7BVçG'’Òv—BF†—2åö†72æ6ÆÅu2‡°¢G—S¢&6öæf–röVçF—G•÷&Vv—7G'’övWB"À¢VçF—G•ö–C¢F†—2åö6öæf–ræVçF—G’À¢Ò“°¢F†—2åöFWf–6T–BÒVçG'“òæFWf–6Uö–C°¢Ğ ¢–b‚F†—2åöFWf–6T–B’°¢F‡&÷ræWrW'&÷"‚-	İR=M½íÂíı]M]½-ÂFWf–6Uö–B-½İİí’­Í]²"“°¢Ğ ¢v—BF†—2åöÆöD–çFVw&F–öå6WGF–æw2‚“°¢v—BF†—2å÷&W6öÇfTÆ—fTVçF—G’‚“° ¢v—BF†—2å÷&Vg&W6…&ævW2‚“°¢–b‚F†—2å÷&ævW2æÆVæwF‚’°¢F‡&÷ræWrW'&÷"‚-	]-İ½R}ı]’İRİM]İâ"“°¢Ğ ¢F†—2åö–æ—F–Æ—¦VBÒG'VS°¢v—BF†—2åövôÆFW7B†fÇ6R“°¢F†—2å÷6WD7F—fUF"‡F†—2åö7F—fUF"ÂfÇ6R“°¢Ò6F6‚†W'"’°¢F†—2å÷6WE7FGW2‡F†—2åöW'&÷%FW‡B†W'"’Â&W'&÷""“°¢Òf–æÆÇ’°¢F†—2åö–æ—F–Æ—¦–ærÒfÇ6S°¢Ğ¢Ğ ¢ö†5–ÖÄ÷F–öâ†æÖR’°¢&WGW&âö&¦V7Bç&÷F÷G—Ræ†4÷vå&÷W'G’æ6ÆÂ‡F†—2å÷W6W$6öæf–rÇÂ·ÒÂæÖR“°¢Ğ ¢7–æ2öÆöD–çFVw&F–öå6WGF–æw2‚’°¢–b‚F†—2åöFWf–6T–B’&WGW&ã° ¢G'’°¢F†—2åö–çFVw&F–öå6WGF–æw2Òv—BF†—2åö6ÆÅ&W7öç6U6W'f–6R€¢&vWE÷6WGF–æw2"À¢°¢FWf–6Uö–C¢F†—2åöFWf–6T–BÀ¢Ğ¢“°¢Ò6F6‚…öW'"’°¢òò¶VWÆÂW†—7F–ær6&BFVfVÇG2õ”ÔÂfÇVW2–bF†R&6¶VæB—2öÆFW ¢òò÷"F†R6WGF–æw27F–öâ—2FV×÷&&–Ç’Væf–Æ&ÆRà¢F†—2åö–çFVw&F–öå6WGF–æw2ÒçVÆÃ°¢&WGW&ã°¢Ğ ¢6öç7B6WGF–æw2ÒF†—2åö–çFVw&F–öå6WGF–æw2ÇÂ·Ó° ¢–b‚F†—2åö†5–ÖÄ÷F–öâ‚&6ÆÅöÆVE÷6V6öæG2"’’°¢F†—2åö6öæf–ræ6ÆÅöÆVE÷6V6öæG2ÒçVÖ&W"€¢6WGF–æw2æ6ÆÅöÆVE÷6V6öæG2óğ¢F†—2åö6öæf–ræ6ÆÅöÆVE÷6V6öæG2óğ¢P¢“°¢Ğ ¢–b‚F†—2åö†5–ÖÄ÷F–öâ‚&GW&F–öâ"’’°¢F†—2åö6öæf–ræGW&F–öâÒçVÖ&W"€¢6WGF–æw2æ&6†—fUöFVfVÇEöGW&F–öå÷6V6öæG2óğ¢F†—2åö6öæf–ræGW&F–öâóğ¢3 ¢“°¢Ğ ¢–b‚F†—2åö†5–ÖÄ÷F–öâ‚'7FW"’’°¢F†—2åö6öæf–rç7FWÒçVÖ&W"€¢6WGF–æw2æ&6†—fUöFVfVÇE÷7FW÷6V6öæG2óğ¢F†—2åö6öæf–rç7FWóğ¢c ¢“°¢Ğ ¢–b‚F†—2åö†5–ÖÄ÷F–öâ‚&W‡÷'E÷&WFVçF–öåöF—2"’’°¢F†—2åö6öæf–ræW‡÷'E÷&WFVçF–öåöF—2ÒçVÖ&W"€¢6WGF–æw2æW‡÷'E÷&WFVçF–öåöF—2óò3 ¢“°¢Ğ ¢–b‚F†—2åö†5–ÖÄ÷F–öâ‚&W‡÷'EöÖ…öv""’’°¢F†—2åö6öæf–ræW‡÷'EöÖ…öv"Ğ¢çVÖ&W"‡6WGF–æw2æW‡÷'EöÖ…÷F÷FÅöÖ"óòS#’ò#C°¢Ğ ¢–b‚F†—2åö†5–ÖÄ÷F–öâ‚&W‡÷'EöFVfVÇEöGW&F–öâ"’’°¢F†—2åö6öæf–ræW‡÷'EöFVfVÇEöGW&F–öâÒçVÖ&W"€¢6WGF–æw2æW‡÷'EöFVfVÇEöGW&F–öå÷6V6öæG2óò3 ¢“°¢Ğ ¢6öç7BGW&F–öâÒF†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&GW&F–öâ"“°¢–b†GW&F–öâbbF†—2åö†5–ÖÄ÷F–öâ‚&GW&F–öâ"’’°¢GW&F–öâçfÇVRÒ7G&–ær‡F†—2åö6öæf–ræGW&F–öâ“°¢Ğ ¢6öç7B7FWÒF†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚'7FW"“°¢–b‡7FWbbF†—2åö†5–ÖÄ÷F–öâ‚'7FW"’’°¢7FWçfÇVRÒ7G&–ær‡F†—2åö6öæf–rç7FW“°¢Ğ ¢6öç7BW‡÷'DGW&F–öâĞ¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&&6†—fRÖW‡÷'BÖGW&F–öâ"“°¢–b€¢W‡÷'DGW&F–öâb`¢F†—2åö†5–ÖÄ÷F–öâ‚&W‡÷'EöFVfVÇEöGW&F–öâ"¢’°¢6öç7BvçFVBÒ7G&–ær‡F†—2åö6öæf–ræW‡÷'EöFVfVÇEöGW&F–öâÇÂ3“° ¢–b€¢²ââæW‡÷'DGW&F–öâæ÷F–öç5Òç6öÖR€¢†÷F–öâ’Óâ÷F–öâçfÇVRÓÓÒvçFV@¢¢’°¢6öç7B÷F–öâÒFö7VÖVçBæ7&VFTVÆVÖVçB‚&÷F–öâ"“°¢÷F–öâçfÇVRÒvçFVC°¢÷F–öâçFW‡D6öçFVçBÒF†—2åöf÷&ÖE7FW„çVÖ&W"‡vçFVB’“°¢W‡÷'DGW&F–öâæVæD6†–ÆB†÷F–öâ“°¢Ğ ¢W‡÷'DGW&F–öâçfÇVRÒvçFVC°¢Ğ ¢F†—2å÷&VæFW$&6†—fTW‡÷'G2‚“°¢F†—2å÷&VæFW%'VçF–ÖU7FGW2‚“°¢Ğ ¢7–æ2÷&W6öÇfTÆ—fTVçF—G’‚’°¢–b€¢F†—2åöÆ—fTVçF—G”–Bb`¢F†—2åö÷VäFö÷$VçF—G”–Bb`¢F†—2åöÆ7D6ÆÄVçF—G”–@¢’°¢&WGW&âF†—2åöÆ—fTVçF—G”–C°¢Ğ ¢G'’°¢6öç7BVçF—F–W2ÒF†—2åöFWf–6U&Vv—7G'”VçF—F–W2ÇÂv—BF†—2åö†72æ6ÆÅu2‡°¢G—S¢&6öæf–röVçF—G•÷&Vv—7G'’öÆ—7B"À¢Ò“°¢F†—2åöFWf–6U&Vv—7G'”VçF—F–W2ÒVçF—F–W3° ¢6öç7B6ÖTFWf–6RÒ'&’æ—4'&’†VçF—F–W2¢òVçF—F–W2æf–ÇFW"‚†—FVÒ’Óâ—FVÓòæFWf–6Uö–BÓÓÒF†—2åöFWf–6T–B¢¢µÓ° ¢6öç7B6ÖW&2Ò6ÖTFWf–6Ræf–ÇFW"‚†—FVÒ’Óà¢7G&–ær†—FVÓòæVçF—G•ö–BÇÂ""’ç7F'G5v—F‚‚&6ÖW&â"¢“° ¢6öç7BÆ—fRÒ6ÖW&2æf–æB‚†—FVÒ’Óâ°¢6öç7BVæ—VT–BÒ7G&–ær†—FVÓòçVæ—VUö–BÇÂ""“°¢&WGW&â€¢Væ—VT–Bæ–æ6ÇVFW2‚%ö&6†—fUö6ÖW&ò"’b`¢Væ—VT–Bæ–æ6ÇVFW2‚%ö6ÖW&ò"¢“°¢Ò“° ¢–b†Æ—fSòæVçF—G•ö–BbbF†—2åö6öæf–ræÆ—fUöVçF—G’’°¢F†—2åöÆ—fTVçF—G”–BÒÆ—fRæVçF—G•ö–C°¢Ğ ¢6öç7Bæöä&6†—fRÒ6ÖW&2æf–æB€¢†—FVÒ’Óâ7G&–ær†—FVÓòçVæ—VUö–BÇÂ""’æ–æ6ÇVFW2‚%ö&6†—fUö6ÖW&ò"¢“°¢–b‚F†—2åöÆ—fTVçF—G”–Bbbæöä&6†—fSòæVçF—G•ö–B’°¢F†—2åöÆ—fTVçF—G”–BÒæöä&6†—fRæVçF—G•ö–C°¢Ğ ¢6öç7BFö÷$VçF—F–W2Ò6ÖTFWf–6Ræf–ÇFW"‚†—FVÒ’Óà¢7G&–ær†—FVÓòæVçF—G•ö–BÇÂ""’ç7F'G5v—F‚‚&'WGFöââ"¢“°¢6öç7B&–Ö'”Fö÷"ÒFö÷$VçF—F–W2æf–æB€¢†—FVÒ’Óâ7G&–ær†—FVÓòçVæ—VUö–BÇÂ""’æVæG5v—F‚‚%ö÷VåöFö÷%ó"¢“°¢6öç7Bç”Fö÷"ÒFö÷$VçF—F–W2æf–æB€¢†—FVÒ’Óâ7G&–ær†—FVÓòçVæ—VUö–BÇÂ""’æ–æ6ÇVFW2‚%ö÷VåöFö÷%ò"¢“°¢F†—2åö÷VäFö÷$VçF—G”–BĞ¢F†—2åö6öæf–ræ÷VåöFö÷%öVçF—G’ÇÀ¢&–Ö'”Fö÷#òæVçF—G•ö–BÇÀ¢ç”Fö÷#òæVçF—G•ö–BÇÀ¢F†—2åö÷VäFö÷$VçF—G”–C° ¢6öç7B6Vç6÷'2Ò6ÖTFWf–6Ræf–ÇFW"‚†—FVÒ’Óà¢7G&–ær†—FVÓòæVçF—G•ö–BÇÂ""’ç7F'G5v—F‚‚'6Vç6÷"â"¢“°¢6öç7BÆ7D6ÆÂÒ6Vç6÷'2æf–æB€¢†—FVÒ’Óâ7G&–ær†—FVÓòçVæ—VUö–BÇÂ""’æVæG5v—F‚‚%öÆ7Eö6ÆÂ"¢“°¢–b†Æ7D6ÆÃòæVçF—G•ö–B’°¢F†—2åöÆ7D6ÆÄVçF—G”–BÒÆ7D6ÆÂæVçF—G•ö–C°¢Ğ¢Ò6F6‚…öW'"’°¢òòfÆÂ&6²&VÆ÷rà¢Ğ ¢F†—2åöÆ—fTVçF—G”–BĞ¢F†—2åö6öæf–ræÆ—fUöVçF—G’ÇÀ¢F†—2åöÆ—fTVçF—G”–BÇÀ¢F†—2åö6öæf–ræVçF—G’ÇÀ¢çVÆÃ° ¢–b‡F†—2åöÆ7D6ÆÄVçF—G”–BbbF†—2åö†73òç7FFW3òå·F†—2åöÆ7D6ÆÄVçF—G”–EÒ’°¢F†—2åöÆ7D6ÆÅ7FFU6VVâĞ¢F†—2åö†72ç7FFW5·F†—2åöÆ7D6ÆÄVçF—G”–EÒç7FFRÇÂçVÆÃ°¢Ğ ¢&WGW&âF†—2åöÆ—fTVçF—G”–C°¢Ğ ¢öVçF—G”f–Æ&ÆR†VçF—G”–B’°¢–b‚VçF—G”–BÇÂF†—2åö†73òç7FFW3òå¶VçF—G”–EÒ’&WGW&âfÇ6S°¢&WGW&â²'Væf–Æ&ÆR"Â'Væ¶æ÷vâ%Òæ–æ6ÇVFW2€¢7G&–ær‡F†—2åö†72ç7FFW5¶VçF—G”–EÒç7FFRÇÂ""¢“°¢Ğ ¢öÆ7D6ÆÅ7FFR‚’°¢–b‚F†—2åöÆ7D6ÆÄVçF—G”–BÇÂF†—2åö†73òç7FFW2’&WGW&âçVÆÃ°¢6öç7B7FFRÒF†—2åö†72ç7FFW5·F†—2åöÆ7D6ÆÄVçF—G”–EÓ°¢–b‚7FFRÇÂ²'Væ¶æ÷vâ"Â'Væf–Æ&ÆR%Òæ–æ6ÇVFW2‡7FFRç7FFR’’&WGW&âçVÆÃ°¢6öç7BWö6‚ÒFFRç'6R‡7FFRç7FFR’ò°¢–b‚çVÖ&W"æ—4f–æ—FR†Wö6‚’’&WGW&âçVÆÃ°¢&WGW&â²7FFRÂWö6‚Ó°¢Ğ ¢öf÷&ÖE&VÆF—fTWö6‚†Wö6‚’°¢6öç7BFVÇF6V6öæG2ÒÖF‚ç&÷VæB†Wö6‚ÒFFRææ÷r‚’ò“°¢6öç7B'2ÒÖF‚æ'2†FVÇF6V6öæG2“°¢6öç7Bf÷&ÖGFW"ÒæWr–çFÂå&VÆF—fUF–ÖTf÷&ÖB‚''RÕ%R"Â²çVÖW&–3¢&WFò"Ò“° ¢–b†'2Âc’&WGW&âf÷&ÖGFW"æf÷&ÖB†FVÇF6V6öæG2Â'6V6öæB"“°¢–b†'2Â3c’&WGW&âf÷&ÖGFW"æf÷&ÖB„ÖF‚ç&÷VæB†FVÇF6V6öæG2òc’Â&Ö–çWFR"“°¢–b†'2ÂƒcC’&WGW&âf÷&ÖGFW"æf÷&ÖB„ÖF‚ç&÷VæB†FVÇF6V6öæG2ò3c’Â&†÷W""“°¢&WGW&âf÷&ÖGFW"æf÷&ÖB„ÖF‚ç&÷VæB†FVÇF6V6öæG2òƒcC’Â&F’"“°¢Ğ ¢÷&VæFW$Æ—fTÖWF‚’°¢6öç7B6ÖW&7FFRÒF†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&Æ—fRÖ6ÖW&×7FFR"“°¢6öç7BFö÷%7FFRÒF†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&Æ—fRÖFö÷"×7FFR"“°¢6öç7BFö÷$'WGFöâÒF†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&Æ—fRÖ÷VâÖFö÷""“°¢6öç7B6ÆÄ&÷‚ÒF†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&Æ—fRÖÆ7BÖ6ÆÂ"“°¢6öç7B6ÆÅF–ÖRÒF†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&Æ—fRÖÆ7BÖ6ÆÂ×F–ÖR"“°¢6öç7B6ÆÄFG&W72ÒF†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&Æ—fRÖÆ7BÖ6ÆÂÖFG&W72"“°¢6öç7B&6†—fT'WGFöâÒF†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&Æ—fRÖ÷VâÖ6ÆÂÖ&6†—fR"“°¢6öç7B&Wf–Wt'WGFöâÒF†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&Æ—fRÖ÷VâÖ6ÆÂ×&Wf–Wr"“° ¢6öç7B6ÖW&f–Æ&ÆRÒF†—2åöVçF—G”f–Æ&ÆR‡F†—2åöÆ—fTVçF—G”–B“°¢6öç7BFö÷$f–Æ&ÆRÒF†—2åöVçF—G”f–Æ&ÆR‡F†—2åö÷VäFö÷$VçF—G”–B“° ¢–b†6ÖW&7FFR’°¢6ÖW&7FFRçFW‡D6öçFVçBÒ6ÖW&f–Æ&ÆRò-	­Í]öæÆ–æR"¢-	­Í]İ]Mí-=ıİ#°¢6ÖW&7FFRæFF6WBæf–Æ&ÆRÒ6ÖW&f–Æ&ÆRò'G'VR"¢&fÇ6R#°¢Ğ¢–b†Fö÷%7FFR’°¢Fö÷%7FFRçFW‡D6öçFVçBÒFö÷$f–Æ&ÆRò-	MíÍíMíÒMí-=ı]Ò"¢-	MíÍíMíÒİ]Mí-=ı]Ò#°¢Fö÷%7FFRæFF6WBæf–Æ&ÆRÒFö÷$f–Æ&ÆRò'G'VR"¢&fÇ6R#°¢Ğ¢–b†Fö÷$'WGFöâ’°¢Fö÷$'WGFöâæF—6&ÆVBÒFö÷$f–Æ&ÆS°¢Fö÷$'WGFöâçF—FÆRÒF†—2åö÷VäFö÷$VçF—G”–BÇÂ-	­İíı­í-­½-òM-]‚İRİM]İ#°¢Ğ ¢6öç7BÆ7D6ÆÂÒF†—2åöÆ7D6ÆÅ7FFR‚“°¢–b‚Æ7D6ÆÂ’°¢–b†6ÆÄ&÷‚’6ÆÄ&÷‚æFF6WBæV×G’Ò'G'VR#°¢–b†6ÆÅF–ÖR’6ÆÅF–ÖRçFW‡D6öçFVçBÒ-	}-íİ­í"ıí­İ]"#°¢–b†6ÆÄFG&W72’6ÆÄFG&W72çFW‡D6öçFVçBÒ"#°¢–b†&6†—fT'WGFöâ’&6†—fT'WGFöâæF—6&ÆVBÒG'VS°¢–b‡&Wf–Wt'WGFöâ’&Wf–Wt'WGFöâæ†–FFVâÒG'VS°¢&WGW&ã°¢Ğ ¢–b†6ÆÄ&÷‚’6ÆÄ&÷‚æFF6WBæV×G’Ò&fÇ6R#° ¢–b†6ÆÅF–ÖR’°¢6ÆÅF–ÖRçFW‡D6öçFVçBĞ¢G·F†—2åöf÷&ÖDF—7Æ•F–ÖR†Æ7D6ÆÂæWö6‚—Ò(
+"°¢G·F†—2åöf÷&ÖE&VÆF—fTWö6‚†Æ7D6ÆÂæWö6‚—Ö°¢Ğ ¢6öç7BGG'2ÒÆ7D6ÆÂç7FFRæGG&–'WFW2ÇÂ·Ó°¢6öç7BFG&W75'G2ÒµÓ°¢–b†GG'2æFG&W72’FG&W75'G2çW6‚…7G&–ær†GG'2æFG&W72’“°¢–b†GG'2ç÷&6‚ÒçVÆÂbb7G&–ær†GG'2ç÷&6‚’ÓÒ""’°¢FG&W75'G2çW6‚†ıíM­]}BG¶GG'2ç÷&6‡Ö“°¢Ğ¢–b†GG'2æfÆBÒçVÆÂbb7G&–ær†GG'2æfÆB’ÓÒ""’°¢FG&W75'G2çW6‚†­"âG¶GG'2æfÆGÖ“°¢Ğ¢–b†6ÆÄFG&W72’°¢6ÆÄFG&W72çFW‡D6öçFVçBÒFG&W75'G2æ¦ö–â‚"Â"’ÇÂ-	MíÍíMíÒ#°¢Ğ ¢–b†&6†—fT'WGFöâ’&6†—fT'WGFöâæF—6&ÆVBÒfÇ6S°¢–b‡&Wf–Wt'WGFöâ’°¢&Wf–Wt'WGFöâæ†–FFVâÒGG'2ç&Wf–Wu÷W&Ã°¢&Wf–Wt'WGFöâæFF6WBçW&ÂÒGG'2ç&Wf–Wu÷W&ÂÇÂ"#°¢Ğ¢Ğ ¢öfÆ6„æWtÆ—fT6ÆÂ‚’°¢6öç7B&÷‚ÒF†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&Æ—fRÖÆ7BÖ6ÆÂ"“°¢6öç7BF"ÒF†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚'F"ÖÆ—fR"“°¢&÷ƒòæ6Æ74Æ—7BæFB‚&æWrÖ6ÆÂ"“°¢F#òæ6Æ74Æ—7BæFB‚&æWrÖ6ÆÂ"“° ¢–b‡F†—2åöÆ—fT6ÆÄfÆ6…F–ÖW"’°¢6ÆV%F–ÖV÷WB‡F†—2åöÆ—fT6ÆÄfÆ6…F–ÖW"“°¢Ğ¢F†—2åöÆ—fT6ÆÄfÆ6…F–ÖW"Ò6WEF–ÖV÷WB‚‚’Óâ°¢&÷ƒòæ6Æ74Æ—7Bç&VÖ÷fR‚&æWrÖ6ÆÂ"“°¢F#òæ6Æ74Æ—7Bç&VÖ÷fR‚&æWrÖ6ÆÂ"“°¢F†—2åöÆ—fT6ÆÄfÆ6…F–ÖW"ÒçVÆÃ°¢ÒÂs“° ¢F†—2å÷6WE7FGW2‚-	İí-½’}-íİí¢"MíÍíMíÒ"Â'v&æ–ær"“°¢Ğ ¢7–æ2ö÷VäFö÷$g&öÔÆ—fR‚’°¢–b‚F†—2åö÷VäFö÷$VçF—G”–BÇÂF†—2åöVçF—G”f–Æ&ÆR‡F†—2åö÷VäFö÷$VçF—G”–B’’°¢F†—2å÷6WE7FGW2‚-	­İíı­í-­½-òM-]‚İ]Mí-=ıİ"Â&W'&÷""“°¢&WGW&ã°¢Ğ ¢6öç7B6öæf—&ÖVBÒv–æF÷ræ6öæf—&Ò€¢-	í-­½-ÂM-]ÂMíÍíMíİ]}ò ¢“°¢–b‚6öæf—&ÖVB’&WGW&ã° ¢6öç7B'WGFöâÒF†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&Æ—fRÖ÷VâÖFö÷""“°¢–b†'WGFöâ’'WGFöâæF—6&ÆVBÒG'VS°¢F†—2å÷6WE7FGW2‚-	í-­½-âM-]Î(
+b"Â&–æfò"“° ¢G'’°¢v—BF†—2åö†72æ6ÆÅu2‡°¢G—S¢&6ÆÅ÷6W'f–6R"À¢FöÖ–ã¢&'WGFöâ"À¢6W'f–6S¢'&W72"À¢6W'f–6UöFF¢²VçF—G•ö–C¢F†—2åö÷VäFö÷$VçF—G”–BÒÀ¢Ò“°¢F†—2å÷6WE7FGW2‚%VfæWBıíM--]M²­íÍİM2í-­½-òM-]‚"Â&ö²"“°¢Ò6F6‚†W'"’°¢F†—2å÷6WE7FGW2‡F†—2åöW'&÷%FW‡B†W'"’Â&W'&÷""“°¢Òf–æÆÇ’°¢F†—2å÷&VæFW$Æ—fTÖWF‚“°¢Ğ¢Ğ ¢7–æ2ö÷VäÆ7D6ÆÄ&6†—fR‚’°¢6öç7BÆ7D6ÆÂÒF†—2åöÆ7D6ÆÅ7FFR‚“°¢–b‚Æ7D6ÆÂ’&WGW&ã° ¢F†—2å÷6WD7F—fUF"‚&&6†—fR"ÂfÇ6R“°¢v—BF†—2åöÆöD6ÆÄWfVçB‡²F–ÖW7F×¢Æ7D6ÆÂæWö6‚Ò“°¢Ğ ¢ö÷VäÆ7D6ÆÅ&Wf–Wr‚’°¢6öç7BÆ7D6ÆÂÒF†—2åöÆ7D6ÆÅ7FFR‚“°¢6öç7BW&ÂÒÆ7D6ÆÃòç7FFSòæGG&–'WFW3òç&Wf–Wu÷W&Ã°¢–b‡W&Â’°¢v–æF÷ræ÷Vâ‡W&ÂÂ%ö&Ææ²"Â&æö÷VæW"Ææ÷&VfW'&W""“°¢Ğ¢Ğ ¢7–æ2÷&Vg&W6„Æ—fUæVÂ‚’°¢F†—2å÷6WE7FGW2‚-	íİí-½]İRÄ•d^(
+b"Â&–æfò"“° ¢G'’°¢6öç7BVçF—F–W2Ò·F†—2åöÆ—fTVçF—G”–BÂF†—2åöÆ7D6ÆÄVçF—G”–EĞ¢æf–ÇFW"„&ööÆVâ“°¢–b†VçF—F–W2æÆVæwF‚’°¢v—BF†—2åö†72æ6ÆÅu2‡°¢G—S¢&6ÆÅ÷6W'f–6R"À¢FöÖ–ã¢&†öÖV76—7FçB"À¢6W'f–6S¢'WFFUöVçF—G’"À¢6W'f–6UöFF¢²VçF—G•ö–C¢VçF—F–W2ÒÀ¢Ò“°¢Ğ¢Ò6F6‚…öW'"’°¢òò&V7&VF–ærF†RÆ—fR6&B&VÆ÷r—27F–ÆÂW6VgVÂ–bWFFUöVçF—G’—2æ÷@¢òò7W÷'FVB'’'F–7VÆ"VçF—G’à¢Ğ ¢6öç7B†÷7BÒF†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&Æ—fRÖ†÷7B"“°¢–b‡F†—2åöÆ—fT6&B’°¢F†—2åöÆ—fT6&Bç&VÖ÷fR‚“°¢F†—2åöÆ—fT6&BÒçVÆÃ°¢Ğ¢–b††÷7B’°¢†÷7Bæ–ææW$…DÔÂÒsÆF—b6Æ73Ò'æVÂÖÖW76vR#í	ı]]}ı=¢Æ—fRİıí-í­(
+cÂöF—câs°¢Ğ ¢v—BF†—2åöVç7W&TÆ—fT6&B‚“°¢F†—2å÷&VæFW$Æ—fTÖWF‚“°¢F†—2å÷6WE7FGW2‚$Ä•dRíİí-½Ò"Â&ö²"“°¢Ğ ¢÷6WD7F—fUF"‡F"ÂWFFU7FGW2ÒG'VR’°¢6öç7Bæ÷&ÖÆ—¦VBÒ²&Æ—fR"Â&&6†—fR"Â&wVW7G2"Â&F–væ÷7F–72%Òæ–æ6ÇVFW2‡F"¢òF ¢¢&&6†—fR#°¢F†—2åö7F—fUF"Òæ÷&ÖÆ—¦VC° ¢f÷"†6öç7BæÖRöb²&Æ—fR"Â&&6†—fR"Â&wVW7G2"Â&F–væ÷7F–72%Ò’°¢6öç7BæVÂÒF†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B†æVÂÒG¶æÖWÖ“°¢6öç7B'WGFöâÒF†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B†F"ÒG¶æÖWÖ“°¢–b‡æVÂ’°¢æVÂæ†–FFVâÒæÖRÓÒæ÷&ÖÆ—¦VC°¢Ğ¢–b†'WGFöâ’°¢6öç7B7F—fRÒæÖRÓÓÒæ÷&ÖÆ—¦VC°¢'WGFöâæ6Æ74Æ—7BçFövvÆR‚&7F—fR"Â7F—fR“°¢'WGFöâç6WDGG&–'WFR‚&&–×6VÆV7FVB"Â7F—fRò'G'VR"¢&fÇ6R"“°¢Ğ¢Ğ ¢–b†æ÷&ÖÆ—¦VBÓÓÒ&Æ—fR"’°¢fö–BF†—2åöVç7W&TÆ—fT6&B‚“°¢F†—2å÷&VæFW$Æ—fTÖWF‚“°¢ÒVÇ6R–b†æ÷&ÖÆ—¦VBÓÓÒ&&6†—fR"’°¢–b‚F†—2åö&6†—fTW‡÷'G4ÆöFVB’°¢fö–BF†—2å÷&Vg&W6„&6†—fTW‡÷'G2†fÇ6R“°¢Ğ¢ÒVÇ6R–b†æ÷&ÖÆ—¦VBÓÓÒ&wVW7G2"’°¢fö–BF†—2å÷&Vg&W6„wVW7D66W72†fÇ6R“°¢ÒVÇ6R–b†æ÷&ÖÆ—¦VBÓÓÒ&F–væ÷7F–72"’°¢fö–BF†—2å÷&Vg&W6…'VçF–ÖU7FGW2†fÇ6R“°¢Ğ ¢–b‡WFFU7FGW2’°¢6öç7BæÖW2Ò°¢Æ—fS¢$Ä•dR"À¢&6†—fS¢-	]""À¢wVW7G3¢-	=í-‚"À¢F–væ÷7F–73¢-	M=İí-­"À¢Ó°¢F†—2å÷6WE7FGW2†
+}M]³¢G¶æÖW5¶æ÷&ÖÆ—¦VE×ÖÂ&–æfò"“°¢Ğ¢Ğ ¢7–æ2öVç7W&TÆ—fT6&B‚’°¢6öç7B†÷7BÒF†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&Æ—fRÖ†÷7B"“°¢–b‚†÷7BÇÂF†—2åö†72’&WGW&ã° ¢v—BF†—2å÷&W6öÇfTÆ—fTVçF—G’‚“°¢–b‚F†—2åöÆ—fTVçF—G”–BÇÂF†—2åö†72ç7FFW3òå·F†—2åöÆ—fTVçF—G”–EÒ’°¢†÷7Bæ–ææW$…DÔÂÒ ¢ÆF—b6Æ73Ò'æVÂÖÖW76vR#à¢Æ—fRİ­Í]İRİM]İ--íÍ-}]­‚ãÆ'#à¢
+=­m-RÆ6öFSæÆ—fUöVçF—G“¢6ÖW&âââãÂö6öFSâ"”ÔÂ­-í}­‚à¢ÂöF—cà¢°¢&WGW&ã°¢Ğ ¢–b‡F†—2åöÆ—fT6&B’°¢F†—2åöÆ—fT6&Bæ†72ÒF†—2åö†73°¢&WGW&ã°¢Ğ ¢G'’°¢6öç7B†VÇW'2Òv—Bv–æF÷ræÆöD6&D†VÇW'2‚“°¢6öç7B6&BÒv—B†VÇW'2æ7&VFT6&DVÆVÖVçB‡°¢G—S¢'–7GW&RÖVçF—G’"À¢VçF—G“¢F†—2åöÆ—fTVçF—G”–BÀ¢6ÖW&÷f–Ws¢&Æ—fR"À¢6†÷uöæÖS¢fÇ6RÀ¢6†÷u÷7FFS¢fÇ6RÀ¢Ò“°¢6&Bæ†72ÒF†—2åö†73°¢F†—2åöÆ—fT6&BÒ6&C°¢†÷7BçFW‡D6öçFVçBÒ"#°¢†÷7BæVæD6†–ÆB†6&B“° ¢6öç7BÆ&VÂÒF†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&Æ—fRÖVçF—G’ÖÆ&VÂ"“°¢–b†Æ&VÂ’Æ&VÂçFW‡D6öçFVçBÒF†—2åöÆ—fTVçF—G”–C°¢F†—2å÷&VæFW$Æ—fTÖWF‚“°¢Ò6F6‚†W'"’°¢†÷7Bæ–ææW$…DÔÂÒÆF—b6Æ73Ò'æVÂÖÖW76vRW'&÷"#âG·F†—2åöW66T‡FÖÂ‡F†—2åöW'&÷%FW‡B†W'"’—ÓÂöF—cæ°¢Ğ¢Ğ ¢7–æ2÷&Vg&W6„wVW7D66W72†f÷&6RÒfÇ6R’°¢–b‚F†—2åöFWf–6T–BÇÂF†—2åö†72’&WGW&ã°¢–b‡F†—2åöwVW7DÆöF–ær’&WGW&ã°¢–b‡F†—2åöwVW7D66W72bbf÷&6R’°¢F†—2å÷&VæFW$wVW7D66W72‚“°¢&WGW&ã°¢Ğ ¢F†—2åöwVW7DÆöF–ærÒG'VS°¢F†—2å÷6WDwVW7E7FGW2‚-	}==}­=í-]-½RMí-=ıí.(
+b"Â&–æfò"“°¢F†—2å÷6WDwVW7D'WGFöç4F—6&ÆVB‡G'VR“° ¢G'’°¢F†—2åöwVW7D66W72Òv—BF†—2åö6ÆÅ&W7öç6U6W'f–6R‚&vWEöwVW7Eö66W72"Â°¢FWf–6Uö–C¢F†—2åöFWf–6T–BÀ¢Ò“°¢F†—2å÷&VæFW$wVW7D66W72‚“°¢F†—2å÷6WDwVW7E7FGW2‚-	=í-]-½RMí-=ı²íİí-½]İ²"Â&ö²"“°¢Ò6F6‚†W'"’°¢F†—2å÷6WDwVW7E7FGW2‡F†—2åöW'&÷%FW‡B†W'"’Â&W'&÷""“°¢Òf–æÆÇ’°¢F†—2åöwVW7DÆöF–ærÒfÇ6S°¢F†—2å÷6WDwVW7D'WGFöç4F—6&ÆVB†fÇ6R“°¢Ğ¢Ğ ¢7–æ2ö7&VFTwVW7D–çf—FR‚’°¢–b‚F†—2åöFWf–6T–BÇÂF†—2åöwVW7DÆöF–ær’&WGW&ã° ¢6öç7B6öæf—&ÖVBÒv–æF÷ræ6öæf—&Ò€¢-
+í}M-Âİí-=â½½­2İı=½]İRİMí-=ò¢MíÍíMíİ3ò"°¢-	½íí’Â­-âıí½=}"İ-2½½­2‚Íím]"ıİı-Âı=½]İRÂ"°¢-Íím]"ıí½=}-Â=í-]-í’Mí-=òâ ¢“°¢–b‚6öæf—&ÖVB’&WGW&ã° ¢F†—2åöwVW7DÆöF–ærÒG'VS°¢F†—2å÷6WDwVW7D'WGFöç4F—6&ÆVB‡G'VR“°¢F†—2å÷6WDwVW7E7FGW2‚-
+í}MİRı=½]İş(
+b"Â&–æfò"“° ¢G'’°¢6öç7B&W7öç6RÒv—BF†—2åö6ÆÅ&W7öç6U6W'f–6R‚&7&VFUöwVW7Eö–çf—FR"Â°¢FWf–6Uö–C¢F†—2åöFWf–6T–BÀ¢Ò“° ¢–b‚&W7öç6SòçW&Â’°¢F‡&÷ræWrW'&÷"‚$’İR-]İ=²½½­2ı=½]İò"“°¢Ğ ¢F†—2åöwVW7D–çf—FUW&ÂÒ&W7öç6RçW&Ã° ¢–b‚F†—2åöwVW7D66W72’°¢F†—2åöwVW7D66W72Ò·Ó°¢Ğ¢6öç7BvVæW&FVBÒ'&’æ—4'&’‡F†—2åöwVW7D66W72ævVæW&FVEö–çf—FW2¢òF†—2åöwVW7D66W72ævVæW&FVEö–çf—FW0¢¢µÓ°¢F†—2åöwVW7D66W72ævVæW&FVEö–çf—FW2Ò°¢°¢–C¢&W7öç6Ræ–çf—FUö–BÀ¢FWf–6Uö–C¢F†—2åöFWf–6T–BÀ¢6·VEö–C¢&W7öç6Rç6·VEö–BÀ¢W&Ã¢&W7öç6RçW&ÂÀ¢7&VFVEöC¢&W7öç6Ræ7&VFVEöBÀ¢66W75ö–C¢&W7öç6Ræ66W75ö–BóòçVÆÂÀ¢6÷W&6S¢&Æö6ÅövVæW&FVB"À¢ÒÀ¢ââævVæW&FVBæf–ÇFW"‚†—FVÒ’Óâ—FVÓòæ–BÓÒ&W7öç6Ræ–çf—FUö–B’À¢Ó°¢F†—2åöwVW7D66W72ævVæW&FVEö6÷VçBÒF†—2åöwVW7D66W72ævVæW&FVEö–çf—FW2æÆVæwFƒ° ¢F†—2å÷&VæFW$wVW7D66W72‚“°¢F†—2å÷&VæFW$wVW7D–çf—FR‚“°¢F†—2å÷6WDwVW7E7FGW2€¢-	ı=½]İRí}Mİâ‚í]İ]İâ½í­½Íİâ"†öÖR76—7FçBâ"°¢-
+--=ıİı-ò]-]M½ò-­í’½½­‚í-M]½ÍİâİRíí]"â"À¢&ö² ¢“°¢Ò6F6‚†W'"’°¢F†—2å÷6WDwVW7E7FGW2‡F†—2åöW'&÷%FW‡B†W'"’Â&W'&÷""“°¢Òf–æÆÇ’°¢F†—2åöwVW7DÆöF–ærÒfÇ6S°¢F†—2å÷6WDwVW7D'WGFöç4F—6&ÆVB†fÇ6R“°¢Ğ¢Ğ ¢7–æ2öf÷&vWDvVæW&FVDwVW7D–çf—FR†—FVÒ’°¢–b‚—FVÓòæ–BÇÂF†—2åöFWf–6T–BÇÂF†—2åöwVW7DÆöF–ær’&WGW&ã° ¢6öç7B6öæf—&ÖVBÒv–æF÷ræ6öæf—&Ò€¢-
+=-Âİ-2½½­2r½í­½Íİí=âı­†öÖR76—7FçCò"°¢-
+İ-â	İ	Rí-}í-"ı=½]İRİ]-]RVfæWBâ ¢“°¢–b‚6öæf—&ÖVB’&WGW&ã° ¢F†—2åöwVW7DÆöF–ærÒG'VS°¢F†—2å÷6WDwVW7D'WGFöç4F—6&ÆVB‡G'VR“°¢F†—2å÷6WDwVW7E7FGW2‚-
+=M½]İR½í­½Íİí’}ı(
+b"Â&–æfò"“° ¢G'’°¢v—BF†—2åö6ÆÅ&W7öç6U6W'f–6R‚&f÷&vWEöwVW7Eö–çf—FR"Â°¢FWf–6Uö–C¢F†—2åöFWf–6T–BÀ¢–çf—FUö–C¢—FVÒæ–BÀ¢Ò“° ¢–b‡F†—2åöwVW7D–çf—FUW&ÂÓÓÒ—FVÒçW&Â’°¢F†—2åöwVW7D–çf—FUW&ÂÒçVÆÃ°¢Ğ ¢6öç7BvVæW&FVBÒ'&’æ—4'&’‡F†—2åöwVW7D66W73òævVæW&FVEö–çf—FW2¢òF†—2åöwVW7D66W72ævVæW&FVEö–çf—FW0¢¢µÓ°¢F†—2åöwVW7D66W72ævVæW&FVEö–çf—FW2ÒvVæW&FVBæf–ÇFW"€¢†6æF–FFR’Óâ6æF–FFSòæ–BÓÒ—FVÒæ–@¢“°¢F†—2åöwVW7D66W72ævVæW&FVEö6÷VçBÒF†—2åöwVW7D66W72ævVæW&FVEö–çf—FW2æÆVæwFƒ° ¢F†—2å÷&VæFW$wVW7D66W72‚“°¢F†—2å÷6WDwVW7E7FGW2€¢-	½í­½Íİò}ıÂ=M½]İâ
+]-]İíRı=½]İRİRí-}½-½íÂâ"À¢&ö² ¢“°¢Ò6F6‚†W'"’°¢F†—2å÷6WDwVW7E7FGW2‡F†—2åöW'&÷%FW‡B†W'"’Â&W'&÷""“°¢Òf–æÆÇ’°¢F†—2åöwVW7DÆöF–ærÒfÇ6S°¢F†—2å÷6WDwVW7D'WGFöç4F—6&ÆVB†fÇ6R“°¢Ğ¢Ğ ¢7–æ2÷&Wfö¶U6†&VD66W72†—FVÒ’°¢–b‚—FVÓòæ66W75ö–BÇÂF†—2åöFWf–6T–BÇÂF†—2åöwVW7DÆöF–ær’&WGW&ã° ¢6öç7B–FVçF—G’Ò—FVÒææÖRÇÂ—FVÒçW6W&æÖRÇÂ66W75ö–BG¶—FVÒæ66W75ö–GÖ°¢6öç7B6öæf—&ÖVBÒv–æF÷ræ6öæf—&Ò€¢	í-í}--Â=í-]-í’Mí-=ò2G¶–FVçF—G—ÓõÆåÆæ°¢66W75ö–C¢G¶—FVÒæ66W75ö–GÕÆæ°¢-	ıí½RıíM--]mM]İòMí-=ò¢MíÍíMíİ2=M]"=M½Òİ]-]RVfæWBâ ¢“°¢–b‚6öæf—&ÖVB’&WGW&ã° ¢F†—2åöwVW7DÆöF–ærÒG'VS°¢F†—2å÷6WDwVW7D'WGFöç4F—6&ÆVB‡G'VR“°¢F†—2å÷6WDwVW7E7FGW2†	í-}½"Mí-=ıG¶–FVçF—G—Ş(
+fÂ&–æfò"“° ¢G'’°¢v—BF†—2åö6ÆÅ&W7öç6U6W'f–6R‚'&Wfö¶U÷6†&VEö66W72"Â°¢FWf–6Uö–C¢F†—2åöFWf–6T–BÀ¢66W75ö–C¢çVÖ&W"†—FVÒæ66W75ö–B’À¢Ò“° ¢6öç7B6†&VBÒ'&’æ—4'&’‡F†—2åöwVW7D66W73òç6†&VE÷W6W'2¢òF†—2åöwVW7D66W72ç6†&VE÷W6W'0¢¢µÓ°¢F†—2åöwVW7D66W72ç6†&VE÷W6W'2Ò6†&VBæf–ÇFW"€¢†6æF–FFR’Óâ7G&–ær†6æF–FFSòæ66W75ö–B’ÓÒ7G&–ær†—FVÒæ66W75ö–B¢“°¢F†—2åöwVW7D66W72ç6†&VEö6÷VçBÒF†—2åöwVW7D66W72ç6†&VE÷W6W'2æÆVæwFƒ°¢F†—2å÷&VæFW$wVW7D66W72‚“° ¢F†—2å÷6WDwVW7E7FGW2€¢	Mí-=òG¶–FVçF—G—Òí-í}-Òâ	ıí-]ıâıí¢İ]-]^(
+fÀ¢&ö² ¢“° ¢òò6W'fW"×6–FRfW&–f–6F–öâ—2Ç6òW&f÷&ÖVB'’F†R„7F–öâà¢òò&Vg&W6‚öæ6RÖ÷&R6òF†RT’Ö—'&÷'2F†RWF†÷&—FF—fRÆ—7Bà¢F†—2åöwVW7D66W72ÒçVÆÃ°¢Ò6F6‚†W'"’°¢F†—2å÷6WDwVW7E7FGW2‡F†—2åöW'&÷%FW‡B†W'"’Â&W'&÷""“°¢F†—2åöwVW7DÆöF–ærÒfÇ6S°¢F†—2å÷6WDwVW7D'WGFöç4F—6&ÆVB†fÇ6R“°¢&WGW&ã°¢Ğ ¢F†—2åöwVW7DÆöF–ærÒfÇ6S°¢F†—2å÷6WDwVW7D'WGFöç4F—6&ÆVB†fÇ6R“°¢v—BF†—2å÷&Vg&W6„wVW7D66W72‡G'VR“°¢Ğ ¢7–æ2ö7&VFUFV×÷&'”wVW7DÆ–æ²‚’°¢–b‚F†—2åöFWf–6T–BÇÂF†—2åöwVW7DÆöF–ær’&WGW&ã° ¢6öç7B6VÆV7BÒF†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚'FV×÷&'’ÖGW&F–öâ"“°¢6öç7BGW&F–öäÖ–çWFW2ÒçVÖ&W"‡6VÆV7CòçfÇVRÇÂc“°¢–b‚çVÖ&W"æ—4f–æ—FR†GW&F–öäÖ–çWFW2’ÇÂGW&F–öäÖ–çWFW2Â’°¢F†—2å÷6WDwVW7E7FGW2‚-	İ]­í]­-İòM½-]½Íİí-Â-]Í]İİí=â­½í}"Â&W'&÷""“°¢&WGW&ã°¢Ğ ¢6öç7B†÷W'2ÒGW&F–öäÖ–çWFW2òc°¢6öç7BÆ&VÂÒçVÖ&W"æ—4–çFVvW"††÷W'2¢òG¶†÷W'7Òv ¢¢G¶GW&F–öäÖ–çWFW7ÒÍÖ° ¢6öç7B6öæf—&ÖVBÒv–æF÷ræ6öæf—&Ò€¢
+í}M-Â-]Í]İİ½’­½írİG¶Æ&VÇÓõÆåÆæ°¢-
+½½­ıí}-í½"í-­½-Â-½İİ½’MíÍíMíÒMâ-]}]İòí­â ¢“°¢–b‚6öæf—&ÖVB’&WGW&ã° ¢F†—2åöwVW7DÆöF–ærÒG'VS°¢F†—2å÷6WDwVW7D'WGFöç4F—6&ÆVB‡G'VR“°¢F†—2å÷6WDwVW7E7FGW2†
+í}MİR-]Í]İİí=â­½í}İG¶Æ&VÇŞ(
+fÂ&–æfò"“° ¢G'’°¢6öç7B&W7öç6RÒv—BF†—2åö6ÆÅ&W7öç6U6W'f–6R€¢&7&VFU÷FV×÷&'•öwVW7EöÆ–æ²"À¢°¢MºÛ¾m¢G§²ÚîÆ­yÖæFWƒ¢c²ö–çFW"ÖWfVçG3¢æöæS°¢&÷‚×6†F÷s¢‚6öÆ÷"ÖÖ—‚†–â7&v"Âf"‚ÒÖ6&BÖ&6¶w&÷VæBÖ6öÆ÷"’sRRÂG&ç7&VçB“°¢Ğ¢7F–ÖVÆ–æRÖÖ&¶W"ÖÆ&VÂ°¢÷6—F–öã¢'6öÇWFS²F÷¢Ó#Wƒ²G&ç6f÷&Ó¢G&ç6ÆFU‚‚ÓSR“²¢Ö–æFWƒ¢s²ö–çFW"ÖWfVçG3¢æöæS°¢FF–æs¢'‚Wƒ²&÷&FW"×&F—W3¢Wƒ²&6¶w&÷VæC¢f"‚Ò×&–Ö'’×FW‡BÖ6öÆ÷"“°¢6öÆ÷#¢f"‚ÒÖ6&BÖ&6¶w&÷VæBÖ6öÆ÷"Âf"‚ÒÖ†Ö6&BÖ&6¶w&÷VæB’“²föçB×6—¦S¢ƒ²föçB×vV–v‡C¢c°¢v†—FR×76S¢æ÷w&°¢Ğ¢7F–ÖVÆ–æR×G&6µ¶FF×ææ&ÆSÒ'G'VR%Ò²7W'6÷#¢w&#²Ğ¢7F–ÖVÆ–æR×G&6µ¶FF×ææ&ÆSÒ'G'VR%Õ¶FFÖG&vv–æsÒ'G'VR%Ò²7W'6÷#¢w&&&–æs²W6W"×6VÆV7C¢æöæS²Ğ¢7F–ÖVÆ–æR×G&6µ¶FF×ææ&ÆSÒ'G'VR%Õ¶FFÖG&vv–æsÒ'G'VR%ÒçF–ÖVÆ–æR×6VvÖVçB²7W'6÷#¢w&&&–æs²Ğ¢7F–ÖVÆ–æR×G&6µ¶FFÖV×G“Ò'G'VR%Ò²÷6—G“¢ãSS²7W'6÷#¢FVfVÇC²Ğ¢æF’×&ævW2²FF–æs¢g‚'ƒ²Ğ¢6F’ÖÆ&VÂ²föçB×6—¦S¢'ƒ²6öÆ÷#¢f"‚Ò×6V6öæF'’×FW‡BÖ6öÆ÷"“²Ö&v–âÖ&÷GFöÓ¢wƒ²Ğ¢6F’Ö–çFW'fÇ2²F—7Æ“¢fÆWƒ²fÆW‚×w&¢w&²v¢gƒ²Ö‚Ö†V–v‡C¢ƒgƒ²÷fW&fÆ÷r×“¢WFó²Ğ ¢'WGFöâ°¢Ö–âÖ†V–v‡C¢C'ƒ²&÷&FW#¢²&÷&FW"×&F—W3¢ƒ²6öÆ÷#¢f"‚Ò×&–Ö'’×FW‡BÖ6öÆ÷"“°¢&6¶w&÷VæC¢f"‚Ò×6V6öæF'’Ö&6¶w&÷VæBÖ6öÆ÷"“²7W'6÷#¢ö–çFW#²föçC¢–æ†W&—C²föçB×vV–v‡C¢S°¢Ğ¢'WGFöã¦†÷fW"²&6¶w&÷VæC¢f"‚ÒÖF—f–FW"Ö6öÆ÷"“²Ğ¢'WGFöã¦F—6&ÆVB²÷6—G“¢ãS²7W'6÷#¢v—C²Ğ¢æ–çFW'fÂÖ6†—²Ö–âÖ†V–v‡C¢3ƒ²FF–æs¢G‚—ƒ²&÷&FW"×&F—W3¢Gƒ²föçB×6—¦S¢'ƒ²föçB×vV–v‡C¢C²Ğ ¢æ6ÆÇ2²FF–æs¢g‚Gƒ²Ğ¢æ6ÆÇ2Ö†VB²F—7Æ“¢fÆWƒ²§W7F–g’Ö6öçFVçC¢76RÖ&WGvVVã²v¢‡ƒ²Æ–vâÖ—FV×3¢6VçFW#²Ö&v–âÖ&÷GFöÓ¢wƒ²Ğ¢66ÆÇ2ÖÆ&VÂ²föçB×6—¦S¢'ƒ²6öÆ÷#¢f"‚Ò×6V6öæF'’×FW‡BÖ6öÆ÷"“²Ğ¢7&Vg&W6‚Ö6ÆÇ2²Ö–âÖ†V–v‡C¢3ƒ²FF–æs¢G‚ƒ²föçB×6—¦S¢'ƒ²&÷&FW"×&F—W3¢Gƒ²Ğ¢66ÆÂÖWfVçG2²F—7Æ“¢w&–C²v¢gƒ²Ğ¢æ6ÆÇ2ÖV×G’²6öÆ÷#¢f"‚Ò×6V6öæF'’×FW‡BÖ6öÆ÷"“²föçB×6—¦S¢'ƒ²FF–æs¢G‚²Ğ¢æ6ÆÂ×&÷r°¢v–GFƒ¢S²Ö–âÖ†V–v‡C¢Cgƒ²F—7Æ“¢w&–C²w&–B×FV×ÆFRÖ6öÇVÖç3¢3‚g"WFó°¢v¢‡ƒ²Æ–vâÖ—FV×3¢6VçFW#²FF–æs¢g‚ƒ²FW‡BÖÆ–vã¢ÆVgC²föçB×vV–v‡C¢C°¢Ğ¢æ6ÆÂ×&÷rÖ–6öâ²föçB×6—¦S¢wƒ²FW‡BÖÆ–vã¢6VçFW#²Ğ¢æ6ÆÂ×&÷rÖÖ–â²Ö–â×v–GFƒ¢²F—7Æ“¢fÆWƒ²fÆW‚ÖF—&V7F–öã¢6öÇVÖã²v¢'ƒ²Ğ¢æ6ÆÂ×&÷r×F–ÖR²föçB×vV–v‡C¢c²föçB×f&–çBÖçVÖW&–3¢F'VÆ"ÖçV×3²Ğ¢æ6ÆÂ×&÷rÖFG&W72²6öÆ÷#¢f"‚Ò×6V6öæF'’×FW‡BÖ6öÆ÷"“²föçB×6—¦S¢'ƒ²÷fW&fÆ÷s¢†–FFVã²FW‡BÖ÷fW&fÆ÷s¢VÆÆ—6—3²v†—FR×76S¢æ÷w&²Ğ¢æ6ÆÂ×&÷rÖ7F–öâ²6öÆ÷#¢f"‚Ò×&–Ö'’Ö6öÆ÷"“²föçB×6—¦S¢'ƒ²föçB×vV–v‡C¢c²Ğ ¢æ'WGFöç2²FF–æs¢g‚Gƒ²F—7Æ“¢w&–C²w&–B×FV×ÆFRÖ6öÇVÖç3¢&WVBƒ2Âg"“²v¢ƒ²Ğ¢7Æ–W"Ö†÷7B°¢v–GFƒ¢S²Ö–âÖ†V–v‡C¢#Cƒ²&6¶w&÷VæC¢3²F—7Æ“¢fÆWƒ²Æ–vâÖ—FV×3¢6VçFW#²§W7F–g’Ö6öçFVçC¢6VçFW#°¢Ğ¢7Æ–W"Ö†÷7B†Ö†Ç2×Æ–W"²v–GFƒ¢S²Ö–âÖ†V–v‡C¢#Cƒ²7V7B×&F–ó¢bò“²&6¶w&÷VæC¢3²Ğ ¢æ&6†—fRÖW‡÷'B°¢FF–æs¢'‚g‚Gƒ°¢&÷&FW"×F÷¢‚6öÆ–Bf"‚ÒÖF—f–FW"Ö6öÆ÷"“°¢Ğ¢æ&6†—fRÖW‡÷'B×&÷r°¢F—7Æ“¢w&–C°¢w&–B×FV×ÆFRÖ6öÇVÖç3¢Ö–æÖ‚ƒC‚Â#‚’Ö–æÖ‚ƒs‚ÂÖ‚Ö6öçFVçB“°¢v¢‡ƒ°¢Æ–vâÖ—FV×3¢VæC°¢Ğ¢æ&6†—fRÖF÷væÆöB×&VG’°¢Ö&v–â×F÷¢—ƒ°¢FF–æs¢—‚ƒ°¢&÷&FW"×&F—W3¢—ƒ°¢&6¶w&÷VæC¢f"‚Ò×6V6öæF'’Ö&6¶w&÷VæBÖ6öÆ÷"“°¢F—7Æ“¢fÆWƒ°¢v¢‡ƒ°¢Æ–vâÖ—FV×3¢6VçFW#°¢fÆW‚×w&¢w&°¢Ğ¢æ&6†—fRÖF÷væÆöB×&VG’°¢6öÆ÷#¢f"‚Ò×&–Ö'’Ö6öÆ÷"“°¢föçB×vV–v‡C¢c°¢FW‡BÖFV6÷&F–öã¢æöæS°¢Ğ¢æ&6†—fRÖF÷væÆöBÖÖWF°¢6öÆ÷#¢f"‚Ò×6V6öæF'’×FW‡BÖ6öÆ÷"“°¢föçB×6—¦S¢ƒ°¢fÆWƒ¢Sƒ°¢Ğ¢æ&6†—fRÖÆ–'&'’°¢FF–æs¢g‚gƒ°¢&÷&FW"×F÷¢‚6öÆ–Bf"‚ÒÖF—f–FW"Ö6öÆ÷"“°¢Ğ¢æ&6†—fRÖÆ–'&'’Ö†VB°¢F—7Æ“¢fÆWƒ°¢v¢‡ƒ°¢Æ–vâÖ—FV×3¢6VçFW#°¢fÆW‚×w&¢w&°¢FF–æs¢'‚‡ƒ°¢Ğ¢æ&6†—fRÖÆ–'&'’Ö†VB×F—FÆR°¢föçB×6—¦S¢7ƒ°¢föçB×vV–v‡C¢c°¢Ğ¢æ&6†—fRÖÆ–'&'’×7VÖÖ'’°¢6öÆ÷#¢f"‚Ò×6V6öæF'’×FW‡BÖ6öÆ÷"“°¢föçB×6—¦S¢ƒ°¢fÆWƒ¢Cƒ°¢Ğ¢æ&6†—fRÖÆ–'&'’×öÆ–7’°¢6öÆ÷#¢f"‚Ò×6V6öæF'’×FW‡BÖ6öÆ÷"“°¢föçB×6—¦S¢ƒ°¢Ö&v–âÖ&÷GFöÓ¢‡ƒ°¢Ğ¢æ&6†—fRÖÆ–'&'’ÖÆ—7B°¢F—7Æ“¢w&–C°¢v¢gƒ°¢Ğ¢æ&6†—fRÖÆ–'&'’ÖV×G’°¢6öÆ÷#¢f"‚Ò×6V6öæF'’×FW‡BÖ6öÆ÷"“°¢föçB×6—¦S¢'ƒ°¢FF–æs¢‡‚°¢Ğ¢æ&6†—fRÖÆ–'&'’×&÷r°¢F—7Æ“¢fÆWƒ°¢v¢ƒ°¢Æ–vâÖ—FV×3¢6VçFW#°¢FF–æs¢—‚ƒ°¢&÷&FW"×&F—W3¢—ƒ°¢&6¶w&÷VæC¢f"‚Ò×6V6öæF'’Ö&6¶w&÷VæBÖ6öÆ÷"“°¢Ğ¢æ&6†—fRÖÆ–'&'’ÖÖ–â°¢Ö–â×v–GFƒ¢°¢fÆWƒ¢°¢Ğ¢æ&6†—fRÖÆ–'&'’×F—FÆR°¢föçB×6—¦S¢7ƒ°¢föçB×vV–v‡C¢c°¢÷fW&fÆ÷s¢†–FFVã°¢FW‡BÖ÷fW&fÆ÷s¢VÆÆ—6—3°¢v†—FR×76S¢æ÷w&°¢Ğ¢æ&6†—fRÖÆ–'&'’ÖÖWF°¢6öÆ÷#¢f"‚Ò×6V6öæF'’×FW‡BÖ6öÆ÷"“°¢föçB×6—¦S¢ƒ°¢Ö&v–â×F÷¢'ƒ°¢Ğ¢æ&6†—fRÖÆ–'&'’Ö7F–öç2°¢F—7Æ“¢fÆWƒ°¢v¢Wƒ°¢fÆW‚×w&¢w&°¢§W7F–g’Ö6öçFVçC¢fÆW‚ÖVæC°¢Ğ ¢ò¢uTU5E2¢ğ¢æwVW7B×FööÆ&"°¢FF–æs¢G‚g‚ƒ°¢F—7Æ“¢fÆWƒ°¢v¢‡ƒ°¢Æ–vâÖ—FV×3¢6VçFW#°¢fÆW‚×w&¢w&°¢Ğ¢æwVW7B×FööÆ&"ç&–Ö'’Ö7F–öâ°¢6öÆ÷#¢f"‚Ò×FW‡B×&–Ö'’Ö6öÆ÷"Â6ffb“°¢&6¶w&÷VæC¢f"‚Ò×&–Ö'’Ö6öÆ÷"“°¢Ğ¢æwVW7B×7VÖÖ'’°¢fÆWƒ¢##ƒ°¢Ö–â×v–GFƒ¢°¢6öÆ÷#¢f"‚Ò×6V6öæF'’×FW‡BÖ6öÆ÷"“°¢föçB×6—¦S¢'ƒ°¢Ğ¢æF–væ÷7F–72×FööÆ&"°¢F—7Æ“¢fÆWƒ°¢v¢‡ƒ°¢Æ–vâÖ—FV×3¢6VçFW#°¢fÆW‚×w&¢w&°¢FF–æs¢'‚gƒ°¢&÷&FW"Ö&÷GFöÓ¢‚6öÆ–Bf"‚ÒÖF—f–FW"Ö6öÆ÷"“°¢Ğ¢æF–væ÷7F–72×FööÆ&"×F—FÆR°¢föçB×6—¦S¢7ƒ°¢föçB×vV–v‡C¢c°¢fÆWƒ¢cƒ°¢Ğ¢æF–væ÷7F–72Ö6öçFVçB°¢FF–æs¢'‚g‚gƒ°¢F—7Æ“¢w&–C°¢w&–B×FV×ÆFRÖ6öÇVÖç3¢&WVB†WFòÖf—BÂÖ–æÖ‚ƒ#C‚Âg"’“°¢v¢ƒ°¢Ğ¢æF–væ÷7F–72×6V7F–öâ°¢&÷&FW"×&F—W3¢ƒ°¢&6¶w&÷VæC¢f"‚Ò×6V6öæF'’Ö&6¶w&÷VæBÖ6öÆ÷"“°¢FF–æs¢‚'ƒ°¢Ö–â×v–GFƒ¢°¢Ğ¢æF–væ÷7F–72×6V7F–öâ×F—FÆR°¢föçB×6—¦S¢'ƒ°¢föçB×vV–v‡C¢s°¢Ö&v–âÖ&÷GFöÓ¢wƒ°¢Ğ¢æF–væ÷7F–72×&÷r°¢F—7Æ“¢w&–C°¢w&–B×FV×ÆFRÖ6öÇVÖç3¢Ö–æÖ‚ƒW‚Âã–g"’Ö–æÖ‚ƒ‚Âãg"“°¢v¢‡ƒ°¢FF–æs¢7‚°¢föçB×6—¦S¢ƒ°¢&÷&FW"×F÷¢‚6öÆ–B6öÆ÷"ÖÖ—‚†–â7&v"Âf"‚ÒÖF—f–FW"Ö6öÆ÷"’cRRÂG&ç7&VçB“°¢Ğ¢æF–væ÷7F–72×&÷s¦f—'7BÖöb×G—R²&÷&FW"×F÷¢²Ğ¢æF–væ÷7F–72ÖÆ&VÂ²6öÆ÷#¢f"‚Ò×6V6öæF'’×FW‡BÖ6öÆ÷"“²Ğ¢æF–væ÷7F–72×fÇVR°¢FW‡BÖÆ–vã¢&–v‡C°¢÷fW&fÆ÷r×w&¢ç—v†W&S°¢föçB×f&–çBÖçVÖW&–3¢F'VÆ"ÖçV×3°¢Ğ¢æF–væ÷7F–72×fÇVU¶FF×7FFSÒ&ö²%Ò²6öÆ÷#¢f"‚Ò×7V66W72Ö6öÆ÷"Â3C6Cr“²Ğ¢æF–væ÷7F–72×fÇVU¶FF×7FFSÒ'v&æ–ær%Ò²6öÆ÷#¢f"‚Ò×v&æ–ærÖ6öÆ÷"Â6c“²Ğ¢æF–væ÷7F–72×fÇVU¶FF×7FFSÒ&W'&÷"%Ò²6öÆ÷#¢f"‚ÒÖW'&÷"Ö6öÆ÷"“²Ğ ¢æwVW7B×6V7F–öâ²FF–æs¢G‚g‚Gƒ²Ğ¢çFV×÷&'’Ö7&VFR°¢F—7Æ“¢w&–C°¢w&–B×FV×ÆFRÖ6öÇVÖç3¢Ö–æÖ‚ƒ#‚Âƒ‚’Ö–æÖ‚ƒs‚ÂÖ‚Ö6öçFVçB“°¢v¢‡ƒ°¢Æ–vâÖ—FV×3¢VæC°¢Ö&v–ã¢‡ƒ°¢Ğ¢çFV×÷&'’ÖGW&F–öâÖÆ&VÂ²Ö&v–ã¢²Ğ¢æwVW7B×6V7F–öâ×F—FÆR°¢föçB×6—¦S¢7ƒ°¢föçB×vV–v‡C¢c°¢Ö&v–ã¢‡ƒ°¢Ğ¢æwVW7BÖÆ—7B²F—7Æ“¢w&–C²v¢gƒ²Ğ¢æwVW7BÖV×G’°¢6öÆ÷#¢f"‚Ò×6V6öæF'’×FW‡BÖ6öÆ÷"“°¢föçB×6—¦S¢'ƒ°¢FF–æs¢‡‚°¢Ğ¢æwVW7B×&÷r°¢F—7Æ“¢fÆWƒ°¢Æ–vâÖ—FV×3¢6VçFW#°¢v¢ƒ°¢FF–æs¢—‚ƒ°¢&÷&FW"×&F—W3¢—ƒ°¢&6¶w&÷VæC¢f"‚Ò×6V6öæF'’Ö&6¶w&÷VæBÖ6öÆ÷"“°¢Ğ¢æwVW7B×&÷rÖÖ–â²fÆWƒ¢²Ö–â×v–GFƒ¢²Ğ¢æwVW7B×&÷r×F—FÆR°¢föçB×6—¦S¢7ƒ°¢föçB×vV–v‡C¢c°¢÷fW&fÆ÷s¢†–FFVã°¢FW‡BÖ÷fW&fÆ÷s¢VÆÆ—6—3°¢v†—FR×76S¢æ÷w&°¢Ğ¢æwVW7B×&÷rÖÖWF°¢Ö&v–â×F÷¢'ƒ°¢6öÆ÷#¢f"‚Ò×6V6öæF'’×FW‡BÖ6öÆ÷"“°¢föçB×6—¦S¢ƒ°¢÷fW&fÆ÷r×w&¢ç—v†W&S°¢Ğ¢æwVW7B×&÷rÖ7F–öç2²F—7Æ“¢fÆWƒ²v¢Wƒ²fÆW‚×w&¢w&²§W7F–g’Ö6öçFVçC¢fÆW‚ÖVæC²Ğ¢ç6ÖÆÂÖ'WGFöâ°¢Ö–âÖ†V–v‡C¢3'ƒ°¢FF–æs¢G‚—ƒ°¢&÷&FW"×&F—W3¢‡ƒ°¢föçB×6—¦S¢ƒ°¢Ğ¢æFævW"Ö'WGFöâ°¢6öÆ÷#¢f"‚ÒÖW'&÷"Ö6öÆ÷"“°¢Ğ¢æwVW7BÖ–çf—FR°¢Ö&v–ã¢G‚g‚Gƒ°¢FF–æs¢'ƒ°¢&÷&FW"×&F—W3¢ƒ°¢&6¶w&÷VæC¢6öÆ÷"ÖÖ—‚†–â7&v"Âf"‚Ò×&–Ö'’Ö6öÆ÷"’‚RÂf"‚ÒÖ6&BÖ&6¶w&÷VæBÖ6öÆ÷"’“°¢&÷&FW#¢‚6öÆ–B6öÆ÷"ÖÖ—‚†–â7&v"Âf"‚Ò×&–Ö'’Ö6öÆ÷"’#‚RÂG&ç7&VçB“°¢Ğ¢æwVW7BÖ–çf—FR×F—FÆR²föçB×6—¦S¢7ƒ²föçB×vV–v‡C¢c²Ö&v–âÖ&÷GFöÓ¢wƒ²Ğ¢æwVW7BÖ–çf—FR×v&æ–ær²6öÆ÷#¢f"‚Ò×6V6öæF'’×FW‡BÖ6öÆ÷"“²föçB×6—¦S¢ƒ²Ö&v–âÖ&÷GFöÓ¢‡ƒ²Ğ¢æwVW7BÖ–çf—FRÖ6öçG&öÇ2°¢F—7Æ“¢w&–C°¢w&–B×FV×ÆFRÖ6öÇVÖç3¢Ö–æÖ‚ƒÂg"’WFòWFó°¢v¢gƒ°¢Ğ¢æwVW7B×7FGW2°¢FF–æs¢g‚Gƒ°¢6öÆ÷#¢f"‚Ò×6V6öæF'’×FW‡BÖ6öÆ÷"“°¢föçB×6—¦S¢'ƒ°¢Ğ¢6wVW7B×7FGW5¶FF×G—SÒ&W'&÷"%Ò²6öÆ÷#¢f"‚ÒÖW'&÷"Ö6öÆ÷"“²Ğ¢6wVW7B×7FGW5¶FF×G—SÒ'v&æ–ær%Ò²6öÆ÷#¢f"‚Ò×v&æ–ærÖ6öÆ÷"Â6c“²Ğ¢6wVW7B×7FGW5¶FF×G—SÒ&ö²%Ò²6öÆ÷#¢f"‚Ò×7V66W72Ö6öÆ÷"Â3C6Cr“²Ğ ¢æfö÷FW"°¢FF–æs¢‚g‚Gƒ²F—7Æ“¢fÆWƒ²v¢‡ƒ²fÆW‚×w&¢w&²§W7F–g’Ö6öçFVçC¢76RÖ&WGvVVã°¢6öÆ÷#¢f"‚Ò×6V6öæF'’×FW‡BÖ6öÆ÷"“²föçB×6—¦S¢'ƒ°¢Ğ¢77FGW5¶FF×G—SÒ&W'&÷"%Ò²6öÆ÷#¢f"‚ÒÖW'&÷"Ö6öÆ÷"“²Ğ¢77FGW5¶FF×G—SÒ'v&æ–ær%Ò²6öÆ÷#¢f"‚Ò×v&æ–ærÖ6öÆ÷"Â6c“²Ğ¢77FGW5¶FF×G—SÒ&ö²%Ò²6öÆ÷#¢f"‚Ò×7V66W72Ö6öÆ÷"Â3C6Cr“²Ğ¢6VffV7F—fRÖGW&F–öâ²6öÆ÷#¢f"‚Ò×v&æ–ærÖ6öÆ÷"Â6c“²Ğ ¢ÖVF–†Ö‚×v–GFƒ¢s‚’°¢æ6öçG&öÇ2²w&–B×FV×ÆFRÖ6öÇVÖç3¢g"g#²Ğ¢æwVW7BÖ–çf—FRÖ6öçG&öÇ2²w&–B×FV×ÆFRÖ6öÇVÖç3¢g"g#²Ğ¢æwVW7BÖ–çf—FRÖ6öçG&öÇ2–çWB²w&–BÖ6öÇVÖã¢òÓ²Ğ¢çFV×÷&'’Ö7&VFR²w&–B×FV×ÆFRÖ6öÇVÖç3¢g#²Ğ¢æ&6†—fRÖW‡÷'B×&÷r²w&–B×FV×ÆFRÖ6öÇVÖç3¢g#²Ğ¢æÆ—fRÖÖ–âÖ7F–öç2²w&–B×FV×ÆFRÖ6öÇVÖç3¢g#²Ğ¢æ&6†—fRÖÆ–'&'’×&÷r²Æ–vâÖ—FV×3¢fÆW‚×7F'C²fÆW‚ÖF—&V7F–öã¢6öÇVÖã²Ğ¢æ&6†—fRÖÆ–'&'’Ö7F–öç2²v–GFƒ¢S²§W7F–g’Ö6öçFVçC¢fÆW‚×7F'C²Ğ¢Ğ¢Â÷7G–ÆSà ¢Æ†Ö6&Cà¢ÆF—b6Æ73Ò&†VFW"#âG·F†—2åö6öæf–rçF—FÆRÇÂ-	MíÍíMíÒVfæWB'ÓÂöF—cà ¢ÆF—b6Æ73Ò'F'2"&öÆSÒ'F&Æ—7B"&–ÖÆ&VÃÒ-
+}M]²MíÍíMíİ#à¢Æ'WGFöâ–CÒ'F"ÖÆ—fR"6Æ73Ò'F"Ö'WGFöâ"G—SÒ&'WGFöâ"&öÆSÒ'F"#äÄ•dSÂö'WGFöãà¢Æ'WGFöâ–CÒ'F"Ö&6†—fR"6Æ73Ò'F"Ö'WGFöâ"G—SÒ&'WGFöâ"&öÆSÒ'F"#í	
+
+]		#Âö'WGFöãà¢Æ'WGFöâ–CÒ'F"ÖwVW7G2"6Æ73Ò'F"Ö'WGFöâ"G—SÒ&'WGFöâ"&öÆSÒ'F"#í	=	í
+
+-	ƒÂö'WGFöãà¢Æ'WGFöâ–CÒ'F"ÖF–væ÷7F–72"6Æ73Ò'F"Ö'WGFöâ"G—SÒ&'WGFöâ"&öÆSÒ'F"#í	M			=	İ	í
+
+-		­	Âö'WGFöãà¢ÂöF—cà ¢Ç6V7F–öâ–CÒ'æVÂÖÆ—fR"6Æ73Ò'æVÂ"&öÆSÒ'F'æVÂ"†–FFVãà¢ÆF—b–CÒ&Æ—fRÖ†÷7B#à¢ÆF—b6Æ73Ò'æVÂÖÖW76vR#í	}==}­Æ—fRİ­Í]¾(
+cÂöF—cà¢ÂöF—cà ¢ÆF—b6Æ73Ò&Æ—fRÖ6öçG&öÇ2#à¢ÆF—b6Æ73Ò&Æ—fR×7FGW2×&÷r#à¢Ç7â–CÒ&Æ—fRÖ6ÖW&×7FFR"6Æ73Ò&Æ—fR×7FGW2×–ÆÂ#í	­Í](
+cÂ÷7ãà¢Ç7â–CÒ&Æ—fRÖFö÷"×7FFR"6Æ73Ò&Æ—fR×7FGW2×–ÆÂ#í	MíÍíMíŞ(
+cÂ÷7ãà¢ÂöF—cà ¢ÆF—b6Æ73Ò&Æ—fRÖÖ–âÖ7F–öç2#à¢Æ'WGFöâ–CÒ&Æ—fRÖ÷VâÖFö÷""G—SÒ&'WGFöâ"6Æ73Ò&÷VâÖFö÷"Ö'WGFöâ#à¢	ùª¢	í-­½-ÂM-]À¢Âö'WGFöãà¢Æ'WGFöâ–CÒ&Æ—fR×&Vg&W6‚"G—SÒ&'WGFöâ#í	íİí--ÂÄ•dSÂö'WGFöãà¢ÂöF—cà ¢ÆF—b–CÒ&Æ—fRÖÆ7BÖ6ÆÂ"6Æ73Ò&Æ—fRÖÆ7BÖ6ÆÂ"FFÖV×G“Ò'G'VR#à¢ÆF—b6Æ73Ò&Æ—fRÖÆ7BÖ6ÆÂ×F—FÆR#í	ıí½]Mİ’}-íİí£ÂöF—cà¢ÆF—b–CÒ&Æ—fRÖÆ7BÖ6ÆÂ×F–ÖR"6Æ73Ò&Æ—fRÖÆ7BÖ6ÆÂ×F–ÖR#í	}==}­(
+cÂöF—cà¢ÆF—b–CÒ&Æ—fRÖÆ7BÖ6ÆÂÖFG&W72"6Æ73Ò&Æ—fRÖÆ7BÖ6ÆÂÖFG&W72#ãÂöF—cà¢ÆF—b6Æ73Ò&Æ—fRÖ6ÆÂÖ7F–öç2#à¢Æ'WGFöâ–CÒ&Æ—fRÖ÷VâÖ6ÆÂÖ&6†—fR"G—SÒ&'WGFöâ"6Æ73Ò'6ÖÆÂÖ'WGFöâ#à¢	ıíÍí-]-Â}ıÀ¢Âö'WGFöãà¢Æ'WGFöâ–CÒ&Æ—fRÖ÷VâÖ6ÆÂ×&Wf–Wr"G—SÒ&'WGFöâ"6Æ73Ò'6ÖÆÂÖ'WGFöâ"†–FFVãà¢&Wf–Wp¢Âö'WGFöãà¢ÂöF—cà¢ÂöF—cà¢ÂöF—cà ¢ÆF—b6Æ73Ò&Æ—fRÖfö÷FW"#à¢Æ—fRVçF—G“¢Ç7â–CÒ&Æ—fRÖVçF—G’ÖÆ&VÂ#ííı]M]½ı]-ş(
+cÂ÷7ãà¢ÂöF—cà¢Â÷6V7F–öãà ¢Ç6V7F–öâ–CÒ'æVÂÖ&6†—fR"6Æ73Ò'æVÂ"&öÆSÒ'F'æVÂ"†–FFVãà¢ÆF—b–CÒ&&6†—fR×v–æF÷r#í	íı]M]½]İRMí-=ıİí=âMı}íİ(
+cÂöF—cà ¢ÆF—b6Æ73Ò&6öçG&öÇ2#à¢ÆÆ&VÃí	M-Æ–çWB–CÒ&FFR"G—SÒ&FFR#ãÂöÆ&VÃà¢ÆÆ&VÃí	-]ÍóÆ–çWB–CÒ'F–ÖR"G—SÒ'F–ÖR"7FWÒ##ãÂöÆ&VÃà¢ÆÆ&VÃà¢	M½-]½Íİí-ÂÂ¢Æ–çWB–CÒ&GW&F–öâ"G—SÒ&çVÖ&W""Ö–ãÒ#3"ÖƒÒ#3c"7FWÒ#3"fÇVSÒ"G´çVÖ&W"‡F†—2åö6öæf–ræGW&F–öâÇÂ3—Ò#à¢ÂöÆ&VÃà¢ÆÆ&VÃà¢
+0¢Ç6VÆV7B–CÒ'7FW#à¢Gµ³Â3ÂcÂ#Â3ÂcÂƒÂ3cĞ¢æÖ‚‡fÇVR’ÓâÆ÷F–öâfÇVSÒ"G·fÇVWÒ"G´çVÖ&W"‡F†—2åö6öæf–rç7FWÇÂc’ÓÓÒfÇVRò'6VÆV7FVB"¢"'ÓâG·F†—2åöf÷&ÖE7FW‡fÇVR—ÓÂö÷F–öãæ¢æ¦ö–â‚""—Ğ¢Â÷6VÆV7Cà¢ÂöÆ&VÃà¢ÂöF—cà ¢ÆF—b6Æ73Ò'F–ÖVÆ–æR×w&#à¢ÆF—b6Æ73Ò'F–ÖVÆ–æRÖ†VB#à¢Ç7ãåF–ÖVÆ–æR]-Â÷7ãà¢ÆF—b6Æ73Ò'F–ÖVÆ–æR×¦ööÒ"&öÆSÒ&w&÷W"&–ÖÆ&VÃÒ-	Í-F–ÖVÆ–æR#à¢Æ'WGFöâ–CÒ'¦ööÒÓ#B"6Æ73Ò'¦ööÒÖ'WGFöâ"G—SÒ&'WGFöâ"&–×&W76VCÒ'G'VR#ã#BsÂö'WGFöãà¢Æ'WGFöâ–CÒ'¦ööÒÓb"6Æ73Ò'¦ööÒÖ'WGFöâ"G—SÒ&'WGFöâ"&–×&W76VCÒ&fÇ6R#ãbsÂö'WGFöãà¢Æ'WGFöâ–CÒ'¦ööÒÓ"6Æ73Ò'¦ööÒÖ'WGFöâ"G—SÒ&'WGFöâ"&–×&W76VCÒ&fÇ6R#ãsÂö'WGFöãà¢ÂöF—cà¢ÂöF—cà¢ÆF—b6Æ73Ò'F–ÖVÆ–æR×7V&†VB#à¢Ç7â–CÒ'F–ÖVÆ–æR×v–æF÷rÖÆ&VÂ#ã£(	3#C£Â÷7ãà¢Ç7â–CÒ'F–ÖVÆ–æRÖ†–çB#í	}==}­Mı}íİí.(
+cÂ÷7ãà¢ÂöF—cà¢ÆF—b–CÒ'F–ÖVÆ–æRÖ†—2"&–Ö†–FFVãÒ'G'VR#à¢Ç7ãã£Â÷7ããÇ7ããc£Â÷7ããÇ7ãã#£Â÷7ããÇ7ããƒ£Â÷7ããÇ7ãã#C£Â÷7ãà¢ÂöF—cà¢ÆF—b–CÒ'F–ÖVÆ–æR×G&6²"&öÆSÒ&w&÷W"&–ÖÆ&VÃÒ-	]-İò­½-]Í]İ‚#à¢ÆF—b–CÒ'F–ÖVÆ–æRÖÖ&¶W""†–FFVããÂöF—cà¢ÆF—b–CÒ'F–ÖVÆ–æRÖÖ&¶W"ÖÆ&VÂ"†–FFVããÂöF—cà¢ÂöF—cà¢ÂöF—cà ¢ÆF—b6Æ73Ò&F’×&ævW2#à¢ÆF—b–CÒ&F’ÖÆ&VÂ#í	Mí-=ıİ½Rİ-]-½³ÂöF—cà¢ÆF—b–CÒ&F’Ö–çFW'fÇ2#ãÂöF—cà¢ÂöF—cà ¢ÆF—b6Æ73Ò&6ÆÇ2#à¢ÆF—b6Æ73Ò&6ÆÇ2Ö†VB#à¢ÆF—b–CÒ&6ÆÇ2ÖÆ&VÂ#í	}-íİ­ƒ¢}==}­(
+cÂöF—cà¢Æ'WGFöâ–CÒ'&Vg&W6‚Ö6ÆÇ2"G—SÒ&'WGFöâ#í	íİí--ÃÂö'WGFöãà¢ÂöF—cà¢ÆF—b–CÒ&6ÆÂÖWfVçG2#ãÂöF—cà¢ÂöF—cà ¢ÆF—b6Æ73Ò&'WGFöç2#à¢Æ'WGFöâ–CÒ'&Wf–÷W2#î(ú¢	İ}CÂö'WGFöãà¢Æ'WGFöâ–CÒ&ÆFW7B#í	ıí½]Mİ]SÂö'WGFöãà¢Æ'WGFöâ–CÒ&æW‡B#í	-ı]B(ú“Âö'WGFöãà¢ÂöF—cà ¢ÆF—b–CÒ'Æ–W"Ö†÷7B#ãÇ7â7G–ÆSÒ&6öÆ÷#¢6#í	}==}­]-(
+cÂ÷7ããÂöF—cà ¢ÆF—b6Æ73Ò&&6†—fRÖW‡÷'B#à¢ÆF—b6Æ73Ò&&6†—fRÖW‡÷'B×&÷r#à¢ÆÆ&VÃà¢
+í]İ-Âí"-]­=]’í-Í]-­€¢Ç6VÆV7B–CÒ&&6†—fRÖW‡÷'BÖGW&F–öâ#à¢Æ÷F–öâfÇVSÒ#3#ã3]­=İCÂö÷F–öãà¢Æ÷F–öâfÇVSÒ#c#ãÍİ=-Âö÷F–öãà¢Æ÷F–öâfÇVSÒ###ã"Íİ=-³Âö÷F–öãà¢Æ÷F–öâfÇVSÒ#3"6VÆV7FVCãRÍİ=#Âö÷F–öãà¢Æ÷F–öâfÇVSÒ#c#ãÍİ=#Âö÷F–öãà¢Æ÷F–öâfÇVSÒ#ƒ#ã3Íİ=#Âö÷F–öãà¢Â÷6VÆV7Cà¢ÂöÆ&VÃà¢Æ'WGFöâ–CÒ'&W&RÖ&6†—fRÖF÷væÆöB"G—SÒ&'WGFöâ#à¢	ıíM=í-í--ÂÕ@¢Âö'WGFöãà¢ÂöF—cà ¢ÆF—b–CÒ&&6†—fRÖF÷væÆöB×&VG’"6Æ73Ò&&6†—fRÖF÷væÆöB×&VG’"†–FFVãà¢Æ–CÒ&&6†—fRÖF÷væÆöBÖÆ–æ²"F&vWCÒ%ö&Ææ²"&VÃÒ&æö÷VæW"æ÷&VfW'&W"#à¢
+­}-Âòí-­½-ÂÕ@¢Âöà¢Ç7â–CÒ&&6†—fRÖF÷væÆöBÖÖWF"6Æ73Ò&&6†—fRÖF÷væÆöBÖÖWF#ãÂ÷7ãà¢Æ'WGFöâ–CÒ&&6†—fRÖF÷væÆöBÖ6÷’"G—SÒ&'WGFöâ"6Æ73Ò'6ÖÆÂÖ'WGFöâ#à¢	­íıí--ÂU$À¢Âö'WGFöãà¢ÂöF—cà¢ÂöF—cà ¢ÆF—b6Æ73Ò&&6†—fRÖÆ–'&'’#à¢ÆF—b6Æ73Ò&&6†—fRÖÆ–'&'’Ö†VB#à¢Ç7â6Æ73Ò&&6†—fRÖÆ–'&'’Ö†VB×F—FÆR#í
+í]İİİ½R-M]ãÂ÷7ãà¢Ç7â–CÒ&&6†—fRÖÆ–'&'’×7VÖÖ'’"6Æ73Ò&&6†—fRÖÆ–'&'’×7VÖÖ'’#í	}==}­(
+cÂ÷7ãà¢Æ'WGFöâ–CÒ&&6†—fRÖÆ–'&'’×&Vg&W6‚"G—SÒ&'WGFöâ"6Æ73Ò'6ÖÆÂÖ'WGFöâ#í	íİí--ÃÂö'WGFöãà¢Æ'WGFöâ–CÒ&&6†—fRÖÆ–'&'’Ö6ÆVçW"G—SÒ&'WGFöâ"6Æ73Ò'6ÖÆÂÖ'WGFöâ#í	í}--Âıâı-½ÃÂö'WGFöãà¢ÂöF—cà¢ÆF—b–CÒ&&6†—fRÖÆ–'&'’×öÆ–7’"6Æ73Ò&&6†—fRÖÆ–'&'’×öÆ–7’#ãÂöF—cà¢ÆF—b–CÒ&&6†—fRÖÆ–'&'’ÖÆ—7B"6Æ73Ò&&6†—fRÖÆ–'&'’ÖÆ—7B#à¢ÆF—b6Æ73Ò&&6†—fRÖÆ–'&'’ÖV×G’#í	}==}­Í]M-]­(
+cÂöF—cà¢ÂöF—cà¢ÂöF—cà¢Â÷6V7F–öãà ¢Ç6V7F–öâ–CÒ'æVÂÖwVW7G2"6Æ73Ò'æVÂ"&öÆSÒ'F'æVÂ"†–FFVãà¢ÆF—b6Æ73Ò&wVW7B×FööÆ&"#à¢ÆF—b–CÒ&wVW7BÖ6÷VçG2"6Æ73Ò&wVW7B×7VÖÖ'’#í	=í-]-½RMí-=ı²]İR}==m]İ³ÂöF—cà¢Æ'WGFöâ–CÒ'&Vg&W6‚ÖwVW7G2"G—SÒ&'WGFöâ"6Æ73Ò'6ÖÆÂÖ'WGFöâ#í	íİí--ÃÂö'WGFöãà¢Æ'WGFöâ–CÒ&7&VFRÖwVW7BÖ–çf—FR"G—SÒ&'WGFöâ"6Æ73Ò'&–Ö'’Ö7F–öâ#í
+í}M-Âı=½]İSÂö'WGFöãà¢ÂöF—cà ¢ÆF—b–CÒ&wVW7BÖ–çf—FRÖ&÷‚"6Æ73Ò&wVW7BÖ–çf—FR"†–FFVãà¢ÆF—b6Æ73Ò&wVW7BÖ–çf—FR×F—FÆR#í	İí-íRı=½]İSÂöF—cà¢ÆF—b6Æ73Ò&wVW7BÖ–çf—FR×v&æ–ær#à¢
+½½­ı-½ı]-ò­½í}íÂMí-=ıâ	ı]]M--R]-í½Í­âİ=mİíÍ2ıí½=}-]½âà¢	ıí½Í}í--]½Âıíı--ò"6†&VB66W72ıí½Rıİı-òı=½]İòà¢ÂöF—cà¢ÆF—b6Æ73Ò&wVW7BÖ–çf—FRÖ6öçG&öÇ2#à¢Æ–çWB–CÒ&wVW7BÖ–çf—FR×W&Â"G—SÒ'FW‡B"&VFöæÇ’&–ÖÆ&VÃÒ-
+½½­ı=½]İò#à¢Æ'WGFöâ–CÒ&6÷’ÖwVW7BÖ–çf—FR"G—SÒ&'WGFöâ"6Æ73Ò'6ÖÆÂÖ'WGFöâ#í	­íıí--ÃÂö'WGFöãà¢Æ'WGFöâ–CÒ&÷VâÖwVW7BÖ–çf—FR"G—SÒ&'WGFöâ"6Æ73Ò'6ÖÆÂÖ'WGFöâ#í	í-­½-ÃÂö'WGFöãà¢ÂöF—cà¢ÂöF—cà ¢ÆF—b6Æ73Ò&wVW7B×6V7F–öâ#à¢ÆF—b6Æ73Ò&wVW7B×6V7F–öâ×F—FÆR#í
+í}Mİİ½Rı=½]İóÂöF—cà¢ÆF—b6Æ73Ò&wVW7B×&÷rÖÖWF"7G–ÆSÒ&Ö&v–âÖ&÷GFöÓ£‡‚#à¢VfæWBİRı]Mí--½ı]"’ı­İ]ıİı-½R7&VFU÷Fö¶Vâİ½½í¢À¢ıíİ-íÍ2İí-½Rı=½]İòí]İıí-ò½í­½Íİâ"†öÖR76—7FçBà¢ÂöF—cà¢ÆF—b–CÒ&wVW7BÖvVæW&FVBÖÆ—7B"6Æ73Ò&wVW7BÖÆ—7B#à¢ÆF—b6Æ73Ò&wVW7BÖV×G’#í	İmÍ-R*½	íİí--Ì+²M½ò}==}­‚ãÂöF—cà¢ÂöF—cà¢ÂöF—cà ¢ÆF—b6Æ73Ò&wVW7B×6V7F–öâ#à¢ÆF—b6Æ73Ò&wVW7B×6V7F–öâ×F—FÆR#í	-]Í]İİ½R­½í}ƒÂöF—cà¢ÆF—b6Æ73Ò'FV×÷&'’Ö7&VFR#à¢ÆÆ&VÂ6Æ73Ò'FV×÷&'’ÖGW&F–öâÖÆ&VÂ#à¢
+í ¢Ç6VÆV7B–CÒ'FV×÷&'’ÖGW&F–öâ#à¢Æ÷F–öâfÇVSÒ#c#ã}Âö÷F–öãà¢Æ÷F–öâfÇVSÒ#ƒ#ã2}Âö÷F–öãà¢Æ÷F–öâfÇVSÒ#3c#ãb}í#Âö÷F–öãà¢Æ÷F–öâfÇVSÒ#s##ã"}í#Âö÷F–öãà¢Æ÷F–öâfÇVSÒ#CC#ã#B}Âö÷F–öãà¢Â÷6VÆV7Cà¢ÂöÆ&VÃà¢Æ'WGFöâ–CÒ&7&VFR×FV×÷&'’ÖwVW7B"G—SÒ&'WGFöâ"6Æ73Ò'&–Ö'’Ö7F–öâ#à¢
+í}M-Â-]Í]İİ½’­½íp¢Âö'WGFöãà¢ÂöF—cà¢ÆF—b6Æ73Ò&wVW7B×&÷rÖÖWF"7G–ÆSÒ&Ö&v–ã£‡‚#à¢
+İ-‚½½­‚]İı-òİ]-]RVfæWB‚--íÍ-}]­‚}]}í"ıí½Rí­íİ}İòí­à¢ÂöF—cà¢ÆF—b–CÒ&wVW7B×FV×÷&'’ÖÆ—7B"6Æ73Ò&wVW7BÖÆ—7B#à¢ÆF—b6Æ73Ò&wVW7BÖV×G’#í	İmÍ-R*½	íİí--Ì+²M½ò}==}­‚ãÂöF—cà¢ÂöF—cà¢ÂöF—cà ¢ÆF—b6Æ73Ò&wVW7B×6V7F–öâ#à¢ÆF—b6Æ73Ò&wVW7B×6V7F–öâ×F—FÆR#å6†&VB66W73ÂöF—cà¢ÆF—b–CÒ&wVW7B×6†&VBÖÆ—7B"6Æ73Ò&wVW7BÖÆ—7B#à¢ÆF—b6Æ73Ò&wVW7BÖV×G’#í	İmÍ-R*½	íİí--Ì+²M½ò}==}­‚ãÂöF—cà¢ÂöF—cà¢ÂöF—cà ¢ÆF—b–CÒ&wVW7B×7FGW2"6Æ73Ò&wVW7B×7FGW2#í	=í-í-ãÂöF—cà¢Â÷6V7F–öãà ¢Ç6V7F–öâ–CÒ'æVÂÖF–væ÷7F–72"6Æ73Ò'æVÂ"&öÆSÒ'F'æVÂ"†–FFVãà¢ÆF—b6Æ73Ò&F–væ÷7F–72×FööÆ&"#à¢Ç7â6Æ73Ò&F–væ÷7F–72×FööÆ&"×F—FÆR#í
+-]]İ}]­íRí-íıİRVfæWB–çFW&6öÓÂ÷7ãà¢Æ'WGFöâ–CÒ&F–væ÷7F–72×&Vg&W6‚"G—SÒ&'WGFöâ"6Æ73Ò'6ÖÆÂÖ'WGFöâ#í	íİí--ÃÂö'WGFöãà¢Æ'WGFöâ–CÒ&F–væ÷7F–72Ö6÷’"G—SÒ&'WGFöâ"6Æ73Ò'6ÖÆÂÖ'WGFöâ#í	­íıí--Â¥4ôãÂö'WGFöãà¢ÂöF—cà¢ÆF—b–CÒ&F–væ÷7F–72Ö6öçFVçB"6Æ73Ò&F–væ÷7F–72Ö6öçFVçB#à¢ÆF—b6Æ73Ò'æVÂÖÖW76vR#í	İmÍ-R*½	íİí--Ì+²Â}-í²ıí½=}-ÂM=İí-­2ãÂöF—cà¢ÂöF—cà¢Â÷6V7F–öãà ¢ÆF—b6Æ73Ò&fö÷FW"#à¢Ç7â–CÒ'7FGW2#í	İm½}mş(
+cÂ÷7ãà¢Ç7ãåE£¢Ç7â–CÒ'F–ÖW¦öæR#î(	CÂ÷7ãâÇ7â–CÒ&VffV7F—fRÖGW&F–öâ#ãÂ÷7ããÂ÷7ãà¢ÂöF—cà¢Âö†Ö6&Cà¢° ¢F†—2å÷WFFU7FW'WGFöç2‚“°¢F†—2å÷WFFU¦ööÔ'WGFöç2‚“° ¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚'F"ÖÆ—fR"“òæFDWfVçDÆ—7FVæW"‚&6Æ–6²"Â‚’ÓâF†—2å÷6WD7F—fUF"‚&Æ—fR"’“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚'F"Ö&6†—fR"“òæFDWfVçDÆ—7FVæW"‚&6Æ–6²"Â‚’ÓâF†—2å÷6WD7F—fUF"‚&&6†—fR"’“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚'F"ÖwVW7G2"“òæFDWfVçDÆ—7FVæW"‚&6Æ–6²"Â‚’ÓâF†—2å÷6WD7F—fUF"‚&wVW7G2"’“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚'F"ÖF–væ÷7F–72"“òæFDWfVçDÆ—7FVæW"‚&6Æ–6²"Â‚’ÓâF†—2å÷6WD7F—fUF"‚&F–væ÷7F–72"’“° ¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&Æ—fRÖ÷VâÖFö÷""“òæFDWfVçDÆ—7FVæW"€¢&6Æ–6²"À¢‚’Óâfö–BF†—2åö÷VäFö÷$g&öÔÆ—fR‚¢“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&Æ—fR×&Vg&W6‚"“òæFDWfVçDÆ—7FVæW"€¢&6Æ–6²"À¢‚’Óâfö–BF†—2å÷&Vg&W6„Æ—fUæVÂ‚¢“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&Æ—fRÖ÷VâÖ6ÆÂÖ&6†—fR"“òæFDWfVçDÆ—7FVæW"€¢&6Æ–6²"À¢‚’Óâfö–BF†—2åö÷VäÆ7D6ÆÄ&6†—fR‚¢“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&Æ—fRÖ÷VâÖ6ÆÂ×&Wf–Wr"“òæFDWfVçDÆ—7FVæW"€¢&6Æ–6²"À¢‚’ÓâF†—2åö÷VäÆ7D6ÆÅ&Wf–Wr‚¢“° ¢6öç7BF–ÖVÆ–æUG&6²ÒF†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚'F–ÖVÆ–æR×G&6²"“°¢F–ÖVÆ–æUG&6³òæFDWfVçDÆ—7FVæW"‚&6Æ–6²"Â†WfVçB’Óâfö–BF†—2åö†æFÆUF–ÖVÆ–æT6Æ–6²†WfVçB’“°¢F–ÖVÆ–æUG&6³òæFDWfVçDÆ—7FVæW"‚'v†VVÂ"Â†WfVçB’ÓâF†—2åö†æFÆUF–ÖVÆ–æUv†VVÂ†WfVçB’Â²76—fS¢fÇ6RÒ“°¢F–ÖVÆ–æUG&6³òæFDWfVçDÆ—7FVæW"‚'ö–çFW&F÷vâ"Â†WfVçB’ÓâF†—2åö†æFÆUF–ÖVÆ–æUö–çFW$F÷vâ†WfVçB’“°¢F–ÖVÆ–æUG&6³òæFDWfVçDÆ—7FVæW"‚'ö–çFW&Ö÷fR"Â†WfVçB’ÓâF†—2åö†æFÆUF–ÖVÆ–æUö–çFW$Ö÷fR†WfVçB’“°¢F–ÖVÆ–æUG&6³òæFDWfVçDÆ—7FVæW"‚'ö–çFW'W"Â†WfVçB’ÓâF†—2åöf–æ—6…F–ÖVÆ–æUö–çFW$G&r†WfVçB’“°¢F–ÖVÆ–æUG&6³òæFDWfVçDÆ—7FVæW"‚'ö–çFW&6æ6VÂ"Â†WfVçB’ÓâF†—2åöf–æ—6…F–ÖVÆ–æUö–çFW$G&r†WfVçB’“° ¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚'¦ööÒÓ#B"“òæFDWfVçDÆ—7FVæW"‚&6Æ–6²"Â‚’ÓâF†—2å÷6WEF–ÖVÆ–æU¦ööÒƒ#BÂçVÆÂÂG'VR’“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚'¦ööÒÓb"“òæFDWfVçDÆ—7FVæW"‚&6Æ–6²"Â‚’ÓâF†—2å÷6WEF–ÖVÆ–æU¦ööÒƒbÂçVÆÂÂG'VR’“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚'¦ööÒÓ"“òæFDWfVçDÆ—7FVæW"‚&6Æ–6²"Â‚’ÓâF†—2å÷6WEF–ÖVÆ–æU¦ööÒƒÂçVÆÂÂG'VR’“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&FFR"“òæFDWfVçDÆ—7FVæW"‚&6†ævR"Â‚’Óâfö–BF†—2åö†æFÆTFFT6†ævR‚’“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚'F–ÖR"“òæFDWfVçDÆ—7FVæW"‚&6†ævR"Â‚’Óâfö–BF†—2åöÆöDg&öÔ–çWG2‚’“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&GW&F–öâ"“òæFDWfVçDÆ—7FVæW"‚&6†ævR"Â‚’Óâ°¢–b‡F†—2åö7W'&VçDWö6‚ÒçVÆÂ’fö–BF†—2åöÆöDWö6‚‡F†—2åö7W'&VçDWö6‚“°¢Ò“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚'7FW"“òæFDWfVçDÆ—7FVæW"‚&6†ævR"Â‚’ÓâF†—2å÷WFFU7FW'WGFöç2‚’“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚'&Wf–÷W2"“òæFDWfVçDÆ—7FVæW"‚&6Æ–6²"Â‚’Óâfö–BF†—2å÷6†–gB‚Ó’“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&æW‡B"“òæFDWfVçDÆ—7FVæW"‚&6Æ–6²"Â‚’Óâfö–BF†—2å÷6†–gBƒ’“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&ÆFW7B"“òæFDWfVçDÆ—7FVæW"‚&6Æ–6²"Â‚’Óâfö–BF†—2åövôÆFW7B‡G'VR’“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚'&Vg&W6‚Ö6ÆÇ2"“òæFDWfVçDÆ—7FVæW"‚&6Æ–6²"Â‚’Óâ°¢6öç7BFFUFW‡BÒF†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&FFR"“òçfÇVS°¢–b†FFUFW‡B’fö–BF†—2å÷&Vg&W6„6ÆÄWfVçG2†FFUFW‡BÂG'VR“°¢Ò“° ¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚'&W&RÖ&6†—fRÖF÷væÆöB"“òæFDWfVçDÆ—7FVæW"€¢&6Æ–6²"À¢‚’Óâfö–BF†—2å÷&W&T&6†—fTF÷væÆöB‚¢“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&&6†—fRÖF÷væÆöBÖ6÷’"“òæFDWfVçDÆ—7FVæW"€¢&6Æ–6²"À¢‚’Óâfö–BF†—2åö6÷”&6†—fTF÷væÆöEW&Â‚¢“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&&6†—fRÖÆ–'&'’×&Vg&W6‚"“òæFDWfVçDÆ—7FVæW"€¢&6Æ–6²"À¢‚’Óâfö–BF†—2å÷&Vg&W6„&6†—fTW‡÷'G2‡G'VR¢“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&&6†—fRÖÆ–'&'’Ö6ÆVçW"“òæFDWfVçDÆ—7FVæW"€¢&6Æ–6²"À¢‚’Óâfö–BF†—2åö6ÆVçW7F÷&VD&6†—fTW‡÷'G2‚¢“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&F–væ÷7F–72×&Vg&W6‚"“òæFDWfVçDÆ—7FVæW"€¢&6Æ–6²"À¢‚’Óâfö–BF†—2å÷&Vg&W6…'VçF–ÖU7FGW2‡G'VR¢“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&F–væ÷7F–72Ö6÷’"“òæFDWfVçDÆ—7FVæW"€¢&6Æ–6²"À¢‚’Óâfö–BF†—2åö6÷•'VçF–ÖU7FGW2‚¢“° ¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚'&Vg&W6‚ÖwVW7G2"“òæFDWfVçDÆ—7FVæW"‚&6Æ–6²"Â‚’Óâfö–BF†—2å÷&Vg&W6„wVW7D66W72‡G'VR’“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&7&VFRÖwVW7BÖ–çf—FR"“òæFDWfVçDÆ—7FVæW"‚&6Æ–6²"Â‚’Óâfö–BF†—2åö7&VFTwVW7D–çf—FR‚’“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&7&VFR×FV×÷&'’ÖwVW7B"“òæFDWfVçDÆ—7FVæW"‚&6Æ–6²"Â‚’Óâfö–BF†—2åö7&VFUFV×÷&'”wVW7DÆ–æ²‚’“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&6÷’ÖwVW7BÖ–çf—FR"“òæFDWfVçDÆ—7FVæW"‚&6Æ–6²"Â‚’Óâ°¢–b‡F†—2åöwVW7D–çf—FUW&Â’fö–BF†—2åö6÷•FW‡B‡F†—2åöwVW7D–çf—FUW&Â“°¢Ò“°¢F†—2ç6†F÷u&ö÷BævWDVÆVÖVçD'”–B‚&÷VâÖwVW7BÖ–çf—FR"“òæFDWfVçDÆ—7FVæW"‚&6Æ–6²"Â‚’Óâ°¢–b‡F†—2åöwVW7D–çf—FUW&Â’v–æF÷ræ÷Vâ‡F†—2åöwVW7D–çf—FUW&ÂÂ%ö&Ææ²"Â&æö÷VæW"Ææ÷&VfW'&W""“°¢Ò“° ¢F†—2å÷6WD7F—fUF"‡F†—2åö7F—fUF"ÂfÇ6R“°¢F†—2å÷&VæFW$Æ—fTÖWF‚“°¢F†—2å÷&VæFW$&6†—fTF÷væÆöE&VG’‚“°¢F†—2å÷&VæFW$&6†—fTW‡÷'G2‚“°¢F†—2å÷&VæFW%'VçF–ÖU7FGW2‚“°¢Ğ §Ğ ¦–b‚7W7FöÔVÆVÖVçG2ævWB‚'VfæWBÖ&6†—fRÖ6&B"’’°¢7W7FöÔVÆVÖVçG2æFVf–æR‚'VfæWBÖ&6†—fRÖ6&B"ÂVfæWD&6†—fT6&B“°§Ğ ¦–b‚7W7FöÔVÆVÖVçG2ævWB‚'VfæWBÖ–çFW&6öÒÖ6&B"’’°¢6Æ72VfæWD–çFW&6öÔ6&BW‡FVæG2VfæWD&6†—fT6&B·Ğ¢7W7FöÔVÆVÖVçG2æFVf–æR‚'VfæWBÖ–çFW&6öÒÖ6&B"ÂVfæWD–çFW&6öÔ6&B“°§Ğ §v–æF÷ræ7W7FöÔ6&G2Òv–æF÷ræ7W7FöÔ6&G2ÇÂµÓ° ¦–b‚v–æF÷ræ7W7FöÔ6&G2ç6öÖR‚†6&B’Óâ6&BçG—RÓÓÒ'VfæWBÖ–çFW&6öÒÖ6&B"’’°¢v–æF÷ræ7W7FöÔ6&G2çW6‚‡°¢G—S¢'VfæWBÖ–çFW&6öÒÖ6&B"À¢æÖS¢%VfæWB–çFW&6öÒ"À¢FW67&—F–öã¢$Ä•dRÂ]"Â}-íİ­‚‚=í-]-½RMí-=ı²VfæWB"À¢&Wf–Ws¢fÇ6RÀ¢Ò“°§Ğ ¦–b‚v–æF÷ræ7W7FöÔ6&G2ç6öÖR‚†6&B’Óâ6&BçG—RÓÓÒ'VfæWBÖ&6†—fRÖ6&B"’’°¢v–æF÷ræ7W7FöÔ6&G2çW6‚‡°¢G—S¢'VfæWBÖ&6†—fRÖ6&B"À¢æÖS¢%VfæWB–çFW&6öÒ†ÆVv7’6&BG—R’"À¢FW67&—F–öã¢-
+í-Í]-Í½’½]Mİí’­-í}­‚VfæWB"À¢&Wf–Ws¢fÇ6RÀ¢Ò“°§Ğ ¦6öç6öÆRæ–æfò€¢V2VfæWB&6†—fR6&BV2bG´4$EõdU%4”ôçÒÀ¢&&6¶w&÷VæC¢34$”#¶6öÆ÷#§v†—FS·FF–æs£'‚Gƒ¶&÷&FW"×&F—W3£7‚7‚"À¢&&6¶w&÷VæC¢3CCC¶6öÆ÷#§v†—FS·FF–æs£'‚Gƒ¶&÷&FW"×&F—W3£7‚7‚ ¢“°

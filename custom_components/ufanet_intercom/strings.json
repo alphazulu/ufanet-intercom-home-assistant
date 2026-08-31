@@ -71,6 +71,11 @@
         "name": "Archive"
       }
     },
+    "image": {
+      "last_call": {
+        "name": "Last call image"
+      }
+    },
     "sensor": {
       "last_call": {
         "name": "Last call"

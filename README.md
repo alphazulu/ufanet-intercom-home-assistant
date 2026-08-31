@@ -12,7 +12,7 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 - Door opening through Home Assistant `button` entities.
 - Live UCAMS camera stream and snapshots.
 - Native archive browsing with recording ranges, timeline zoom/pan and call markers.
-- Intercom call history, the `ufanet_intercom_call` Home Assistant event, a native **Incoming call** binary sensor and a matching device trigger for the visual automation editor.
+- Intercom call history, the `ufanet_intercom_call` event, native **Incoming call** and **Last call image** entities, and a matching device trigger for the visual automation editor.
 - Selectable call updates: polling by default or experimental low-latency FCM with safety polling.
 - Temporary guest keys and accepted shared-access management.
 - Manual archive export to MP4 using `ffmpeg -c copy` into Home Assistant Media.
@@ -37,7 +37,7 @@ The reference explicitly distinguishes **Confirmed**, **Observed**, **Inferred**
 - Home Assistant **2026.8.0 or newer**.
 - Network access from Home Assistant to `dom.ufanet.ru`, `cloud.ucams.ru` and the UCAMS media servers returned by the API.
 - Experimental FCM additionally needs outbound HTTPS access to Google Firebase/GCM registration endpoints and TLS access to `mtalk.google.com:5228`.
-- For MP4 export: `ffmpeg` available in the Home Assistant runtime. Home Assistant OS/Container normally provides it; Core/venv installs may need an OS package.
+- For MP4 export and last-call JPEG extraction: `ffmpeg` available in the Home Assistant runtime. Home Assistant OS/Container normally provides it; Core/venv installs may need an OS package.
 - A Ufanet account/contract that already has access to the intercom in the official application.
 
 ## Installation
@@ -66,7 +66,7 @@ To install it as a HACS custom repository:
 Add the resource as a JavaScript module:
 
 ```text
-/ufanet_intercom/ufanet-archive-card.js?v=0.23.0
+/ufanet_intercom/ufanet-archive-card.js?v=0.24.0
 ```
 
 Minimal card:
@@ -101,6 +101,10 @@ The FCM watchdog distinguishes launched listener tasks from an established trans
 
 Every intercom with call history has an **Incoming call** binary sensor. It turns on for 30 seconds after a new call is confirmed by `call-history`; another call restarts the timer. Use it directly in dashboards and state automations, or select the matching **Incoming call** device trigger in the visual automation editor. Both interfaces work identically with polling and FCM.
 
+The **Last call image** entity downloads the tokenized Ufanet preview privately, sends only its bytes to local `ffmpeg`, extracts one JPEG frame and caches that frame in memory. The source MP4 URL is never placed in image state or passed on the `ffmpeg` command line.
+
+An optional Companion app notification blueprint is available at [incoming_call_notification.yaml](blueprints/automation/ufanet_intercom/incoming_call_notification.yaml). Import that GitHub URL in **Settings → Automations & scenes → Blueprints**, select the Ufanet intercom, its Last call image entity and the phone. It waits three seconds by default for JPEG preparation; the delay is configurable. The blueprint intentionally contains no door-opening action.
+
 FCM values are not distributed by this repository. Advanced users extract them on their own computer from their own decompiled copy of the official Android app:
 
 ```bash
@@ -131,6 +135,7 @@ Manual and automatic MP4 exports are saved under the Home Assistant media direct
 - Generated guest links are access capabilities: treat them like temporary credentials.
 - Opening the door is a real physical action and requires an explicit button press/confirmation in the custom card.
 - Downloadable diagnostics redact login/password and avoid guest/media URLs and exact camera identifiers.
+- The last-call image keeps only a generated JPEG in memory; tokenized preview video and its URL are not persisted.
 - Firebase values, FCM credentials and the local Firebase config path are never included in diagnostics. Do not commit `firebase_config.json`.
 
 ## Troubleshooting

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.24.0
+
+- Added a native **Last call image** entity that privately downloads the confirmed call preview, extracts one JPEG frame through local `ffmpeg`, and keeps only the JPEG in memory.
+- Tokenized preview URLs are not passed to `ffmpeg`, exposed in image state, persisted to disk, or added to diagnostics.
+- Added an importable incoming-call notification blueprint for the Home Assistant Companion app with a configurable image preparation delay and no door-opening action.
+
 ## 0.23.0
 
 - Added a native **Incoming call** binary sensor for every intercom with call history.

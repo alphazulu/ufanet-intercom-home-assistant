@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from aiohttp import ClientError
 import pytest
@@ -240,6 +240,35 @@ async def test_snapshot_uses_small_suffix(api: UfanetApi) -> None:
     api._request_bytes.assert_awaited_once_with(  # type: ignore[attr-defined]
         "https://shots.example/api/v0/screenshots/CAM%2F1~600.jpg", params={"token": "live"}
     )
+
+
+@pytest.mark.asyncio
+async def test_call_preview_download_requires_https_and_limits_size(
+    api: UfanetApi,
+) -> None:
+    api._request_bytes = AsyncMock(return_value=b"mp4")  # type: ignore[method-assign]
+
+    assert await api.async_get_call_preview(
+        "https://media.example/preview.mp4?token=private"
+    ) == b"mp4"
+    api._request_bytes.assert_awaited_once()  # type: ignore[attr-defined]
+
+    for invalid in (
+        "http://media.example/preview.mp4",
+        "https://user:password@media.example/preview.mp4",
+        "/relative/preview.mp4",
+    ):
+        with pytest.raises(UfanetResponseError, match="HTTPS URL"):
+            await api.async_get_call_preview(invalid)
+
+    with (
+        patch(
+            "custom_components.ufanet_intercom.api.CALL_PREVIEW_MAX_BYTES",
+            2,
+        ),
+        pytest.raises(UfanetResponseError, match="size limit"),
+    ):
+        await api.async_get_call_preview("https://media.example/preview.mp4")
 
 
 @pytest.mark.asyncio
