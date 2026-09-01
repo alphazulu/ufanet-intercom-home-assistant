@@ -621,6 +621,8 @@ async def run(args: argparse.Namespace) -> int:
                     firebase["package_name"],
                     base_url,
                 )
+                print("[OK] Unregister verification completed; listener was not started")
+                return 0
 
         if args.skip_ufanet and not args.no_correlate_history:
             print("[INFO] History correlation disabled because --skip-ufanet is active")
@@ -686,7 +688,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Live-check DELETE /api/v0/fcm/ for this probe's own virtual device, "
-            "then immediately register it again"
+            "immediately register it again, then exit"
         ),
     )
     parser.add_argument(
