@@ -10,11 +10,11 @@ import pytest
 from custom_components.ufanet_intercom.firebase_config import (
     MAX_FIREBASE_CONFIG_BYTES,
     UfanetFirebaseConfigError,
+    async_load_firebase_config,
     firebase_config_fingerprint,
     load_firebase_config,
     resolve_firebase_config_path,
 )
-
 
 FIREBASE_CONFIG = {
     "project_id": "example-project",
@@ -95,3 +95,33 @@ def test_load_rejects_invalid_json_and_large_file(tmp_path: Path) -> None:
     path.write_bytes(b"x" * (MAX_FIREBASE_CONFIG_BYTES + 1))
     with pytest.raises(UfanetFirebaseConfigError, match="large"):
         load_firebase_config(path)
+
+
+@pytest.mark.asyncio
+async def test_async_load_resolves_and_reads_in_executor(
+    hass,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "ufanet_intercom" / "firebase_config.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps({"firebase": FIREBASE_CONFIG}), encoding="utf-8")
+    hass.config.config_dir = str(tmp_path)
+
+    calls: list[tuple[object, tuple[object, ...]]] = []
+
+    async def run_executor_job(func, *args):
+        calls.append((func, args))
+        return func(*args)
+
+    monkeypatch.setattr(hass, "async_add_executor_job", run_executor_job)
+
+    assert await async_load_firebase_config(
+        hass,
+        "ufanet_intercom/firebase_config.json",
+    ) == FIREBASE_CONFIG
+    assert len(calls) == 1
+    assert calls[0][1] == (
+        str(tmp_path),
+        "ufanet_intercom/firebase_config.json",
+    )

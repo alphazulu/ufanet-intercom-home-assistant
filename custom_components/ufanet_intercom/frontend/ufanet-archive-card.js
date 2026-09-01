@@ -1,4 +1,4 @@
-const CARD_VERSION = "0.25.4";
+const CARD_VERSION = "0.25.5";
 
 class UfanetArchiveCard extends HTMLElement {
   constructor() {

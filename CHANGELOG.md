@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.25.5
+
+- Moved the packaged Lovelace card file check out of Home Assistant's event loop.
+- Moved Firebase configuration path resolution, including filesystem canonicalization, into the executor together with the existing local JSON read.
+- Kept update discovery and installation exclusively under GitHub Releases and HACS; the integration does not implement a self-updater.
+
 ## 0.25.4
 
 - Moved archive export directory creation, duplicate lookup, file metadata checks and partial-file cleanup out of Home Assistant's event loop.

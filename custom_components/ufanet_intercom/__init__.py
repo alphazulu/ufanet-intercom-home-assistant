@@ -50,7 +50,7 @@ _LOGGER = logging.getLogger(__name__)
 _FRONTEND_DIR = Path(__file__).parent / "frontend"
 _ARCHIVE_CARD_PATH = _FRONTEND_DIR / "ufanet-archive-card.js"
 _ARCHIVE_CARD_URL = "/ufanet_intercom/ufanet-archive-card.js"
-_ARCHIVE_CARD_MODULE_URL = f"{_ARCHIVE_CARD_URL}?v=0.25.4"
+_ARCHIVE_CARD_MODULE_URL = f"{_ARCHIVE_CARD_URL}?v=0.25.5"
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -65,6 +65,11 @@ PLATFORMS = [
 ]
 
 
+def _path_is_file(path: Path) -> bool:
+    """Return whether a packaged path is a regular file."""
+    return path.is_file()
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up integration-level service actions and archive dashboard card."""
     guest_invite_store = UfanetGuestInviteStore(hass)
@@ -74,7 +79,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     # Service handlers retain this Store instance through their closures.
     async_setup_services(hass, guest_invite_store)
 
-    if _ARCHIVE_CARD_PATH.exists():
+    if await hass.async_add_executor_job(_path_is_file, _ARCHIVE_CARD_PATH):
         await hass.http.async_register_static_paths(
             [
                 StaticPathConfig(

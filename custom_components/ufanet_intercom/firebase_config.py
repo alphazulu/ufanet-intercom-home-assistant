@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import Path
 import re
+from pathlib import Path
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -98,13 +98,25 @@ def load_firebase_config(path: Path) -> dict[str, str]:
     return config
 
 
+def _resolve_and_load_firebase_config(
+    config_dir: str | Path,
+    configured_path: str,
+) -> dict[str, str]:
+    """Resolve and load Firebase configuration in one blocking operation."""
+    path = resolve_firebase_config_path(config_dir, configured_path)
+    return load_firebase_config(path)
+
+
 async def async_load_firebase_config(
     hass: HomeAssistant,
     configured_path: str,
 ) -> dict[str, str]:
     """Resolve and read Firebase configuration outside the event loop."""
-    path = resolve_firebase_config_path(hass.config.config_dir, configured_path)
-    return await hass.async_add_executor_job(load_firebase_config, path)
+    return await hass.async_add_executor_job(
+        _resolve_and_load_firebase_config,
+        hass.config.config_dir,
+        configured_path,
+    )
 
 
 def firebase_config_fingerprint(config: dict[str, str]) -> str:
