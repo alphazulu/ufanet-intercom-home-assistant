@@ -62,6 +62,7 @@ Important distinction:
 - [UCAMS camera control and live video](ucams.md)
 - [Archive](archive.md)
 - [Call events/history](calls.md)
+- [Physical keys and passage history](keys.md)
 - [FCM / push notifications](fcm.md)
 - [Guest and shared access](guests.md)
 - [Observed data models](models.md)

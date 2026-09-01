@@ -19,6 +19,10 @@ This table is a compact index of what has actually been tested by the project. T
 | Push | `data.reason = "sip"` | **Confirmed** | Real payload carries `username`, `password`, `server`, `skud_id`, `transport`, `contract`, `house_id`, `flat`, `time`, `uuid`; `from=<sender-id>`, priority `normal` |
 | SKUD | `GET /api/v0/skud/shared/` | **Confirmed** | Returns tested intercom |
 | SKUD | `GET /api/v0/skud/` | **Observed** | Returned `[]` for tested account |
+| Capabilities | `GET /api/v4/skud/features/` | **Observed** | Android client consumes account features including `keys` |
+| Intercoms | `POST /api/v0/intercoms/` | **Observed** | Returns per-intercom `has_key_recording_support` capability |
+| Keys | `POST /api/v4/key/list/` | **Observed** | Android client parses `data.keys`; live check pending |
+| Passages | `POST /api/v4/key/skud/<id>/key/pass_history/` | **Observed** | Paged `key`, `key_name`, `time_passage` entries; live check pending |
 | Door | `GET /api/v0/skud/shared/<id>/open/?door=1` | **Confirmed** | Physical side effect; successful `{"result":true}` |
 | UCAMS | `POST /api/v0/cameras/this/` | **Confirmed** | Camera/server/token metadata |
 | Live | `.../<camera>/index.m3u8?...` | **Confirmed** | HTTP 200 |
