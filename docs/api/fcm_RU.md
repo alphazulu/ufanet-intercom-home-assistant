@@ -116,7 +116,7 @@ Headless PoC делает эквивалентный локальный installa
 
 ### Unregister
 
-**Observed**
+**Confirmed**
 
 ```http
 DELETE /api/v0/fcm/
@@ -138,9 +138,11 @@ py tools\research\fcm_probe_py\probe.py --verify-unregister
 ```
 
 Он удаляет только собственную локально созданную виртуальную регистрацию, сразу
-регистрирует тот же device и token заново и завершается без запуска listener. Очистка
-в production lifecycle остаётся отключённой до подтверждения этой операции реальным
-запросом.
+регистрирует тот же device и token заново и завершается без запуска listener. Реальный
+сервис вернул HTTP 200 и `{"status": "ok"}` как для DELETE, так и для восстанавливающего
+POST. Поэтому интеграция Home Assistant удаляет только собственный строго проверенный
+`Home Assistant_<UUID>` при отключении FCM либо удалении ConfigEntry. При обычном
+reload или перезапуске Home Assistant регистрация сохраняется.
 
 Также в Android-клиенте наблюдаются endpoints управления авторизованными push-устройствами семейства `/api/v4/fcm_device/`; они ещё не являются live-confirmed частью проекта.
 

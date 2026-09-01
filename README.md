@@ -66,7 +66,7 @@ To install it as a HACS custom repository:
 Add the resource as a JavaScript module:
 
 ```text
-/ufanet_intercom/ufanet-archive-card.js?v=0.25.5
+/ufanet_intercom/ufanet-archive-card.js?v=0.26.0
 ```
 
 Minimal card:
@@ -95,7 +95,7 @@ Important options include the call update mode, polling interval, call archive l
 - **`polling` (default)** reads `call-history` at the configured interval and needs no additional setup.
 - **`fcm` (experimental)** uses a local headless FCM receiver as a low-latency wake-up signal. `call-history` remains authoritative. Normal configured polling stays active until the listener confirms its MCS connection and is restored automatically on disconnect; while FCM is healthy, a 300-second safety poll remains active.
 
-The FCM watchdog distinguishes launched listener tasks from an established transport, lets the FCM library handle short reconnects, and recreates a terminal or stalled listener with exponential backoff. A Home Assistant Repair warning appears after a prolonged outage and closes automatically after recovery. Invalid or unreadable private FCM state is regenerated with a separate Repair notice; call-history polling remains active while the new listener connects. The diagnostics tab shows listener health, watchdog state, state-recovery reason, fallback polling, reconnects and connection timestamps without exposing push payloads, device IDs or credentials.
+The FCM watchdog distinguishes launched listener tasks from an established transport, lets the FCM library handle short reconnects, and recreates a terminal or stalled listener with exponential backoff. A Home Assistant Repair warning appears after a prolonged outage and closes automatically after recovery. Invalid or unreadable private FCM state is regenerated with a separate Repair notice; call-history polling remains active while the new listener connects. Disabling FCM or removing the ConfigEntry unregisters only the integration-owned `Home Assistant_<UUID>` virtual device; ordinary reloads and Home Assistant restarts retain it. Failed cleanup falls back to polling, opens a Repair and retries on the next setup. The diagnostics tab shows listener health, watchdog state, state-recovery and cleanup reasons, fallback polling, reconnects and connection timestamps without exposing push payloads, device IDs or credentials.
 
 ### Incoming-call automations
 

@@ -435,6 +435,21 @@ async def check_mcs_port() -> None:
         )
 
 
+async def cleanup_probe_resources(
+    client: FcmPushClient,
+    *,
+    listener_started: bool,
+    ufanet_session: aiohttp.ClientSession | None,
+) -> None:
+    """Stop only a started listener and always close the Ufanet session."""
+    try:
+        if listener_started:
+            await client.stop()
+    finally:
+        if ufanet_session is not None:
+            await ufanet_session.close()
+
+
 async def run(args: argparse.Namespace) -> int:
     state_path = Path(args.state).expanduser().resolve()
     firebase_path = Path(args.firebase_config).expanduser().resolve()
@@ -459,6 +474,7 @@ async def run(args: argparse.Namespace) -> int:
     latency_samples: list[float] = []
     ufanet_session: aiohttp.ClientSession | None = None
     ufanet_access: str | None = None
+    listener_started = False
 
     def persist_credentials(credentials: dict[str, Any]) -> None:
         state["fcm_credentials"] = credentials
@@ -630,6 +646,7 @@ async def run(args: argparse.Namespace) -> int:
         await check_mcs_port()
         print("[INFO] Starting MCS listener (mtalk.google.com:5228)...")
         await client.start()
+        listener_started = True
         if not args.no_correlate_history and not args.skip_ufanet:
             delays_text = ", ".join(f"{value:g}" for value in history_delays)
             print(
@@ -651,9 +668,11 @@ async def run(args: argparse.Namespace) -> int:
             for task in tuple(correlation_tasks):
                 task.cancel()
             await asyncio.gather(*tuple(correlation_tasks), return_exceptions=True)
-        await client.stop()
-        if ufanet_session is not None:
-            await ufanet_session.close()
+        await cleanup_probe_resources(
+            client,
+            listener_started=listener_started,
+            ufanet_session=ufanet_session,
+        )
 
     return 0
 

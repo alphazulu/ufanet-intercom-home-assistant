@@ -10,6 +10,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ufanet_intercom import (
     _call_event_data,
+    async_remove_entry,
     async_setup_entry,
     async_unload_entry,
 )
@@ -19,6 +20,7 @@ from custom_components.ufanet_intercom.api import (
 )
 from custom_components.ufanet_intercom.const import (
     CALL_UPDATE_MODE_FCM,
+    CALL_UPDATE_MODE_POLLING,
     CONF_CALL_SCAN_INTERVAL,
     CONF_CALL_UPDATE_MODE,
     CONF_FCM_CONFIG_PATH,
@@ -288,3 +290,66 @@ async def test_unload_stops_fcm_manager(hass) -> None:
 
     fcm_manager.async_stop.assert_awaited_once()
     image_manager.stop.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_switching_from_fcm_to_polling_unregisters_after_stop(hass) -> None:
+    entry = _entry({CONF_CALL_UPDATE_MODE: CALL_UPDATE_MODE_POLLING})
+    entry.add_to_hass(hass)
+    fcm_manager = MagicMock()
+    fcm_manager.async_stop = AsyncMock()
+    fcm_manager.async_unregister = AsyncMock(return_value=True)
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        "call_update_mode": CALL_UPDATE_MODE_FCM,
+        "fcm_manager": fcm_manager,
+    }
+
+    with patch.object(
+        hass.config_entries,
+        "async_unload_platforms",
+        AsyncMock(return_value=True),
+    ):
+        assert await async_unload_entry(hass, entry) is True
+
+    fcm_manager.async_stop.assert_awaited_once_with()
+    fcm_manager.async_unregister.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_normal_fcm_reload_keeps_remote_registration(hass) -> None:
+    entry = _entry({CONF_CALL_UPDATE_MODE: CALL_UPDATE_MODE_FCM})
+    entry.add_to_hass(hass)
+    fcm_manager = MagicMock()
+    fcm_manager.async_stop = AsyncMock()
+    fcm_manager.async_unregister = AsyncMock()
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        "call_update_mode": CALL_UPDATE_MODE_FCM,
+        "fcm_manager": fcm_manager,
+    }
+
+    with patch.object(
+        hass.config_entries,
+        "async_unload_platforms",
+        AsyncMock(return_value=True),
+    ):
+        assert await async_unload_entry(hass, entry) is True
+
+    fcm_manager.async_stop.assert_awaited_once_with()
+    fcm_manager.async_unregister.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_remove_entry_runs_best_effort_fcm_cleanup(hass) -> None:
+    entry = _entry()
+
+    with (
+        patch("custom_components.ufanet_intercom.async_get_clientsession"),
+        patch("custom_components.ufanet_intercom.UfanetApi") as api_cls,
+        patch(
+            "custom_components.ufanet_intercom.async_remove_stored_fcm_registration",
+            AsyncMock(),
+        ) as cleanup,
+    ):
+        await async_remove_entry(hass, entry)
+
+    cleanup.assert_awaited_once_with(hass, entry, api_cls.return_value)

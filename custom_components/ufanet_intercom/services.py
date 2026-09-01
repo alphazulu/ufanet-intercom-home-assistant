@@ -429,6 +429,11 @@ def async_setup_services(
                     "last_sip_push_at": None,
                     "state_recovered": False,
                     "state_recovery_reason": None,
+                    "unregister_pending": bool(
+                        runtime.get("fcm_cleanup_pending", False)
+                    ),
+                    "last_unregistration_succeeded": None,
+                    "last_unregistration_error_type": None,
                 }
             ),
             "archive": controller_state,

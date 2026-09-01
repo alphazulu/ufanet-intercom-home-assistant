@@ -1,4 +1,4 @@
-const CARD_VERSION = "0.25.5";
+const CARD_VERSION = "0.26.0";
 
 class UfanetArchiveCard extends HTMLElement {
   constructor() {
@@ -2356,6 +2356,16 @@ class UfanetArchiveCard extends HTMLElement {
           fcm.state_recovered ? "warning" : "ok",
         ],
         ["Причина восстановления", fcm.state_recovery_reason, fcm.state_recovery_reason ? "warning" : null],
+        [
+          "Удаление регистрации",
+          fcm.unregister_pending
+            ? "ожидает повтора"
+            : fcm.last_unregistration_succeeded === true
+              ? "успешно"
+              : "не требуется",
+          fcm.unregister_pending ? "warning" : "ok",
+        ],
+        ["Ошибка удаления", fcm.last_unregistration_error_type, fcm.last_unregistration_error_type ? "error" : null],
         ["Переподключения / ошибки", `${fcm.reconnect_count ?? 0} / ${fcm.consecutive_failures ?? 0}`],
         ["Push / SIP", `${fcm.received_push_count ?? 0} / ${fcm.received_sip_push_count ?? 0}`],
         ["Последнее подключение", fcm.last_connected_at],

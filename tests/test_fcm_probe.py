@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -126,3 +127,39 @@ async def test_unregister_rejects_http_error_without_echoing_device(capsys) -> N
         )
 
     assert "private-device-id" not in capsys.readouterr().out
+
+
+@pytest.mark.asyncio
+async def test_cleanup_without_started_listener_only_closes_session() -> None:
+    client = MagicMock()
+    client.stop = AsyncMock(
+        side_effect=AssertionError("an unstarted listener must not be stopped")
+    )
+    session = MagicMock()
+    session.close = AsyncMock()
+
+    await probe.cleanup_probe_resources(
+        client,
+        listener_started=False,
+        ufanet_session=session,
+    )
+
+    client.stop.assert_not_awaited()
+    session.close.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_closes_session_even_when_listener_stop_fails() -> None:
+    client = MagicMock()
+    client.stop = AsyncMock(side_effect=RuntimeError("stop failed"))
+    session = MagicMock()
+    session.close = AsyncMock()
+
+    with pytest.raises(RuntimeError, match="stop failed"):
+        await probe.cleanup_probe_resources(
+            client,
+            listener_started=True,
+            ufanet_session=session,
+        )
+
+    session.close.assert_awaited_once_with()

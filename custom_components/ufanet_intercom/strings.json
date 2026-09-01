@@ -12,7 +12,11 @@
     },
     "fcm_state_recovered": {
       "title": "FCM state was recovered",
-      "description": "The private local FCM state for {entry_title} was unreadable, invalid, or belonged to a different Firebase application and has been regenerated safely. The integration uses call-history polling until the new listener connects. A previous virtual Ufanet push registration may remain until the unregister contract is live-confirmed. If this happens repeatedly, check Home Assistant storage health. The issue clears after the next clean integration start."
+      "description": "The private local FCM state for {entry_title} was unreadable, invalid, or belonged to a different Firebase application and has been regenerated safely. The integration uses call-history polling until the new listener connects. If the damaged state no longer contained a valid owned device ID, an older virtual registration could not be identified for automatic cleanup. If this happens repeatedly, check Home Assistant storage health. The issue clears after the next clean integration start."
+    },
+    "fcm_unregister_failed": {
+      "title": "FCM registration cleanup pending",
+      "description": "The owned virtual FCM registration for {entry_title} could not be removed from Ufanet after FCM was disabled. Normal call-history polling remains active. The integration will retry cleanup automatically on the next setup. Check Ufanet connectivity and the Home Assistant log. This issue closes after successful cleanup."
     },
     "last_call_image_unavailable": {
       "title": "Last call image unavailable",

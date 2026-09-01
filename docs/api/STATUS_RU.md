@@ -13,7 +13,7 @@
 | Account | `GET /api/v0/object/` | **Confirmed** | Доступность подтверждена; схема ещё не описана |
 | FCM | `POST /api/v0/fcm/` | **Confirmed** | Тело регистрации из Android 4.0.14 успешно использовано headless Windows/Python client |
 | FCM | Headless FIS/GCM/MCS receive | **Confirmed** | Без Android/Google Play Services получен реальный Ufanet push через `mtalk.google.com:5228` |
-| FCM | `DELETE /api/v0/fcm/` | **Observed** | Android 4.0.14 при logout отправляет `{device_id}` |
+| FCM | `DELETE /api/v0/fcm/` | **Confirmed** | Probe удалил только собственную виртуальную регистрацию с HTTP 200 и восстановил её через POST HTTP 200 |
 | FCM | `POST /api/v4/fcm_device/authorized_devices/` | **Observed** | Android-клиент получает список устройств и metadata доступа к звонкам |
 | FCM | `POST /api/v4/fcm_device/logout_device/` | **Observed** | Android-клиент отправляет `{device_id}` для отзыва другого устройства/сессии |
 | Push | `data.reason = "sip"` | **Confirmed** | Реальный payload содержит `username`, `password`, `server`, `skud_id`, `transport`, `contract`, `house_id`, `flat`, `time`, `uuid`; `from=<sender-id>`, priority `normal` |

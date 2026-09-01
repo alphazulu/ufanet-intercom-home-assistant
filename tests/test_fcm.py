@@ -15,7 +15,11 @@ from custom_components.ufanet_intercom.const import (
     CONF_USERNAME,
     DOMAIN,
 )
-from custom_components.ufanet_intercom.fcm import UfanetFcmManager
+from custom_components.ufanet_intercom.fcm import (
+    UfanetFcmManager,
+    async_remove_stored_fcm_registration,
+    async_retry_pending_fcm_unregister,
+)
 
 
 FIREBASE_CONFIG = {
@@ -480,7 +484,7 @@ async def test_fcm_clean_state_clears_previous_recovery_issue(hass) -> None:
         return_value={
             "fcm_credentials": None,
             "persistent_ids": [],
-            "ufanet_device_id": "Home Assistant_private",
+            "ufanet_device_id": "Home Assistant_00000000-0000-4000-8000-000000000001",
             "ufanet_device_title": "Home Assistant",
             "firebase_config_fingerprint": None,
         }
@@ -513,5 +517,199 @@ async def test_fcm_clean_state_clears_previous_recovery_issue(hass) -> None:
         assert await manager.async_start() is True
         assert manager.status()["state_recovered"] is False
         assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+
+        await manager.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_fcm_unregister_removes_only_owned_state(hass) -> None:
+    store = MagicMock()
+    store.async_save = AsyncMock()
+    store.async_remove = AsyncMock()
+    api = MagicMock()
+    api.async_unregister_fcm_device = AsyncMock()
+    entry = _entry()
+
+    with patch("custom_components.ufanet_intercom.fcm.Store", return_value=store):
+        manager = UfanetFcmManager(
+            hass,
+            entry,
+            api,
+            FIREBASE_CONFIG,
+            AsyncMock(),
+        )
+        manager._state = {  # noqa: SLF001
+            "ufanet_device_id": (
+                "Home Assistant_00000000-0000-4000-8000-000000000002"
+            ),
+            "unregister_pending": False,
+        }
+
+        assert await manager.async_unregister() is True
+
+    api.async_unregister_fcm_device.assert_awaited_once_with(
+        device_id="Home Assistant_00000000-0000-4000-8000-000000000002"
+    )
+    store.async_remove.assert_awaited_once_with()
+    assert manager.status()["unregister_pending"] is False
+    assert manager.status()["last_unregistration_succeeded"] is True
+
+
+@pytest.mark.asyncio
+async def test_fcm_unregister_failure_keeps_state_for_retry_and_opens_repair(
+    hass,
+) -> None:
+    store = MagicMock()
+    store.async_save = AsyncMock()
+    store.async_remove = AsyncMock()
+    api = MagicMock()
+    api.async_unregister_fcm_device = AsyncMock(side_effect=RuntimeError("offline"))
+    entry = _entry()
+
+    with patch("custom_components.ufanet_intercom.fcm.Store", return_value=store):
+        manager = UfanetFcmManager(
+            hass,
+            entry,
+            api,
+            FIREBASE_CONFIG,
+            AsyncMock(),
+        )
+        manager._state = {  # noqa: SLF001
+            "ufanet_device_id": (
+                "Home Assistant_00000000-0000-4000-8000-000000000003"
+            ),
+            "unregister_pending": False,
+        }
+
+        assert await manager.async_unregister() is False
+
+    store.async_remove.assert_not_awaited()
+    assert manager.status()["unregister_pending"] is True
+    assert manager.status()["last_unregistration_succeeded"] is False
+    assert manager.status()["last_unregistration_error_type"] == "RuntimeError"
+    issue_id = f"fcm_unregister_failed_{entry.entry_id}"
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
+
+
+@pytest.mark.asyncio
+async def test_pending_fcm_unregister_is_retried_and_local_state_removed(hass) -> None:
+    store = MagicMock()
+    store.async_load = AsyncMock(
+        return_value={
+            "ufanet_device_id": (
+                "Home Assistant_00000000-0000-4000-8000-000000000004"
+            ),
+            "unregister_pending": True,
+        }
+    )
+    store.async_remove = AsyncMock()
+    api = MagicMock()
+    api.async_unregister_fcm_device = AsyncMock()
+    entry = _entry()
+
+    with patch("custom_components.ufanet_intercom.fcm.Store", return_value=store):
+        assert await async_retry_pending_fcm_unregister(hass, entry, api) is False
+
+    api.async_unregister_fcm_device.assert_awaited_once_with(
+        device_id="Home Assistant_00000000-0000-4000-8000-000000000004"
+    )
+    store.async_remove.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_entry_removal_never_unregisters_unowned_device_id(hass) -> None:
+    store = MagicMock()
+    store.async_load = AsyncMock(
+        return_value={
+            "ufanet_device_id": "untrusted-device-id",
+            "unregister_pending": True,
+        }
+    )
+    store.async_remove = AsyncMock()
+    api = MagicMock()
+    api.async_unregister_fcm_device = AsyncMock()
+    entry = _entry()
+
+    with patch("custom_components.ufanet_intercom.fcm.Store", return_value=store):
+        await async_remove_stored_fcm_registration(hass, entry, api)
+
+    api.async_unregister_fcm_device.assert_not_awaited()
+    store.async_remove.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_entry_removal_unregisters_owned_device_before_local_cleanup(hass) -> None:
+    store = MagicMock()
+    store.async_load = AsyncMock(
+        return_value={
+            "ufanet_device_id": (
+                "Home Assistant_00000000-0000-4000-8000-000000000005"
+            )
+        }
+    )
+    store.async_remove = AsyncMock()
+    api = MagicMock()
+    api.async_unregister_fcm_device = AsyncMock()
+    entry = _entry()
+
+    with patch("custom_components.ufanet_intercom.fcm.Store", return_value=store):
+        await async_remove_stored_fcm_registration(hass, entry, api)
+
+    api.async_unregister_fcm_device.assert_awaited_once_with(
+        device_id="Home Assistant_00000000-0000-4000-8000-000000000005"
+    )
+    store.async_remove.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_firebase_identity_change_reuses_owned_ufanet_device_id(hass) -> None:
+    owned_device_id = "Home Assistant_00000000-0000-4000-8000-000000000006"
+    store = MagicMock()
+    store.async_load = AsyncMock(
+        return_value={
+            "fcm_credentials": {"private": "credential"},
+            "persistent_ids": ["persistent"],
+            "ufanet_device_id": owned_device_id,
+            "ufanet_device_title": "Home Assistant",
+            "firebase_config_fingerprint": "different-fingerprint",
+            "unregister_pending": False,
+        }
+    )
+    store.async_save = AsyncMock()
+    client = MagicMock()
+    client.checkin_or_register = AsyncMock(return_value="new-token")
+    client.start = AsyncMock()
+    client.stop = AsyncMock()
+    client.run_state = SimpleNamespace(name="STARTED")
+    api = MagicMock()
+    api.async_register_fcm_device = AsyncMock()
+
+    with (
+        patch("custom_components.ufanet_intercom.fcm.Store", return_value=store),
+        patch(
+            "custom_components.ufanet_intercom.fcm.FcmPushClient",
+            return_value=client,
+        ),
+        patch("custom_components.ufanet_intercom.fcm.FcmRegisterConfig"),
+        patch("custom_components.ufanet_intercom.fcm.async_get_clientsession"),
+    ):
+        manager = UfanetFcmManager(
+            hass,
+            _entry(),
+            api,
+            FIREBASE_CONFIG,
+            AsyncMock(),
+        )
+        assert await manager.async_start() is True
+
+        api.async_register_fcm_device.assert_awaited_once_with(
+            token="new-token",
+            device_id=owned_device_id,
+            title="Home Assistant",
+            application=FIREBASE_CONFIG["package_name"],
+        )
+        assert manager.status()["state_recovery_reason"] == (
+            "firebase_identity_changed"
+        )
 
         await manager.async_stop()

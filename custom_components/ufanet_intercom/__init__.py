@@ -38,7 +38,11 @@ from .const import (
 )
 from .coordinator import UfanetCallCoordinator, UfanetCoordinator
 from .entity import device_name
-from .fcm import UfanetFcmManager
+from .fcm import (
+    UfanetFcmManager,
+    async_remove_stored_fcm_registration,
+    async_retry_pending_fcm_unregister,
+)
 from .firebase_config import UfanetFirebaseConfigError, async_load_firebase_config
 from .guest_store import UfanetGuestInviteStore
 from .image_status import UfanetLastCallImageStatusManager
@@ -50,7 +54,7 @@ _LOGGER = logging.getLogger(__name__)
 _FRONTEND_DIR = Path(__file__).parent / "frontend"
 _ARCHIVE_CARD_PATH = _FRONTEND_DIR / "ufanet-archive-card.js"
 _ARCHIVE_CARD_URL = "/ufanet_intercom/ufanet-archive-card.js"
-_ARCHIVE_CARD_MODULE_URL = f"{_ARCHIVE_CARD_URL}?v=0.25.5"
+_ARCHIVE_CARD_MODULE_URL = f"{_ARCHIVE_CARD_URL}?v=0.26.0"
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -120,6 +124,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     options = effective_options(entry)
     call_update_mode = str(options[CONF_CALL_UPDATE_MODE])
     call_scan_interval = int(options[CONF_CALL_SCAN_INTERVAL])
+    fcm_cleanup_pending = False
+    if call_update_mode != CALL_UPDATE_MODE_FCM:
+        fcm_cleanup_pending = await async_retry_pending_fcm_unregister(
+            hass,
+            entry,
+            api,
+        )
     firebase_config: dict[str, str] | None = None
     fcm_config_error_type: str | None = None
     if call_update_mode == CALL_UPDATE_MODE_FCM:
@@ -193,6 +204,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "call_update_mode": call_update_mode,
         "fcm_manager": None,
         "fcm_config_error_type": fcm_config_error_type,
+        "fcm_cleanup_pending": fcm_cleanup_pending,
     }
 
     device_registry = dr.async_get(hass)
@@ -297,11 +309,29 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         fcm_manager = runtime.get("fcm_manager")
         if fcm_manager is not None:
             await fcm_manager.async_stop()
+            new_call_update_mode = str(
+                effective_options(entry)[CONF_CALL_UPDATE_MODE]
+            )
+            if (
+                runtime.get("call_update_mode") == CALL_UPDATE_MODE_FCM
+                and new_call_update_mode != CALL_UPDATE_MODE_FCM
+            ):
+                await fcm_manager.async_unregister()
         image_status_manager = runtime.get("image_status_manager")
         if image_status_manager is not None:
             image_status_manager.stop()
         hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
     return unloaded
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove the owned FCM registration and all private local FCM state."""
+    api = UfanetApi(
+        async_get_clientsession(hass),
+        entry.data[CONF_USERNAME],
+        entry.data[CONF_PASSWORD],
+    )
+    await async_remove_stored_fcm_registration(hass, entry, api)
 
 
 def _call_event_data(call: dict[str, Any]) -> dict[str, Any]:
