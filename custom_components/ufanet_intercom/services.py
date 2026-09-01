@@ -331,7 +331,7 @@ def async_setup_services(
                 ),
             }
 
-        media_key, export_dir = _archive_export_location(hass)
+        media_key, export_dir = await _async_archive_export_location(hass)
         items = await hass.async_add_executor_job(
             _list_export_files_sync,
             export_dir,
@@ -980,26 +980,7 @@ def async_setup_services(
         except UfanetApiError as err:
             raise HomeAssistantError(str(err)) from err
 
-        media_dirs = hass.config.media_dirs
-        if not media_dirs:
-            raise ServiceValidationError(
-                "Home Assistant has no media directory configured. "
-                "Enable media_source/default_config or configure homeassistant.media_dirs."
-            )
-
-        if "local" in media_dirs:
-            media_key = "local"
-        else:
-            media_key = next(iter(media_dirs))
-
-        media_root = Path(media_dirs[media_key])
-        export_dir = media_root / "ufanet_intercom"
-        await hass.async_add_executor_job(
-            export_dir.mkdir,
-            0o755,
-            True,
-            True,
-        )
+        media_key, export_dir = await _async_archive_export_location(hass)
 
         try:
             local_zone = ZoneInfo(timezone_name)
@@ -1025,14 +1006,14 @@ def async_setup_services(
         )
 
         if export_source == "call" and event_ref:
-            existing_candidates = sorted(
-                export_dir.glob(
-                    f"{_camera_export_prefix(camera_number)}*_call_{event_ref}.mp4"
-                )
+            existing = await hass.async_add_executor_job(
+                _find_existing_call_export_sync,
+                export_dir,
+                _camera_export_prefix(camera_number),
+                event_ref,
             )
-            if existing_candidates:
-                existing_path = existing_candidates[0]
-                file_size = existing_path.stat().st_size
+            if existing is not None:
+                existing_path, file_size = existing
                 relative_path = f"ufanet_intercom/{existing_path.name}"
                 return {
                     "device_id": call.data[ATTR_DEVICE_ID],
@@ -1077,8 +1058,10 @@ def async_setup_services(
         temporary_path = export_dir / f".{filename}.part.mp4"
 
         # Do not leave a stale partial file from a previous failed export.
-        if temporary_path.exists():
-            await hass.async_add_executor_job(temporary_path.unlink)
+        await hass.async_add_executor_job(
+            _unlink_if_exists_sync,
+            temporary_path,
+        )
 
         ffmpeg_binary = "ffmpeg"
         command = (
@@ -1137,12 +1120,15 @@ def async_setup_services(
                     "see the Home Assistant host diagnostics"
                 )
 
-            if not temporary_path.exists():
+            file_size = await hass.async_add_executor_job(
+                _file_size_if_exists_sync,
+                temporary_path,
+            )
+            if file_size is None:
                 raise HomeAssistantError(
                     "ffmpeg completed without creating an MP4 file"
                 )
 
-            file_size = temporary_path.stat().st_size
             if file_size <= 0:
                 raise HomeAssistantError(
                     "ffmpeg created an empty MP4 file"
@@ -1160,11 +1146,13 @@ def async_setup_services(
                 "must install ffmpeg separately."
             ) from err
         finally:
-            if temporary_path.exists():
-                try:
-                    await hass.async_add_executor_job(temporary_path.unlink)
-                except OSError:
-                    pass
+            try:
+                await hass.async_add_executor_job(
+                    _unlink_if_exists_sync,
+                    temporary_path,
+                )
+            except OSError:
+                pass
 
         if auto_cleanup:
             cleanup = await hass.async_add_executor_job(
@@ -1186,7 +1174,10 @@ def async_setup_services(
                 "skipped": True,
             }
 
-        file_size = output_path.stat().st_size
+        file_size = await hass.async_add_executor_job(
+            _required_file_size_sync,
+            output_path,
+        )
         relative_path = f"ufanet_intercom/{filename}"
         media_content_id = (
             f"media-source://media_source/{media_key}/{relative_path}"
@@ -1227,7 +1218,7 @@ def async_setup_services(
         """List locally exported MP4 files for the selected intercom camera."""
         _, skud = _resolve_device(hass, call.data[ATTR_DEVICE_ID])
         camera_number = _camera_number(skud)
-        media_key, export_dir = _archive_export_location(hass)
+        media_key, export_dir = await _async_archive_export_location(hass)
 
         items = await hass.async_add_executor_job(
             _list_export_files_sync,
@@ -1254,7 +1245,7 @@ def async_setup_services(
         _, skud = _resolve_device(hass, call.data[ATTR_DEVICE_ID])
         camera_number = _camera_number(skud)
         filename = str(call.data["filename"]).strip()
-        _, export_dir = _archive_export_location(hass)
+        _, export_dir = await _async_archive_export_location(hass)
 
         deleted = await hass.async_add_executor_job(
             _delete_export_file_sync,
@@ -1292,7 +1283,7 @@ def async_setup_services(
                 options.get(CONF_EXPORT_MAX_TOTAL_MB, DEFAULT_EXPORT_MAX_TOTAL_MB),
             )
         )
-        _, export_dir = _archive_export_location(hass)
+        _, export_dir = await _async_archive_export_location(hass)
 
         cleanup = await hass.async_add_executor_job(
             _cleanup_export_files_sync,
@@ -1504,6 +1495,53 @@ def _archive_export_location(hass: HomeAssistant) -> tuple[str, Path]:
     export_dir = Path(media_dirs[media_key]) / "ufanet_intercom"
     export_dir.mkdir(mode=0o755, parents=True, exist_ok=True)
     return media_key, export_dir
+
+
+async def _async_archive_export_location(
+    hass: HomeAssistant,
+) -> tuple[str, Path]:
+    """Resolve and create the export directory outside the event loop."""
+    return await hass.async_add_executor_job(_archive_export_location, hass)
+
+
+def _find_existing_call_export_sync(
+    export_dir: Path,
+    expected_prefix: str,
+    event_ref: str,
+) -> tuple[Path, int] | None:
+    """Return one existing call export and its size."""
+    candidates = sorted(
+        export_dir.glob(f"{expected_prefix}*_call_{event_ref}.mp4")
+    )
+    for path in candidates:
+        try:
+            if path.is_file():
+                return path, path.stat().st_size
+        except FileNotFoundError:
+            continue
+    return None
+
+
+def _unlink_if_exists_sync(path: Path) -> bool:
+    """Unlink one path and report whether it existed."""
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def _file_size_if_exists_sync(path: Path) -> int | None:
+    """Return one file size, or None when the file disappeared."""
+    try:
+        return path.stat().st_size
+    except FileNotFoundError:
+        return None
+
+
+def _required_file_size_sync(path: Path) -> int:
+    """Return the size of a required completed export."""
+    return path.stat().st_size
 
 
 def _validated_export_path(

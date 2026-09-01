@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.25.4
+
+- Moved archive export directory creation, duplicate lookup, file metadata checks and partial-file cleanup out of Home Assistant's event loop.
+- Replaced the non-seekable preview pipe with an anonymous seekable Linux `memfd`, allowing `ffmpeg` to decode MP4 files whose metadata is stored after the media payload without exposing the tokenized URL or writing a named source file.
+- Retained the first-frame fallback and per-call permanent-error suppression introduced in 0.25.3.
+
 ## 0.25.3
 
 - Added a first-decodable-frame fallback when the preferred one-second preview frame is unavailable.

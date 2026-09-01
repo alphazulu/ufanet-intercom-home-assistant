@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -20,6 +21,7 @@ from custom_components.ufanet_intercom.image import (
     UfanetLastCallImage,
     UfanetPreviewFrameError,
     _async_extract_preview_frame,
+    _create_preview_memfd_sync,
     _preview_download_error_code,
     _preview_extract_error_code,
     _preview_payload_kind,
@@ -102,6 +104,17 @@ def test_preview_payload_kind_is_fixed_and_content_free(
     expected: str,
 ) -> None:
     assert _preview_payload_kind(payload) == expected
+
+
+def test_preview_memfd_is_anonymous_seekable_and_complete() -> None:
+    payload = b"private-mp4-bytes"
+    fd = _create_preview_memfd_sync(payload)
+    try:
+        assert os.read(fd, len(payload)) == payload
+        assert os.lseek(fd, 0, os.SEEK_SET) == 0
+        assert "ufanet-call-preview" in os.readlink(f"/proc/self/fd/{fd}")
+    finally:
+        os.close(fd)
 
 
 @pytest.mark.asyncio
@@ -374,10 +387,11 @@ async def test_ffmpeg_extracts_one_jpeg_from_private_stdin() -> None:
         assert await _async_extract_preview_frame(b"private-mp4") == jpeg
 
     args = create_process.await_args.args
-    assert "pipe:0" in args
+    assert any(str(value).startswith("/proc/self/fd/") for value in args)
     assert "pipe:1" in args
     assert not any("http" in str(value) for value in args)
-    process.communicate.assert_awaited_once_with(input=b"private-mp4")
+    assert len(create_process.await_args.kwargs["pass_fds"]) == 1
+    process.communicate.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio

@@ -22,7 +22,10 @@ from custom_components.ufanet_intercom.const import (
     SERVICE_GET_LAST_CALL_PREVIEW_URL,
     SERVICE_GET_RUNTIME_STATUS,
 )
-from custom_components.ufanet_intercom.services import async_setup_services
+from custom_components.ufanet_intercom.services import (
+    _find_existing_call_export_sync,
+    async_setup_services,
+)
 
 
 def _install_runtime(hass, tmp_path: Path):
@@ -112,10 +115,25 @@ async def test_archive_download_service_exports_atomic_mp4_and_deduplicates_call
     exec_mock.assert_awaited_once()
     api.async_get_archive_url.assert_awaited_once()
 
-    with patch(
-        "custom_components.ufanet_intercom.services.asyncio.create_subprocess_exec",
-        side_effect=AssertionError("ffmpeg must not run for an existing call export"),
-    ) as second_exec:
+    executor_targets = []
+
+    async def recording_executor(target, *args):
+        executor_targets.append(target)
+        return target(*args)
+
+    with (
+        patch.object(
+            hass,
+            "async_add_executor_job",
+            AsyncMock(side_effect=recording_executor),
+        ),
+        patch(
+            "custom_components.ufanet_intercom.services.asyncio.create_subprocess_exec",
+            side_effect=AssertionError(
+                "ffmpeg must not run for an existing call export"
+            ),
+        ) as second_exec,
+    ):
         existing = await hass.services.async_call(
             DOMAIN,
             SERVICE_GET_ARCHIVE_DOWNLOAD_URL,
@@ -132,6 +150,7 @@ async def test_archive_download_service_exports_atomic_mp4_and_deduplicates_call
 
     assert existing["existing"] is True
     assert existing["filename"] == result["filename"]
+    assert _find_existing_call_export_sync in executor_targets
     second_exec.assert_not_awaited()
 
 

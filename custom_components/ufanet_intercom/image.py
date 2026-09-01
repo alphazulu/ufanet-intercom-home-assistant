@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -305,17 +306,53 @@ def _preview_payload_kind(preview: bytes) -> str:
 
 
 async def _async_extract_preview_frame(preview: bytes) -> bytes:
-    """Extract a representative JPEG, falling back to the first frame."""
+    """Extract a JPEG from an anonymous seekable in-memory MP4 source."""
     try:
-        return await _async_run_preview_ffmpeg(preview, seek_seconds=1)
-    except UfanetFfmpegUnavailableError:
+        preview_fd = await asyncio.to_thread(_create_preview_memfd_sync, preview)
+    except OSError as err:
+        raise UfanetPreviewFrameError(
+            "seekable in-memory preview storage is unavailable"
+        ) from err
+
+    try:
+        try:
+            return await _async_run_preview_ffmpeg(
+                preview_fd,
+                seek_seconds=1,
+            )
+        except UfanetFfmpegUnavailableError:
+            raise
+        except UfanetPreviewFrameError:
+            return await _async_run_preview_ffmpeg(
+                preview_fd,
+                seek_seconds=None,
+            )
+    finally:
+        os.close(preview_fd)
+
+
+def _create_preview_memfd_sync(preview: bytes) -> int:
+    """Copy private media into an anonymous seekable memory file."""
+    if not hasattr(os, "memfd_create"):
+        raise OSError("memfd is unavailable")
+
+    fd = os.memfd_create("ufanet-call-preview", flags=os.MFD_CLOEXEC)
+    try:
+        remaining = memoryview(preview)
+        while remaining:
+            written = os.write(fd, remaining)
+            if written <= 0:
+                raise OSError("unable to populate preview memfd")
+            remaining = remaining[written:]
+        os.lseek(fd, 0, os.SEEK_SET)
+        return fd
+    except Exception:
+        os.close(fd)
         raise
-    except UfanetPreviewFrameError:
-        return await _async_run_preview_ffmpeg(preview, seek_seconds=None)
 
 
 async def _async_run_preview_ffmpeg(
-    preview: bytes,
+    preview_fd: int,
     *,
     seek_seconds: int | None,
 ) -> bytes:
@@ -326,7 +363,7 @@ async def _async_run_preview_ffmpeg(
         "-loglevel",
         "error",
         "-i",
-        "pipe:0",
+        f"/proc/self/fd/{preview_fd}",
     ]
     if seek_seconds is not None:
         command.extend(("-ss", str(seek_seconds)))
@@ -344,16 +381,16 @@ async def _async_run_preview_ffmpeg(
     try:
         process = await asyncio.create_subprocess_exec(
             *command,
-            stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            pass_fds=(preview_fd,),
         )
     except OSError as err:
         raise UfanetFfmpegUnavailableError("ffmpeg executable is unavailable") from err
 
     try:
         stdout, _stderr = await asyncio.wait_for(
-            process.communicate(input=preview),
+            process.communicate(),
             timeout=PREVIEW_FRAME_TIMEOUT_SECONDS,
         )
     except TimeoutError as err:

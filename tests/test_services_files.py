@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import os
-from pathlib import Path
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -19,9 +19,13 @@ from custom_components.ufanet_intercom.services import (
     _cleanup_export_files_sync,
     _delete_export_file_sync,
     _export_item,
+    _file_size_if_exists_sync,
+    _find_existing_call_export_sync,
     _list_export_files_sync,
+    _required_file_size_sync,
     _seconds_hms,
     _temporary_link_token,
+    _unlink_if_exists_sync,
     _validated_export_path,
 )
 
@@ -37,7 +41,9 @@ def test_camera_prefix_sanitizes_filename_characters() -> None:
     assert _camera_export_prefix("CAM/1:2") == "ufanet_CAM_1_2_"
 
 
-def test_archive_export_location_prefers_local_and_requires_media(tmp_path: Path) -> None:
+def test_archive_export_location_prefers_local_and_requires_media(
+    tmp_path: Path,
+) -> None:
     hass = MagicMock()
     hass.config.media_dirs = {}
     with pytest.raises(ServiceValidationError, match="no media directory"):
@@ -78,7 +84,9 @@ def test_validated_export_path_rejects_unowned_or_unsafe_names(
 
 def test_validated_export_path_accepts_owned_basename(tmp_path: Path) -> None:
     filename = "ufanet_CAM_2026-08-28_10-20-30_60s.mp4"
-    assert _validated_export_path(tmp_path, "ufanet_CAM_", filename) == tmp_path / filename
+    assert (
+        _validated_export_path(tmp_path, "ufanet_CAM_", filename) == tmp_path / filename
+    )
 
 
 def test_export_item_parses_manual_and_call_names(tmp_path: Path) -> None:
@@ -133,6 +141,25 @@ def test_delete_export_file_is_scoped_and_reports_missing(tmp_path: Path) -> Non
     assert _delete_export_file_sync(tmp_path, "ufanet_CAM_", filename) is True
     assert not (tmp_path / filename).exists()
     assert _delete_export_file_sync(tmp_path, "ufanet_CAM_", filename) is False
+
+
+def test_existing_call_export_and_file_helpers_are_race_safe(tmp_path: Path) -> None:
+    event_ref = "012345abcdef"
+    path = _write(
+        tmp_path / f"ufanet_CAM_2026-08-28_10-00-00_60s_call_{event_ref}.mp4",
+        12,
+    )
+
+    assert _find_existing_call_export_sync(
+        tmp_path,
+        "ufanet_CAM_",
+        event_ref,
+    ) == (path, 12)
+    assert _file_size_if_exists_sync(path) == 12
+    assert _required_file_size_sync(path) == 12
+    assert _unlink_if_exists_sync(path) is True
+    assert _unlink_if_exists_sync(path) is False
+    assert _file_size_if_exists_sync(path) is None
 
 
 def test_cleanup_age_retention_deletes_old_files_but_keeps_named_file(
