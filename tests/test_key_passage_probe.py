@@ -59,7 +59,7 @@ async def test_audit_uses_read_only_contract_and_never_prints_private_values(
                 200,
                 {
                     "result": {
-                        "page_info": {"page": 0},
+                        "page_info": {"page": 1},
                         "intercoms": [
                             {
                                 "id": 154273,
@@ -121,9 +121,9 @@ async def test_audit_uses_read_only_contract_and_never_prints_private_values(
         "https://example.test/api/v4/key/skud/154273/key/pass_history/",
     ]
     assert session.calls[1][2]["json"] == {
-        "page": 0,
-        "page_size": 100,
-        "filters": {},
+        "page": 1,
+        "page_size": 10,
+        "filters": {"has_key_recording_support": True},
     }
     assert "json" not in session.calls[2][2]
     assert session.calls[3][2]["json"] == {"page": 0, "page_size": 5}

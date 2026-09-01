@@ -16,6 +16,7 @@ import aiohttp
 UFANET_BASE_URL = "https://dom.ufanet.ru"
 DEFAULT_PAGE_SIZE = 5
 DEFAULT_MAX_INTERCOMS = 10
+INTERCOM_DISCOVERY_PAGE_SIZE = 10
 
 
 class ProbeError(RuntimeError):
@@ -248,7 +249,11 @@ async def audit_key_passages(
         "/api/v0/intercoms/",
         "POST /api/v0/intercoms/",
         access_token=access_token,
-        json_body={"page": 0, "page_size": 100, "filters": {}},
+        json_body={
+            "page": 1,
+            "page_size": INTERCOM_DISCOVERY_PAGE_SIZE,
+            "filters": {"has_key_recording_support": True},
+        },
     )
     intercoms = parse_intercoms(intercoms_payload)
     supported = [item for item in intercoms if item.has_key_recording_support is True]
