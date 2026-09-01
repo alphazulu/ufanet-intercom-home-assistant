@@ -2350,6 +2350,12 @@ class UfanetArchiveCard extends HTMLElement {
           fcm.fallback_polling_active ? "warning" : "ok",
         ],
         ["Watchdog", fcm.watchdog_running ? "работает" : "остановлен", fcm.watchdog_running ? "ok" : "error"],
+        [
+          "Локальное состояние",
+          fcm.state_recovered ? "восстановлено" : "исправно",
+          fcm.state_recovered ? "warning" : "ok",
+        ],
+        ["Причина восстановления", fcm.state_recovery_reason, fcm.state_recovery_reason ? "warning" : null],
         ["Переподключения / ошибки", `${fcm.reconnect_count ?? 0} / ${fcm.consecutive_failures ?? 0}`],
         ["Push / SIP", `${fcm.received_push_count ?? 0} / ${fcm.received_sip_push_count ?? 0}`],
         ["Последнее подключение", fcm.last_connected_at],

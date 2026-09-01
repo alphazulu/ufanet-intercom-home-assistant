@@ -88,6 +88,8 @@ def _fcm_state(runtime: dict[str, Any]) -> dict[str, Any]:
         "received_sip_push_count": 0,
         "last_push_at": None,
         "last_sip_push_at": None,
+        "state_recovered": False,
+        "state_recovery_reason": None,
     }
 
 

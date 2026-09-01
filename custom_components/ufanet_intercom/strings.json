@@ -10,6 +10,10 @@
       "title": "FCM listener unavailable",
       "description": "The FCM listener for {entry_title} has been unavailable for an extended period. Normal call-history polling is active automatically, so incoming-call detection continues with polling latency. Check outbound access to mtalk.google.com:5228, the local Firebase configuration, and the Home Assistant log. The issue closes automatically after FCM reconnects."
     },
+    "fcm_state_recovered": {
+      "title": "FCM state was recovered",
+      "description": "The private local FCM state for {entry_title} was unreadable, invalid, or belonged to a different Firebase application and has been regenerated safely. The integration uses call-history polling until the new listener connects. A previous virtual Ufanet push registration may remain until the unregister contract is live-confirmed. If this happens repeatedly, check Home Assistant storage health. The issue clears after the next clean integration start."
+    },
     "last_call_image_unavailable": {
       "title": "Last call image unavailable",
       "description": "Last-call JPEG generation for {entry_title} is unavailable. Check that ffmpeg is installed and executable in the Home Assistant runtime, then inspect the integration diagnostics for the privacy-safe reason code and exception type. Existing call detection, archive playback and door control continue to work. The issue closes automatically after a successful image extraction."

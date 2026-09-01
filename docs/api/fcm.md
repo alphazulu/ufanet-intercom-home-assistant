@@ -128,6 +128,16 @@ Content-Type: application/json
 }
 ```
 
+The standalone probe can live-check this contract without touching other devices:
+
+```cmd
+py tools\research\fcm_probe_py\probe.py --verify-unregister
+```
+
+It deletes only its own locally generated virtual registration and immediately
+registers the same device and token again. Production lifecycle cleanup remains
+disabled until this operation is live-confirmed.
+
 The Android client also contains `/api/v4/fcm_device/` device-management endpoints; these are not yet live-confirmed by this project.
 
 ## Headless transport

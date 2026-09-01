@@ -427,6 +427,8 @@ def async_setup_services(
                     "received_sip_push_count": 0,
                     "last_push_at": None,
                     "last_sip_push_at": None,
+                    "state_recovered": False,
+                    "state_recovery_reason": None,
                 }
             ),
             "archive": controller_state,

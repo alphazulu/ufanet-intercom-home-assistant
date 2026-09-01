@@ -209,6 +209,8 @@ async def test_config_entry_diagnostics_redacts_credentials_and_private_fields(
     assert result["call_updates"]["fcm"]["listener_running"] is False
     assert result["call_updates"]["fcm"]["fallback_polling_active"] is True
     assert result["call_updates"]["fcm"]["watchdog_running"] is False
+    assert result["call_updates"]["fcm"]["state_recovered"] is False
+    assert result["call_updates"]["fcm"]["state_recovery_reason"] is None
     assert result["call_updates"]["fcm"]["last_error_type"] == (
         "UfanetFirebaseConfigError"
     )

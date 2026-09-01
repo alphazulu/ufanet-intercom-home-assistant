@@ -415,3 +415,103 @@ async def test_fcm_watchdog_opens_and_closes_repair_issue(hass) -> None:
         assert registry.async_get_issue(DOMAIN, issue_id) is None
 
         await manager.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_fcm_recovers_invalid_private_state_and_reports_reason(hass) -> None:
+    store = MagicMock()
+    store.async_load = AsyncMock(return_value={"ufanet_device_id": 12345})
+    store.async_save = AsyncMock()
+    client = MagicMock()
+    client.checkin_or_register = AsyncMock(return_value="token")
+    client.start = AsyncMock()
+    client.stop = AsyncMock()
+    client.run_state = SimpleNamespace(name="STARTED")
+    api = MagicMock()
+    api.async_register_fcm_device = AsyncMock()
+    entry = _entry()
+
+    with (
+        patch("custom_components.ufanet_intercom.fcm.Store", return_value=store),
+        patch(
+            "custom_components.ufanet_intercom.fcm.FcmPushClient",
+            return_value=client,
+        ),
+        patch("custom_components.ufanet_intercom.fcm.FcmRegisterConfig"),
+        patch("custom_components.ufanet_intercom.fcm.async_get_clientsession"),
+    ):
+        manager = UfanetFcmManager(
+            hass,
+            entry,
+            api,
+            FIREBASE_CONFIG,
+            AsyncMock(),
+        )
+        assert await manager.async_start() is True
+
+        status = manager.status()
+        assert status["state_recovered"] is True
+        assert status["state_recovery_reason"] == "invalid_schema"
+        assert isinstance(manager._state["ufanet_device_id"], str)  # noqa: SLF001
+        assert manager._state["ufanet_device_id"] != "12345"  # noqa: SLF001
+        issue_id = f"fcm_state_recovered_{entry.entry_id}"
+        assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
+        assert "12345" not in str(status)
+
+        await manager.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_fcm_clean_state_clears_previous_recovery_issue(hass) -> None:
+    entry = _entry()
+    issue_id = f"fcm_state_recovered_{entry.entry_id}"
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        issue_id,
+        is_fixable=False,
+        is_persistent=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="fcm_state_recovered",
+        translation_placeholders={"entry_title": "test"},
+    )
+    store = MagicMock()
+    store.async_load = AsyncMock(
+        return_value={
+            "fcm_credentials": None,
+            "persistent_ids": [],
+            "ufanet_device_id": "Home Assistant_private",
+            "ufanet_device_title": "Home Assistant",
+            "firebase_config_fingerprint": None,
+        }
+    )
+    store.async_save = AsyncMock()
+    client = MagicMock()
+    client.checkin_or_register = AsyncMock(return_value="token")
+    client.start = AsyncMock()
+    client.stop = AsyncMock()
+    client.run_state = SimpleNamespace(name="STARTED")
+    api = MagicMock()
+    api.async_register_fcm_device = AsyncMock()
+
+    with (
+        patch("custom_components.ufanet_intercom.fcm.Store", return_value=store),
+        patch(
+            "custom_components.ufanet_intercom.fcm.FcmPushClient",
+            return_value=client,
+        ),
+        patch("custom_components.ufanet_intercom.fcm.FcmRegisterConfig"),
+        patch("custom_components.ufanet_intercom.fcm.async_get_clientsession"),
+    ):
+        manager = UfanetFcmManager(
+            hass,
+            entry,
+            api,
+            FIREBASE_CONFIG,
+            AsyncMock(),
+        )
+        assert await manager.async_start() is True
+        assert manager.status()["state_recovered"] is False
+        assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+
+        await manager.async_stop()

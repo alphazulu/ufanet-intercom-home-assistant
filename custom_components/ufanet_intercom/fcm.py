@@ -57,6 +57,7 @@ class UfanetFcmManager:
         self._entry_id = entry.entry_id
         self._entry_title = entry.title or entry.entry_id
         self._issue_id = f"fcm_listener_unavailable_{entry.entry_id}"
+        self._state_issue_id = f"fcm_state_recovered_{entry.entry_id}"
         self._on_sip_push = on_sip_push
         self._on_health_change = on_health_change
         self._store: Store[dict[str, Any]] = Store(
@@ -91,6 +92,8 @@ class UfanetFcmManager:
         self.received_sip_push_count = 0
         self.last_push_at: str | None = None
         self.last_sip_push_at: str | None = None
+        self.state_recovered = False
+        self.state_recovery_reason: str | None = None
 
     @staticmethod
     def _default_state() -> dict[str, Any]:
@@ -102,6 +105,55 @@ class UfanetFcmManager:
             "firebase_config_fingerprint": None,
         }
 
+    @classmethod
+    def _normalize_state(
+        cls,
+        stored: Any,
+    ) -> tuple[dict[str, Any], str | None]:
+        """Return a minimal valid private state and a privacy-safe recovery reason."""
+        default = cls._default_state()
+        if stored is None:
+            return default, None
+        if not isinstance(stored, dict):
+            return default, "invalid_schema"
+
+        invalid = False
+        state = default
+
+        credentials = stored.get("fcm_credentials")
+        if credentials is None or isinstance(credentials, dict):
+            state["fcm_credentials"] = credentials
+        else:
+            invalid = True
+
+        persistent_ids = stored.get("persistent_ids")
+        if isinstance(persistent_ids, list) and all(
+            isinstance(value, str) for value in persistent_ids
+        ):
+            state["persistent_ids"] = persistent_ids[-MAX_PERSISTENT_IDS:]
+        else:
+            invalid = True
+
+        title = stored.get("ufanet_device_title")
+        if isinstance(title, str) and title.strip():
+            state["ufanet_device_title"] = title
+        else:
+            invalid = True
+
+        device_id = stored.get("ufanet_device_id")
+        if isinstance(device_id, str) and device_id.strip():
+            state["ufanet_device_id"] = device_id
+        else:
+            invalid = True
+
+        fingerprint = stored.get("firebase_config_fingerprint")
+        if fingerprint is None or isinstance(fingerprint, str):
+            state["firebase_config_fingerprint"] = fingerprint
+        else:
+            invalid = True
+
+        return state, "invalid_schema" if invalid else None
+
     async def async_start(self) -> bool:
         """Start FCM and keep supervising the optional transport."""
         self._stopping = False
@@ -110,28 +162,33 @@ class UfanetFcmManager:
         self.fallback_polling_active = True
         self._unhealthy_since = time.monotonic()
 
+        load_failed = False
         try:
             stored = await self._store.async_load()
         except Exception as err:  # noqa: BLE001 - optional state must not block setup
             stored = None
-            self.last_error_type = type(err).__name__
+            load_failed = True
             _LOGGER.warning(
                 "Unable to load optional Ufanet FCM state: %s",
                 type(err).__name__,
             )
-        self._state = stored if isinstance(stored, dict) else self._default_state()
-        for key, value in self._default_state().items():
-            self._state.setdefault(key, value)
+        self._state, recovery_reason = self._normalize_state(stored)
+        if load_failed:
+            recovery_reason = "load_error"
 
         fingerprint = firebase_config_fingerprint(self.firebase_config)
         previous = self._state.get("firebase_config_fingerprint")
         if previous not in (None, fingerprint):
             self._state = self._default_state()
+            recovery_reason = "firebase_identity_changed"
         self._state["firebase_config_fingerprint"] = fingerprint
 
-        persistent_ids = self._state.get("persistent_ids")
-        if not isinstance(persistent_ids, list):
-            self._state["persistent_ids"] = []
+        self.state_recovered = recovery_reason is not None
+        self.state_recovery_reason = recovery_reason
+        if self.state_recovered:
+            self._create_state_recovery_issue()
+        else:
+            self._delete_state_recovery_issue()
 
         started = await self._async_attempt_start()
         await self._async_evaluate_transport()
@@ -356,6 +413,22 @@ class UfanetFcmManager:
         ir.async_delete_issue(self.hass, DOMAIN, self._issue_id)
         self._issue_active = False
 
+    def _create_state_recovery_issue(self) -> None:
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            self._state_issue_id,
+            is_fixable=False,
+            is_persistent=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="fcm_state_recovered",
+            translation_placeholders={"entry_title": self._entry_title},
+            data={"entry_id": self._entry_id},
+        )
+
+    def _delete_state_recovery_issue(self) -> None:
+        ir.async_delete_issue(self.hass, DOMAIN, self._state_issue_id)
+
     def _persist_credentials(self, credentials: dict[str, Any]) -> None:
         self._state["fcm_credentials"] = credentials
         self._queue_save()
@@ -448,4 +521,6 @@ class UfanetFcmManager:
             "received_sip_push_count": self.received_sip_push_count,
             "last_push_at": self.last_push_at,
             "last_sip_push_at": self.last_sip_push_at,
+            "state_recovered": self.state_recovered,
+            "state_recovery_reason": self.state_recovery_reason,
         }
