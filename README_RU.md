@@ -66,7 +66,7 @@
 Добавьте ресурс как JavaScript-модуль:
 
 ```text
-/ufanet_intercom/ufanet-archive-card.js?v=0.25.4
+/ufanet_intercom/ufanet-archive-card.js?v=0.25.5
 ```
 
 Минимальная конфигурация карточки:
