@@ -114,7 +114,7 @@ and reuses it. The headless PoC generates an equivalent local installation ID.
 
 ### Unregister
 
-**Observed**
+**Confirmed**
 
 ```http
 DELETE /api/v0/fcm/
@@ -127,6 +127,19 @@ Content-Type: application/json
   "device_id": "<device-id>"
 }
 ```
+
+The standalone probe can live-check this contract without touching other devices:
+
+```cmd
+py tools\research\fcm_probe_py\probe.py --verify-unregister
+```
+
+It deletes only its own locally generated virtual registration, immediately
+registers the same device and token again, and exits without starting the listener.
+The live service returned HTTP 200 with `{"status": "ok"}` for both DELETE and the
+immediate restoring POST. The Home Assistant integration therefore unregisters only
+its strictly validated `Home Assistant_<UUID>` installation when FCM is disabled or
+the ConfigEntry is removed. Normal reloads and Home Assistant restarts keep it.
 
 The Android client also contains `/api/v4/fcm_device/` device-management endpoints; these are not yet live-confirmed by this project.
 

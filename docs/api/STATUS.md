@@ -13,7 +13,7 @@ This table is a compact index of what has actually been tested by the project. T
 | Account | `GET /api/v0/object/` | **Confirmed** | Reachability confirmed; schema not documented |
 | FCM | `POST /api/v0/fcm/` | **Confirmed** | Android 4.0.14 registration body successfully used by headless Windows/Python client |
 | FCM | Headless FIS/GCM/MCS receive | **Confirmed** | Real Ufanet push received through `mtalk.google.com:5228` without Android/Google Play Services |
-| FCM | `DELETE /api/v0/fcm/` | **Observed** | Android 4.0.14 logout sends `{device_id}` |
+| FCM | `DELETE /api/v0/fcm/` | **Confirmed** | Probe removed only its own virtual registration with HTTP 200, then restored it with POST HTTP 200 |
 | FCM | `POST /api/v4/fcm_device/authorized_devices/` | **Observed** | Android client consumes device list / call-access metadata |
 | FCM | `POST /api/v4/fcm_device/logout_device/` | **Observed** | Android client sends `{device_id}` to revoke another device/session |
 | Push | `data.reason = "sip"` | **Confirmed** | Real payload carries `username`, `password`, `server`, `skud_id`, `transport`, `contract`, `house_id`, `flat`, `time`, `uuid`; `from=<sender-id>`, priority `normal` |

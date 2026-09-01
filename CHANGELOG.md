@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.26.0
+
+- Live-confirmed `DELETE /api/v0/fcm/` against the probe-owned virtual device and restored the same registration immediately with HTTP 200 responses.
+- Added automatic unregister for the strictly validated integration-owned `Home Assistant_<UUID>` when switching from FCM to polling or removing the ConfigEntry; ordinary reloads and Home Assistant restarts preserve the registration.
+- Kept polling operational when unregister fails, persisted a bounded cleanup retry, and added an automatically closing Home Assistant Repair warning plus token-free cleanup diagnostics.
+- Added schema validation and safe regeneration for damaged private FCM state without exposing credentials or device IDs.
+- Fixed standalone probe cleanup so `--verify-unregister` closes its Ufanet HTTP session without stopping an MCS listener that was never started.
+
 ## 0.25.5
 
 - Moved the packaged Lovelace card file check out of Home Assistant's event loop.

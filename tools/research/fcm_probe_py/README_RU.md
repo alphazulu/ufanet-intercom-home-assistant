@@ -114,17 +114,37 @@ py probe.py --firebase-config "C:\Private\firebase_config.json"
 
 Probe запросит Ufanet contract/login и password. Пароль вводится через `getpass`.
 
+### Безопасная проверка unregister
+
+Контракт удаления FCM-регистрации подтверждён реальным запросом. Для его повторной
+безопасной проверки:
+
+```cmd
+py probe.py --verify-unregister
+```
+
+После обычной регистрации probe удалит **только свою виртуальную регистрацию** через
+`DELETE /api/v0/fcm/` и сразу зарегистрирует тот же локальный `device_id` и FCM token
+заново, после чего завершится без запуска listener. Флаг не удаляет другие устройства
+и не выводит `device_id` или token. Если
+повторная регистрация не удалась, достаточно снова запустить `py probe.py` без флага.
+
+Компонент Home Assistant использует подтверждённый DELETE только для собственного
+`Home Assistant_<UUID>` при отключении FCM или полном удалении ConfigEntry. При
+обычной перезагрузке интеграции либо Home Assistant регистрация сохраняется.
+
 ## Что делает probe
 
 1. Загружает локальную Firebase client configuration.
 2. Регистрирует/проверяет virtual Firebase/GCM client.
 3. Сохраняет sensitive runtime credentials в локальный `fcm_state.json`.
 4. Регистрирует FCM token через Ufanet `/api/v0/fcm/`.
-5. Подключается к MCS `mtalk.google.com:5228`.
-6. Получает и санитизирует push.
-7. Для `reason=sip` автоматически проверяет `/api/v1/skuds/call-history/` на offsets `0, 0.25, 0.5, 1, 2, 5` секунд.
-8. Коррелирует запись по `called_at` относительно push `time` с дополнительной проверкой house/flat context.
-9. Печатает задержку появления history record и накопительную статистику.
+5. При явном `--verify-unregister` удаляет только эту регистрацию и сразу восстанавливает её.
+6. Подключается к MCS `mtalk.google.com:5228`.
+7. Получает и санитизирует push.
+8. Для `reason=sip` автоматически проверяет `/api/v1/skuds/call-history/` на offsets `0, 0.25, 0.5, 1, 2, 5` секунд.
+9. Коррелирует запись по `called_at` относительно push `time` с дополнительной проверкой house/flat context.
+10. Печатает задержку появления history record и накопительную статистику.
 
 Probe не содержит кода открытия двери.
 

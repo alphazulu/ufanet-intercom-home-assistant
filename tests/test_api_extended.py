@@ -121,6 +121,19 @@ async def test_register_fcm_device_uses_confirmed_contract(api: UfanetApi) -> No
 
 
 @pytest.mark.asyncio
+async def test_unregister_fcm_device_uses_confirmed_contract(api: UfanetApi) -> None:
+    api._async_ufanet_json = AsyncMock(return_value={})  # type: ignore[method-assign]
+
+    await api.async_unregister_fcm_device(device_id="Home Assistant_uuid")
+
+    api._async_ufanet_json.assert_awaited_once_with(  # type: ignore[attr-defined]
+        "DELETE",
+        "/api/v0/fcm/",
+        json_body={"device_id": "Home Assistant_uuid"},
+    )
+
+
+@pytest.mark.asyncio
 async def test_temporary_guest_list_contract(api: UfanetApi) -> None:
     api._async_ufanet_json = AsyncMock(return_value={"result": [{"token": "one"}, None]})  # type: ignore[method-assign]
     assert await api.async_get_temporary_guest_links() == [{"token": "one"}]

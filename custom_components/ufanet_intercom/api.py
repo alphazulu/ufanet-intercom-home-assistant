@@ -355,6 +355,14 @@ class UfanetApi:
             },
         )
 
+    async def async_unregister_fcm_device(self, *, device_id: str) -> None:
+        """Remove one user-owned virtual FCM installation from Ufanet."""
+        await self._async_ufanet_json(
+            "DELETE",
+            "/api/v0/fcm/",
+            json_body={"device_id": device_id},
+        )
+
     async def async_get_temporary_guest_links(self) -> list[dict[str, Any]]:
         """Return temporary guest links/keys."""
         data = await self._async_ufanet_json(

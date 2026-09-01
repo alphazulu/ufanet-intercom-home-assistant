@@ -9,7 +9,7 @@ from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from firebase_messaging import FcmPushClient, FcmRegisterConfig
 from homeassistant.config_entries import ConfigEntry
@@ -38,6 +38,136 @@ FCM_RESTART_BASE_SECONDS = 5
 FCM_RESTART_MAX_SECONDS = 300
 
 
+def _fcm_store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
+    return Store(hass, STORAGE_VERSION, f"ufanet_intercom.fcm.{entry_id}")
+
+
+def _owned_device_id(state: Any) -> str | None:
+    """Return only an integration-generated virtual device ID."""
+    if not isinstance(state, dict):
+        return None
+    value = state.get("ufanet_device_id")
+    prefix = f"{DEVICE_TITLE}_"
+    if not isinstance(value, str) or not value.startswith(prefix):
+        return None
+    try:
+        UUID(value.removeprefix(prefix))
+    except ValueError:
+        return None
+    return value
+
+
+def _unregister_issue_id(entry_id: str) -> str:
+    return f"fcm_unregister_failed_{entry_id}"
+
+
+def _create_unregister_issue(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        _unregister_issue_id(entry.entry_id),
+        is_fixable=False,
+        is_persistent=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="fcm_unregister_failed",
+        translation_placeholders={"entry_title": entry.title or entry.entry_id},
+        data={"entry_id": entry.entry_id},
+    )
+
+
+def _delete_unregister_issue(hass: HomeAssistant, entry_id: str) -> None:
+    ir.async_delete_issue(hass, DOMAIN, _unregister_issue_id(entry_id))
+
+
+async def async_retry_pending_fcm_unregister(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    api: UfanetApi,
+) -> bool:
+    """Retry a failed FCM cleanup while polling mode remains operational."""
+    store = _fcm_store(hass, entry.entry_id)
+    try:
+        state = await store.async_load()
+    except Exception as err:  # noqa: BLE001 - optional cleanup must not block setup
+        _LOGGER.warning(
+            "Unable to load pending Ufanet FCM cleanup state: %s",
+            type(err).__name__,
+        )
+        _create_unregister_issue(hass, entry)
+        return True
+
+    if not isinstance(state, dict) or state.get("unregister_pending") is not True:
+        _delete_unregister_issue(hass, entry.entry_id)
+        return False
+
+    device_id = _owned_device_id(state)
+    if device_id is None:
+        _LOGGER.warning("Pending Ufanet FCM cleanup has no valid owned device ID")
+        _create_unregister_issue(hass, entry)
+        return True
+
+    try:
+        await api.async_unregister_fcm_device(device_id=device_id)
+    except Exception as err:  # noqa: BLE001 - polling mode must still load
+        _LOGGER.warning(
+            "Unable to retry Ufanet FCM unregistration: %s",
+            type(err).__name__,
+        )
+        _create_unregister_issue(hass, entry)
+        return True
+
+    try:
+        await store.async_remove()
+    except Exception as err:  # noqa: BLE001 - remote cleanup already succeeded
+        _LOGGER.warning(
+            "Unable to remove local Ufanet FCM state after unregistration: %s",
+            type(err).__name__,
+        )
+    _delete_unregister_issue(hass, entry.entry_id)
+    return False
+
+
+async def async_remove_stored_fcm_registration(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    api: UfanetApi | None,
+) -> None:
+    """Best-effort remote and unconditional local cleanup on entry removal."""
+    store = _fcm_store(hass, entry.entry_id)
+    try:
+        state = await store.async_load()
+    except Exception as err:  # noqa: BLE001 - entry removal must finish
+        state = None
+        _LOGGER.warning(
+            "Unable to load Ufanet FCM state during entry removal: %s",
+            type(err).__name__,
+        )
+
+    device_id = _owned_device_id(state)
+    if device_id is not None and api is not None:
+        try:
+            await api.async_unregister_fcm_device(device_id=device_id)
+        except Exception as err:  # noqa: BLE001 - entry removal must finish
+            _LOGGER.warning(
+                "Unable to unregister Ufanet FCM device during entry removal: %s",
+                type(err).__name__,
+            )
+
+    try:
+        await store.async_remove()
+    except Exception as err:  # noqa: BLE001 - entry removal must finish
+        _LOGGER.warning(
+            "Unable to remove local Ufanet FCM state during entry removal: %s",
+            type(err).__name__,
+        )
+    for issue_id in (
+        f"fcm_listener_unavailable_{entry.entry_id}",
+        f"fcm_state_recovered_{entry.entry_id}",
+        _unregister_issue_id(entry.entry_id),
+    ):
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
+
+
 class UfanetFcmManager:
     """Own FCM registration, MCS listener and private persisted state."""
 
@@ -57,13 +187,11 @@ class UfanetFcmManager:
         self._entry_id = entry.entry_id
         self._entry_title = entry.title or entry.entry_id
         self._issue_id = f"fcm_listener_unavailable_{entry.entry_id}"
+        self._state_issue_id = f"fcm_state_recovered_{entry.entry_id}"
         self._on_sip_push = on_sip_push
         self._on_health_change = on_health_change
-        self._store: Store[dict[str, Any]] = Store(
-            hass,
-            STORAGE_VERSION,
-            f"ufanet_intercom.fcm.{entry.entry_id}",
-        )
+        self._entry = entry
+        self._store = _fcm_store(hass, entry.entry_id)
         self._state: dict[str, Any] = {}
         self._client: FcmPushClient | None = None
         self._save_task: asyncio.Task[None] | None = None
@@ -91,6 +219,11 @@ class UfanetFcmManager:
         self.received_sip_push_count = 0
         self.last_push_at: str | None = None
         self.last_sip_push_at: str | None = None
+        self.state_recovered = False
+        self.state_recovery_reason: str | None = None
+        self.unregister_pending = False
+        self.last_unregistration_succeeded: bool | None = None
+        self.last_unregistration_error_type: str | None = None
 
     @staticmethod
     def _default_state() -> dict[str, Any]:
@@ -100,7 +233,63 @@ class UfanetFcmManager:
             "ufanet_device_id": f"{DEVICE_TITLE}_{uuid4()}",
             "ufanet_device_title": DEVICE_TITLE,
             "firebase_config_fingerprint": None,
+            "unregister_pending": False,
         }
+
+    @classmethod
+    def _normalize_state(
+        cls,
+        stored: Any,
+    ) -> tuple[dict[str, Any], str | None]:
+        """Return a minimal valid private state and a privacy-safe recovery reason."""
+        default = cls._default_state()
+        if stored is None:
+            return default, None
+        if not isinstance(stored, dict):
+            return default, "invalid_schema"
+
+        invalid = False
+        state = default
+
+        credentials = stored.get("fcm_credentials")
+        if credentials is None or isinstance(credentials, dict):
+            state["fcm_credentials"] = credentials
+        else:
+            invalid = True
+
+        persistent_ids = stored.get("persistent_ids")
+        if isinstance(persistent_ids, list) and all(
+            isinstance(value, str) for value in persistent_ids
+        ):
+            state["persistent_ids"] = persistent_ids[-MAX_PERSISTENT_IDS:]
+        else:
+            invalid = True
+
+        title = stored.get("ufanet_device_title")
+        if isinstance(title, str) and title.strip():
+            state["ufanet_device_title"] = title
+        else:
+            invalid = True
+
+        device_id = _owned_device_id(stored)
+        if device_id is not None:
+            state["ufanet_device_id"] = device_id
+        else:
+            invalid = True
+
+        fingerprint = stored.get("firebase_config_fingerprint")
+        if fingerprint is None or isinstance(fingerprint, str):
+            state["firebase_config_fingerprint"] = fingerprint
+        else:
+            invalid = True
+
+        unregister_pending = stored.get("unregister_pending", False)
+        if isinstance(unregister_pending, bool):
+            state["unregister_pending"] = unregister_pending
+        else:
+            invalid = True
+
+        return state, "invalid_schema" if invalid else None
 
     async def async_start(self) -> bool:
         """Start FCM and keep supervising the optional transport."""
@@ -110,28 +299,40 @@ class UfanetFcmManager:
         self.fallback_polling_active = True
         self._unhealthy_since = time.monotonic()
 
+        load_failed = False
         try:
             stored = await self._store.async_load()
         except Exception as err:  # noqa: BLE001 - optional state must not block setup
             stored = None
-            self.last_error_type = type(err).__name__
+            load_failed = True
             _LOGGER.warning(
                 "Unable to load optional Ufanet FCM state: %s",
                 type(err).__name__,
             )
-        self._state = stored if isinstance(stored, dict) else self._default_state()
-        for key, value in self._default_state().items():
-            self._state.setdefault(key, value)
+        self._state, recovery_reason = self._normalize_state(stored)
+        if load_failed:
+            recovery_reason = "load_error"
 
         fingerprint = firebase_config_fingerprint(self.firebase_config)
         previous = self._state.get("firebase_config_fingerprint")
         if previous not in (None, fingerprint):
+            owned_device_id = _owned_device_id(self._state)
             self._state = self._default_state()
+            if owned_device_id is not None:
+                # The virtual Ufanet installation is independent from Firebase
+                # credentials. Reuse its validated ID so the restoring POST
+                # replaces the old token instead of leaving an orphaned device.
+                self._state["ufanet_device_id"] = owned_device_id
+            recovery_reason = "firebase_identity_changed"
         self._state["firebase_config_fingerprint"] = fingerprint
 
-        persistent_ids = self._state.get("persistent_ids")
-        if not isinstance(persistent_ids, list):
-            self._state["persistent_ids"] = []
+        self.state_recovered = recovery_reason is not None
+        self.state_recovery_reason = recovery_reason
+        self.unregister_pending = bool(self._state.get("unregister_pending"))
+        if self.state_recovered:
+            self._create_state_recovery_issue()
+        else:
+            self._delete_state_recovery_issue()
 
         started = await self._async_attempt_start()
         await self._async_evaluate_transport()
@@ -179,6 +380,11 @@ class UfanetFcmManager:
                 application=self.firebase_config["package_name"],
             )
             self.ufanet_registration_succeeded = True
+            self.unregister_pending = False
+            self._state["unregister_pending"] = False
+            self.last_unregistration_succeeded = None
+            self.last_unregistration_error_type = None
+            _delete_unregister_issue(self.hass, self._entry_id)
             await self._client.start()
             self.listener_started = True
         except Exception as err:  # noqa: BLE001 - optional transport is isolated
@@ -314,6 +520,44 @@ class UfanetFcmManager:
         if self._save_task is not None:
             await self._save_task
 
+    async def async_unregister(self) -> bool:
+        """Remove this manager's owned registration after FCM is disabled."""
+        self.unregister_pending = True
+        self._state["unregister_pending"] = True
+        await self._async_save_state()
+        device_id = _owned_device_id(self._state)
+        if device_id is None:
+            self.last_unregistration_succeeded = False
+            self.last_unregistration_error_type = "InvalidOwnedDeviceId"
+            _create_unregister_issue(self.hass, self._entry)
+            return False
+
+        try:
+            await self.api.async_unregister_fcm_device(device_id=device_id)
+        except Exception as err:  # noqa: BLE001 - polling fallback must load
+            self.last_unregistration_succeeded = False
+            self.last_unregistration_error_type = type(err).__name__
+            _LOGGER.warning(
+                "Unable to unregister disabled Ufanet FCM device: %s",
+                type(err).__name__,
+            )
+            _create_unregister_issue(self.hass, self._entry)
+            return False
+
+        self.unregister_pending = False
+        self.last_unregistration_succeeded = True
+        self.last_unregistration_error_type = None
+        self._state["unregister_pending"] = False
+        try:
+            await self._store.async_remove()
+        except Exception as err:  # noqa: BLE001 - remote cleanup already succeeded
+            _LOGGER.warning(
+                "Unable to remove local Ufanet FCM state after unregistration: %s",
+                type(err).__name__,
+            )
+        _delete_unregister_issue(self.hass, self._entry_id)
+        return True
+
     async def _safe_stop_client(self) -> None:
         client = self._client
         self._client = None
@@ -355,6 +599,22 @@ class UfanetFcmManager:
             return
         ir.async_delete_issue(self.hass, DOMAIN, self._issue_id)
         self._issue_active = False
+
+    def _create_state_recovery_issue(self) -> None:
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            self._state_issue_id,
+            is_fixable=False,
+            is_persistent=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="fcm_state_recovered",
+            translation_placeholders={"entry_title": self._entry_title},
+            data={"entry_id": self._entry_id},
+        )
+
+    def _delete_state_recovery_issue(self) -> None:
+        ir.async_delete_issue(self.hass, DOMAIN, self._state_issue_id)
 
     def _persist_credentials(self, credentials: dict[str, Any]) -> None:
         self._state["fcm_credentials"] = credentials
@@ -448,4 +708,9 @@ class UfanetFcmManager:
             "received_sip_push_count": self.received_sip_push_count,
             "last_push_at": self.last_push_at,
             "last_sip_push_at": self.last_sip_push_at,
+            "state_recovered": self.state_recovered,
+            "state_recovery_reason": self.state_recovery_reason,
+            "unregister_pending": self.unregister_pending,
+            "last_unregistration_succeeded": self.last_unregistration_succeeded,
+            "last_unregistration_error_type": self.last_unregistration_error_type,
         }

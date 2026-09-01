@@ -266,6 +266,75 @@ async def register_token_with_ufanet(
                 print(f"[INFO] Response body length: {len(text)}")
 
 
+async def unregister_token_with_ufanet(
+    session: aiohttp.ClientSession,
+    access_token: str,
+    device_id: str,
+    base_url: str,
+) -> None:
+    """Remove only this probe's virtual FCM registration."""
+    url = f"{base_url}/api/v0/fcm/"
+    async with session.delete(
+        url,
+        headers={
+            "Authorization": f"JWT {access_token.replace('JWT ', '')}",
+            "Accept": "application/json",
+        },
+        json={"device_id": device_id},
+        timeout=aiohttp.ClientTimeout(total=30),
+    ) as response:
+        text = await response.text()
+        if response.status >= 400:
+            raise RuntimeError(
+                f"Ufanet FCM unregistration failed: HTTP {response.status}"
+            )
+        print(f"[OK] Ufanet removed the probe FCM registration: HTTP {response.status}")
+        if text:
+            try:
+                print("[INFO] Sanitized response:")
+                print(json.dumps(sanitize(json.loads(text)), ensure_ascii=False, indent=2))
+            except json.JSONDecodeError:
+                print(f"[INFO] Response body length: {len(text)}")
+
+
+async def verify_unregister_with_ufanet(
+    session: aiohttp.ClientSession,
+    access_token: str,
+    fcm_token: str,
+    device_id: str,
+    title: str,
+    package_name: str,
+    base_url: str,
+) -> None:
+    """Live-check DELETE for the probe registration, then restore it immediately."""
+    print(
+        "[INFO] Verifying DELETE /api/v0/fcm/ for this probe's virtual registration..."
+    )
+    await unregister_token_with_ufanet(
+        session,
+        access_token,
+        device_id,
+        base_url,
+    )
+    print("[INFO] Restoring the probe FCM registration...")
+    try:
+        await register_token_with_ufanet(
+            session,
+            access_token,
+            fcm_token,
+            device_id,
+            title,
+            package_name,
+            base_url,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "DELETE succeeded, but restoring the probe FCM registration failed. "
+            "Run probe.py again without --verify-unregister to restore it."
+        ) from exc
+    print("[OK] FCM unregister contract verified and probe registration restored")
+
+
 async def fetch_call_history(
     session: aiohttp.ClientSession,
     access_token: str,
@@ -366,6 +435,21 @@ async def check_mcs_port() -> None:
         )
 
 
+async def cleanup_probe_resources(
+    client: FcmPushClient,
+    *,
+    listener_started: bool,
+    ufanet_session: aiohttp.ClientSession | None,
+) -> None:
+    """Stop only a started listener and always close the Ufanet session."""
+    try:
+        if listener_started:
+            await client.stop()
+    finally:
+        if ufanet_session is not None:
+            await ufanet_session.close()
+
+
 async def run(args: argparse.Namespace) -> int:
     state_path = Path(args.state).expanduser().resolve()
     firebase_path = Path(args.firebase_config).expanduser().resolve()
@@ -390,6 +474,7 @@ async def run(args: argparse.Namespace) -> int:
     latency_samples: list[float] = []
     ufanet_session: aiohttp.ClientSession | None = None
     ufanet_access: str | None = None
+    listener_started = False
 
     def persist_credentials(credentials: dict[str, Any]) -> None:
         state["fcm_credentials"] = credentials
@@ -542,6 +627,18 @@ async def run(args: argparse.Namespace) -> int:
                 firebase["package_name"],
                 base_url,
             )
+            if args.verify_unregister:
+                await verify_unregister_with_ufanet(
+                    ufanet_session,
+                    ufanet_access,
+                    fcm_token,
+                    str(state["ufanet_device_id"]),
+                    str(state["ufanet_device_title"]),
+                    firebase["package_name"],
+                    base_url,
+                )
+                print("[OK] Unregister verification completed; listener was not started")
+                return 0
 
         if args.skip_ufanet and not args.no_correlate_history:
             print("[INFO] History correlation disabled because --skip-ufanet is active")
@@ -549,6 +646,7 @@ async def run(args: argparse.Namespace) -> int:
         await check_mcs_port()
         print("[INFO] Starting MCS listener (mtalk.google.com:5228)...")
         await client.start()
+        listener_started = True
         if not args.no_correlate_history and not args.skip_ufanet:
             delays_text = ", ".join(f"{value:g}" for value in history_delays)
             print(
@@ -570,9 +668,11 @@ async def run(args: argparse.Namespace) -> int:
             for task in tuple(correlation_tasks):
                 task.cancel()
             await asyncio.gather(*tuple(correlation_tasks), return_exceptions=True)
-        await client.stop()
-        if ufanet_session is not None:
-            await ufanet_session.close()
+        await cleanup_probe_resources(
+            client,
+            listener_started=listener_started,
+            ufanet_session=ufanet_session,
+        )
 
     return 0
 
@@ -601,6 +701,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--skip-ufanet",
         action="store_true",
         help="Only create/listen on FCM; do not register the token with Ufanet",
+    )
+    parser.add_argument(
+        "--verify-unregister",
+        action="store_true",
+        help=(
+            "Live-check DELETE /api/v0/fcm/ for this probe's own virtual device, "
+            "immediately register it again, then exit"
+        ),
     )
     parser.add_argument(
         "--no-correlate-history",
@@ -636,6 +744,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    if args.verify_unregister and args.skip_ufanet:
+        print(
+            "[ERROR] --verify-unregister cannot be used with --skip-ufanet",
+            file=sys.stderr,
+        )
+        return 2
     if args.history_page_size < 1:
         print("[ERROR] --history-page-size must be >= 1", file=sys.stderr)
         return 2
