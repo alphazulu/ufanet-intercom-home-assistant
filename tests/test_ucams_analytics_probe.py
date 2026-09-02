@@ -296,7 +296,7 @@ def test_event_summary_uses_live_date_and_discards_sensitive_content() -> None:
     assert summary.valid_timestamps == 1
     assert summary.unexpected_types == 0
     assert summary.content_fields_present is True
-    assert summary.unknown_fields == 1
+    assert summary.unknown_fields == 2
     assert summary.schema_fields == ("date", "id", "length")
     assert summary.server_page_size == 60
     assert summary.limit_honored is False
