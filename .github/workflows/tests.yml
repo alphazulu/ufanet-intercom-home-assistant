@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   pytest:
@@ -16,80 +16,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-
-      - name: Apply non-blocking FCM diagnostics patch once
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          def replace_once(path: str, old: str, new: str) -> None:
-              p = Path(path)
-              text = p.read_text(encoding="utf-8")
-              if old not in text:
-                  if new in text:
-                      return
-                  raise SystemExit(f"anchor not found in {path}")
-              p.write_text(text.replace(old, new, 1), encoding="utf-8")
-
-          replace_once(
-              "custom_components/ufanet_intercom/fcm.py",
-              '''        self._watchdog_task: asyncio.Task[None] | None = None\n        self._stopping = False\n''',
-              '''        self._watchdog_task: asyncio.Task[None] | None = None\n        self._authorized_device_check_task: asyncio.Task[None] | None = None\n        self._stopping = False\n''',
-          )
-          replace_once(
-              "custom_components/ufanet_intercom/fcm.py",
-              '''    async def _async_attempt_start(self) -> bool:\n        \"\"\"Register a fresh client and launch its listener tasks once.\"\"\"\n        self.firebase_registration_succeeded = False\n''',
-              '''    async def _async_attempt_start(self) -> bool:\n        \"\"\"Register a fresh client and launch its listener tasks once.\"\"\"\n        await self._async_cancel_authorized_device_check()\n        self.firebase_registration_succeeded = False\n''',
-          )
-          replace_once(
-              "custom_components/ufanet_intercom/fcm.py",
-              '''            await self._client.start()\n            self.listener_started = True\n            await self._async_refresh_authorized_device_status()\n''',
-              '''            await self._client.start()\n            self.listener_started = True\n            self._queue_authorized_device_status_refresh()\n''',
-          )
-          replace_once(
-              "custom_components/ufanet_intercom/fcm.py",
-              '''        self.watchdog_running = False\n\n        await self._safe_stop_client()\n''',
-              '''        self.watchdog_running = False\n        await self._async_cancel_authorized_device_check()\n\n        await self._safe_stop_client()\n''',
-          )
-          replace_once(
-              "custom_components/ufanet_intercom/fcm.py",
-              '''    async def _async_refresh_authorized_device_status(self) -> None:\n''',
-              '''    def _queue_authorized_device_status_refresh(self) -> None:\n        \"\"\"Run optional authorization diagnostics outside the FCM start path.\"\"\"\n        self._authorized_device_check_task = self.hass.async_create_background_task(\n            self._async_refresh_authorized_device_status(),\n            \"ufanet_intercom_fcm_authorization_check\",\n        )\n\n    async def _async_cancel_authorized_device_check(self) -> None:\n        \"\"\"Cancel any previous authorization diagnostic before restart/unload.\"\"\"\n        task = self._authorized_device_check_task\n        self._authorized_device_check_task = None\n        if task is None or task.done():\n            return\n        task.cancel()\n        await asyncio.gather(task, return_exceptions=True)\n\n    async def _async_refresh_authorized_device_status(self) -> None:\n''',
-          )
-
-          tests = Path("tests/test_fcm.py")
-          text = tests.read_text(encoding="utf-8")
-          text = text.replace(
-              '''        assert await manager.async_start() is True\n\n        status = manager.status()\n        owned_device_id = manager._state[\"ufanet_device_id\"]  # noqa: SLF001\n''',
-              '''        assert await manager.async_start() is True\n        check_task = manager._authorized_device_check_task  # noqa: SLF001\n        assert check_task is not None\n        await check_task\n\n        status = manager.status()\n        owned_device_id = manager._state[\"ufanet_device_id\"]  # noqa: SLF001\n''',
-              1,
-          )
-          text = text.replace(
-              '''        assert await manager.async_start() is True\n        status = manager.status()\n        assert status[\"active\"] is True\n''',
-              '''        assert await manager.async_start() is True\n        check_task = manager._authorized_device_check_task  # noqa: SLF001\n        assert check_task is not None\n        await check_task\n        status = manager.status()\n        assert status[\"active\"] is True\n''',
-              1,
-          )
-          text = text.replace(
-              '''        assert await manager.async_start() is True\n        assert order == [\"listener_start\", \"authorization_check\"]\n        await manager.async_stop()\n''',
-              '''        assert await manager.async_start() is True\n        check_task = manager._authorized_device_check_task  # noqa: SLF001\n        assert check_task is not None\n        await check_task\n        assert order == [\"listener_start\", \"authorization_check\"]\n        await manager.async_stop()\n''',
-              1,
-          )
-          marker = "test_fcm_authorization_check_does_not_block_async_start"
-          if marker not in text:
-              text += '''\n\n@pytest.mark.asyncio\nasync def test_fcm_authorization_check_does_not_block_async_start(hass) -> None:\n    check_started = asyncio.Event()\n    release_check = asyncio.Event()\n    store = MagicMock()\n    store.async_load = AsyncMock(return_value=None)\n    store.async_save = AsyncMock()\n    client = MagicMock()\n    client.checkin_or_register = AsyncMock(return_value="fcm-token")\n    client.start = AsyncMock()\n    client.stop = AsyncMock()\n    client.run_state = SimpleNamespace(name="RUNNING")\n    api = MagicMock()\n    api.async_register_fcm_device = AsyncMock()\n\n    async def verify_registration(**_kwargs) -> dict[str, object]:\n        check_started.set()\n        await release_check.wait()\n        return {\n            "call_access": True,\n            "last_update": "2026-09-02T12:34:56Z",\n        }\n\n    api.async_get_fcm_authorization_status = AsyncMock(\n        side_effect=verify_registration\n    )\n\n    with (\n        patch("custom_components.ufanet_intercom.fcm.Store", return_value=store),\n        patch(\n            "custom_components.ufanet_intercom.fcm.FcmPushClient",\n            return_value=client,\n        ),\n        patch("custom_components.ufanet_intercom.fcm.FcmRegisterConfig"),\n        patch("custom_components.ufanet_intercom.fcm.async_get_clientsession"),\n    ):\n        manager = UfanetFcmManager(\n            hass,\n            _entry(),\n            api,\n            FIREBASE_CONFIG,\n            AsyncMock(),\n        )\n        start_task = asyncio.create_task(manager.async_start())\n        await asyncio.wait_for(check_started.wait(), timeout=1)\n        await asyncio.sleep(0)\n        assert start_task.done()\n        assert await start_task is True\n        assert manager.listener_started is True\n\n        release_check.set()\n        check_task = manager._authorized_device_check_task  # noqa: SLF001\n        assert check_task is not None\n        await check_task\n        await manager.async_stop()\n'''
-          tests.write_text(text, encoding="utf-8")
-          PY
-
-          if git diff --quiet; then
-            echo "No non-blocking changes to commit"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add custom_components/ufanet_intercom/fcm.py tests/test_fcm.py
-            git commit -m "Run FCM authorization diagnostics off startup path"
-            git push origin HEAD:refs/heads/codex/fcm-self-registration-diagnostics
-          fi
 
       - name: Set up Python 3.14
         uses: actions/setup-python@v5
