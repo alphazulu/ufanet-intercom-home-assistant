@@ -24,7 +24,7 @@ jobs:
           text = path.read_text(encoding='utf-8')
           text = text.replace("'''\\n(ROOT", "'''\n(ROOT")
           old = '''    if found != count:\n        raise RuntimeError(f"{path}: expected {count} occurrence(s), found {found}")\n'''
-          new = '''    if found != count:\n        if not (\n            path == "custom_components/ufanet_intercom/services.py"\n            and old == "from .api import (\\n"\n            and found == 2\n            and count == 1\n        ):\n            raise RuntimeError(f"{path}: expected {count} occurrence(s), found {found}")\n'''
+          new = '''    if found != count:\n        duplicate_import_anchor = (\n            path == "custom_components/ufanet_intercom/services.py"\n            and old in {\n                "from .api import (\\n",\n                "    SERVICE_GET_CALL_EVENTS,\\n",\n            }\n            and found == 2\n            and count == 1\n        )\n        if not duplicate_import_anchor:\n            raise RuntimeError(f"{path}: expected {count} occurrence(s), found {found}")\n'''
           if old not in text:
               raise SystemExit('replace() guard anchor not found')
           text = text.replace(old, new, 1)
