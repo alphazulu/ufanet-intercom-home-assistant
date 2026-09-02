@@ -121,6 +121,23 @@ def _last_call_image_summary(runtime: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _key_passage_summary(runtime: dict[str, Any]) -> dict[str, Any]:
+    """Return aggregate physical-key state without names, IDs or history."""
+    coordinator = runtime.get("key_passage_coordinator")
+    summary = (
+        coordinator.diagnostic_summary()
+        if coordinator is not None
+        else {
+            "supported_intercom_count": 0,
+            "registered_key_link_count": 0,
+            "intercom_with_history_count": 0,
+            "new_passage_batch_count": 0,
+            "stored_cursor_count": 0,
+        }
+    )
+    return {**_coordinator_state(coordinator), **summary}
+
+
 def _last_call_image_state(
     runtime: dict[str, Any],
     skud_id: int,
@@ -273,6 +290,7 @@ async def async_get_config_entry_diagnostics(
                 getattr(call_coordinator, "new_calls", []) or []
             ),
         },
+        "key_passages": _key_passage_summary(runtime),
         "archive_controller_count": len(controllers),
         "auto_save": (
             auto_save_manager.status(include_details=False)
@@ -295,6 +313,7 @@ async def async_get_device_diagnostics(
 
     coordinator = runtime.get("coordinator")
     call_coordinator = runtime.get("call_coordinator")
+    key_passage_coordinator = runtime.get("key_passage_coordinator")
     api: UfanetApi | None = runtime.get("api")
     controllers = runtime.get("archive_controllers") or {}
     auto_save_manager = runtime.get("auto_save_manager")
@@ -349,6 +368,12 @@ async def async_get_device_diagnostics(
             and call_coordinator.data.get(camera_number)
         )
 
+    key_passage_data = None
+    if key_passage_coordinator is not None and isinstance(
+        key_passage_coordinator.data, dict
+    ):
+        key_passage_data = key_passage_coordinator.data.get(int(skud["id"]))
+
     return {
         "loaded": True,
         "options": _safe_options(entry),
@@ -365,6 +390,19 @@ async def async_get_device_diagnostics(
         "call_coordinator": {
             **_coordinator_state(call_coordinator),
             "latest_call_present": latest_call_present,
+        },
+        "key_passages": {
+            **_coordinator_state(key_passage_coordinator),
+            "supported": isinstance(key_passage_data, dict),
+            "registered_key_count": (
+                int(key_passage_data.get("key_count") or 0)
+                if isinstance(key_passage_data, dict)
+                else 0
+            ),
+            "history_present": bool(
+                isinstance(key_passage_data, dict)
+                and key_passage_data.get("last_passage_at") is not None
+            ),
         },
         "archive_controller": controller_state,
         "auto_save": (

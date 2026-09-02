@@ -2,7 +2,8 @@
   "title": "Ufanet Intercom",
   "device_automation": {
     "trigger_type": {
-      "incoming_call": "Incoming call"
+      "incoming_call": "Incoming call",
+      "key_passage": "Physical key passage"
     }
   },
   "issues": {
@@ -88,9 +89,20 @@
         "name": "Last call image"
       }
     },
+    "event": {
+      "key_passage": {
+        "name": "Physical key passage"
+      }
+    },
     "sensor": {
       "last_call": {
         "name": "Last call"
+      },
+      "physical_key_count": {
+        "name": "Physical keys"
+      },
+      "last_key_passage": {
+        "name": "Last key passage"
       }
     },
     "datetime": {

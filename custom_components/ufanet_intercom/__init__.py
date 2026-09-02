@@ -34,9 +34,14 @@ from .const import (
     CONF_USERNAME,
     DOMAIN,
     EVENT_INTERCOM_CALL,
+    EVENT_KEY_PASSAGE,
     FCM_FALLBACK_SCAN_INTERVAL_SECONDS,
 )
-from .coordinator import UfanetCallCoordinator, UfanetCoordinator
+from .coordinator import (
+    UfanetCallCoordinator,
+    UfanetCoordinator,
+    UfanetKeyPassageCoordinator,
+)
 from .entity import device_name
 from .fcm import (
     UfanetFcmManager,
@@ -54,7 +59,7 @@ _LOGGER = logging.getLogger(__name__)
 _FRONTEND_DIR = Path(__file__).parent / "frontend"
 _ARCHIVE_CARD_PATH = _FRONTEND_DIR / "ufanet-archive-card.js"
 _ARCHIVE_CARD_URL = "/ufanet_intercom/ufanet-archive-card.js"
-_ARCHIVE_CARD_MODULE_URL = f"{_ARCHIVE_CARD_URL}?v=0.26.0"
+_ARCHIVE_CARD_MODULE_URL = f"{_ARCHIVE_CARD_URL}?v=0.27.0"
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -63,6 +68,7 @@ PLATFORMS = [
     Platform.BUTTON,
     Platform.CAMERA,
     Platform.DATETIME,
+    Platform.EVENT,
     Platform.IMAGE,
     Platform.NUMBER,
     Platform.SENSOR,
@@ -166,6 +172,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if call_coordinator.data is None:
         call_coordinator.data = {}
 
+    key_passage_coordinator = UfanetKeyPassageCoordinator(
+        hass,
+        api,
+        entry.entry_id,
+        set(coordinator.data),
+    )
+    await key_passage_coordinator.async_initialize()
+    # Physical-key history is optional. Empty/unsupported accounts and a
+    # temporary endpoint failure must never block core intercom controls.
+    await key_passage_coordinator.async_refresh()
+    if key_passage_coordinator.data is None:
+        key_passage_coordinator.data = {}
+
     archive_controllers = {
         int(skud["id"]): UfanetArchiveController(
             api,
@@ -196,6 +215,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "api": api,
         "coordinator": coordinator,
         "call_coordinator": call_coordinator,
+        "key_passage_coordinator": key_passage_coordinator,
         "archive_controllers": archive_controllers,
         "entry": entry,
         "options": options,
@@ -227,15 +247,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 skud_id = int(skud["id"])
                 event_data["skud_id"] = skud_id
                 event_data["device_name"] = device_name(skud)
-                device = device_registry.async_get_device_by_identifier(
-                    (DOMAIN, str(skud_id)),
-                    entry.entry_id,
+                device = device_registry.async_get_device(
+                    identifiers={(DOMAIN, str(skud_id))},
                 )
                 if device is not None:
                     event_data["device_id"] = device.id
                     auto_save_manager.schedule(call, device.id)
 
             hass.bus.async_fire(EVENT_INTERCOM_CALL, event_data)
+
+    def _handle_key_passage_update() -> None:
+        """Publish sanitized physical-key passages on the HA event bus."""
+        for skud_id, passages in key_passage_coordinator.new_passages.items():
+            skud = coordinator.data.get(skud_id)
+            if skud is None:
+                continue
+            device = device_registry.async_get_device(
+                identifiers={(DOMAIN, str(skud_id))},
+            )
+            for passage in passages:
+                event_data: dict[str, Any] = {
+                    "type": "passage",
+                    "skud_id": skud_id,
+                    "device_name": device_name(skud),
+                    "key_name": passage["key_name"],
+                    "occurred_at": passage["occurred_at"],
+                }
+                if device is not None:
+                    event_data["device_id"] = device.id
+                hass.bus.async_fire(EVENT_KEY_PASSAGE, event_data)
 
     if firebase_config is not None:
 
@@ -261,6 +301,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # disables the Last call sensor entity. It is registered after FCM setup so
     # the FCM health callback has selected the appropriate polling interval.
     entry.async_on_unload(call_coordinator.async_add_listener(_handle_call_update))
+    entry.async_on_unload(
+        key_passage_coordinator.async_add_listener(_handle_key_passage_update)
+    )
     entry.async_on_unload(auto_save_manager.cancel_all)
 
     try:
@@ -287,9 +330,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
             if skud is None:
                 continue
-            device = device_registry.async_get_device_by_identifier(
-                (DOMAIN, str(int(skud["id"]))),
-                entry.entry_id,
+            device = device_registry.async_get_device(
+                identifiers={(DOMAIN, str(int(skud["id"])))},
             )
             if device is not None:
                 auto_save_manager.schedule(

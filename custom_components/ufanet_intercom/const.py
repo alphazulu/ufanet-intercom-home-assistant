@@ -1,7 +1,7 @@
 """Constants for the Ufanet Intercom integration."""
 
 DOMAIN = "ufanet_intercom"
-INTEGRATION_VERSION = "0.26.0"
+INTEGRATION_VERSION = "0.27.0"
 
 UFANET_BASE_URL = "https://dom.ufanet.ru"
 UCAMS_BASE_URL = "https://cloud.ucams.ru"
@@ -36,14 +36,18 @@ DEFAULT_FCM_CONFIG_PATH = "ufanet_intercom/firebase_config.json"
 FCM_FALLBACK_SCAN_INTERVAL_SECONDS = 300
 
 EVENT_INTERCOM_CALL = "ufanet_intercom_call"
+EVENT_KEY_PASSAGE = "ufanet_intercom_key_passage"
 TRIGGER_INCOMING_CALL = "incoming_call"
+TRIGGER_KEY_PASSAGE = "key_passage"
 INCOMING_CALL_STATE_SECONDS = 30
+KEY_PASSAGE_SCAN_INTERVAL_SECONDS = 60
 
 PLATFORMS = [
     "binary_sensor",
     "button",
     "camera",
     "datetime",
+    "event",
     "image",
     "number",
     "sensor",

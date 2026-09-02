@@ -2,7 +2,8 @@
   "title": "Домофон Ufanet",
   "device_automation": {
     "trigger_type": {
-      "incoming_call": "Входящий звонок"
+      "incoming_call": "Входящий звонок",
+      "key_passage": "Проход по физическому ключу"
     }
   },
   "issues": {
@@ -88,9 +89,20 @@
         "name": "Снимок последнего звонка"
       }
     },
+    "event": {
+      "key_passage": {
+        "name": "Проход по ключу"
+      }
+    },
     "sensor": {
       "last_call": {
         "name": "Последний вызов"
+      },
+      "physical_key_count": {
+        "name": "Физические ключи"
+      },
+      "last_key_passage": {
+        "name": "Последний проход по ключу"
       }
     },
     "datetime": {

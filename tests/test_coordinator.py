@@ -16,6 +16,7 @@ from custom_components.ufanet_intercom.api import (
 from custom_components.ufanet_intercom.coordinator import (
     UfanetCallCoordinator,
     UfanetCoordinator,
+    UfanetKeyPassageCoordinator,
     _event_timestamp,
 )
 
@@ -26,6 +27,37 @@ def _api() -> MagicMock:
     api.async_get_call_history = AsyncMock(return_value=[])
     api.async_get_call_media = AsyncMock(return_value={})
     return api
+
+
+def _passage_page(*results: dict) -> dict:
+    return {
+        "count": len(results),
+        "current_page": 0,
+        "page_count": 1 if results else 0,
+        "page_size": 25,
+        "results": list(results),
+    }
+
+
+def _passage(key_id: int, key_name: str, timestamp: int) -> dict:
+    return {
+        "key_id": key_id,
+        "key_name": key_name,
+        "timestamp": timestamp,
+    }
+
+
+def _passage_coordinator(hass, *, stored=None):
+    api = MagicMock()
+    api.async_get_key_recording_intercom_ids = AsyncMock(return_value={7})
+    api.async_get_physical_keys = AsyncMock(return_value=[])
+    api.async_get_key_passage_history = AsyncMock(return_value=_passage_page())
+    coordinator = UfanetKeyPassageCoordinator(hass, api, "entry", {7})
+    store = MagicMock()
+    store.async_load = AsyncMock(return_value=stored)
+    store.async_save = AsyncMock()
+    coordinator._store = store  # noqa: SLF001
+    return coordinator, api, store
 
 
 @pytest.mark.asyncio
@@ -60,6 +92,100 @@ async def test_intercom_coordinator_maps_api_errors(hass, error, expected) -> No
 
     with pytest.raises(expected):
         await coordinator._async_update_data()  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_key_passage_empty_baseline_allows_first_future_event(hass) -> None:
+    coordinator, api, store = _passage_coordinator(hass)
+    await coordinator.async_initialize()
+
+    first = await coordinator._async_update_data()  # noqa: SLF001
+
+    assert first == {7: {"key_count": 0, "last_passage_at": None}}
+    assert coordinator.new_passages == {}
+    saved = store.async_save.await_args.args[0]
+    assert saved == {"intercoms": {"7": {"timestamp": 0, "key_ids": []}}}
+
+    api.async_get_physical_keys.return_value = [
+        {"key_id": 11, "devices": (7,)}
+    ]
+    api.async_get_key_passage_history.return_value = _passage_page(
+        _passage(11, "Private key name", 1_788_220_800)
+    )
+
+    second = await coordinator._async_update_data()  # noqa: SLF001
+
+    assert second == {7: {"key_count": 1, "last_passage_at": 1_788_220_800}}
+    assert coordinator.new_passages == {
+        7: [
+            {
+                "key_name": "Private key name",
+                "occurred_at": "2026-09-01T00:00:00+00:00",
+            }
+        ]
+    }
+
+
+@pytest.mark.asyncio
+async def test_key_passage_cursor_survives_reload_and_handles_same_second(hass) -> None:
+    baseline = _passage(11, "First private name", 1_788_220_800)
+    coordinator, api, store = _passage_coordinator(hass)
+    api.async_get_key_passage_history.return_value = _passage_page(baseline)
+    await coordinator.async_initialize()
+    await coordinator._async_update_data()  # noqa: SLF001
+    stored = store.async_save.await_args.args[0]
+
+    restarted, restarted_api, restarted_store = _passage_coordinator(
+        hass,
+        stored=stored,
+    )
+    restarted_api.async_get_key_passage_history.return_value = _passage_page(
+        baseline,
+        _passage(12, "Second private name", 1_788_220_800),
+        _passage(13, "Latest private name", 1_788_220_801),
+    )
+    await restarted.async_initialize()
+
+    await restarted._async_update_data()  # noqa: SLF001
+
+    assert restarted.new_passages == {
+        7: [
+            {
+                "key_name": "Second private name",
+                "occurred_at": "2026-09-01T00:00:00+00:00",
+            },
+            {
+                "key_name": "Latest private name",
+                "occurred_at": "2026-09-01T00:00:01+00:00",
+            },
+        ]
+    }
+    serialized = restarted_store.async_save.await_args.args[0]
+    assert serialized == {
+        "intercoms": {"7": {"timestamp": 1_788_220_801, "key_ids": [13]}}
+    }
+    assert "private" not in str(serialized).lower()
+
+    await restarted._async_update_data()  # noqa: SLF001
+    assert restarted.new_passages == {}
+
+
+@pytest.mark.asyncio
+async def test_failed_key_passage_poll_clears_transient_batch(hass) -> None:
+    coordinator, api, _store = _passage_coordinator(
+        hass,
+        stored={"intercoms": {"7": {"timestamp": 0, "key_ids": []}}},
+    )
+    await coordinator.async_initialize()
+    coordinator.new_passages = {7: [{"key_name": "must-not-replay"}]}
+    api.async_get_key_recording_intercom_ids.side_effect = UfanetConnectionError(
+        "offline"
+    )
+
+    with pytest.raises(UpdateFailed):
+        await coordinator._async_update_data()  # noqa: SLF001
+
+    assert coordinator.new_passages == {}
 
 
 def _event(

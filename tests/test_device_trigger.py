@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from homeassistant.components.device_automation import DeviceNotFound
 from homeassistant.const import CONF_DEVICE_ID, CONF_DOMAIN, CONF_PLATFORM, CONF_TYPE
@@ -11,7 +13,9 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.ufanet_intercom.const import (
     DOMAIN,
     EVENT_INTERCOM_CALL,
+    EVENT_KEY_PASSAGE,
     TRIGGER_INCOMING_CALL,
+    TRIGGER_KEY_PASSAGE,
 )
 from custom_components.ufanet_intercom.device_trigger import (
     async_attach_trigger,
@@ -103,3 +107,53 @@ async def test_incoming_call_trigger_filters_device_and_preserves_event(hass) ->
     hass.bus.async_fire(EVENT_INTERCOM_CALL, event_data)
     await hass.async_block_till_done()
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_supported_device_exposes_and_attaches_key_passage_trigger(hass) -> None:
+    entry = _entry()
+    entry.add_to_hass(hass)
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "7")},
+        name="Front door",
+    )
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        "key_passage_coordinator": SimpleNamespace(data={7: {}})
+    }
+
+    triggers = await async_get_triggers(hass, device.id)
+    assert [item[CONF_TYPE] for item in triggers] == [
+        TRIGGER_INCOMING_CALL,
+        TRIGGER_KEY_PASSAGE,
+    ]
+
+    calls = []
+
+    async def action(variables, _context) -> None:
+        calls.append(variables)
+
+    remove = await async_attach_trigger(
+        hass,
+        {
+            CONF_PLATFORM: "device",
+            CONF_DOMAIN: DOMAIN,
+            CONF_DEVICE_ID: device.id,
+            CONF_TYPE: TRIGGER_KEY_PASSAGE,
+        },
+        action,
+        {"trigger_data": {"id": "key-passage-test"}, "variables": {}},
+    )
+
+    event_data = {
+        CONF_DEVICE_ID: device.id,
+        "skud_id": 7,
+        "key_name": "Family key",
+        "occurred_at": "2026-09-01T00:00:00+00:00",
+    }
+    hass.bus.async_fire(EVENT_KEY_PASSAGE, event_data)
+    await hass.async_block_till_done()
+
+    assert len(calls) == 1
+    assert calls[0]["trigger"]["event"].data == event_data
+    remove()

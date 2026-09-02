@@ -135,6 +135,162 @@ async def test_skud_discovery_merges_shared_and_owned_by_id(api: UfanetApi) -> N
 
 
 @pytest.mark.asyncio
+async def test_key_recording_discovery_uses_confirmed_filter_and_paginates(
+    api: UfanetApi,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    async def fake_request(method: str, path: str, **kwargs):
+        assert method == "POST"
+        assert path == "/api/v0/intercoms/"
+        calls.append(kwargs["json_body"])
+        page = kwargs["json_body"]["page"]
+        return {
+            "result": {
+                "page_info": {
+                    "count": 2,
+                    "next_page": 2 if page == 1 else None,
+                    "prev_page": None if page == 1 else 1,
+                },
+                "intercoms": [
+                    {
+                        "id": page,
+                        "has_key_recording_support": True,
+                    }
+                ],
+            }
+        }
+
+    api._async_ufanet_json = fake_request  # type: ignore[method-assign]
+
+    assert await api.async_get_key_recording_intercom_ids() == {1, 2}
+    assert calls == [
+        {
+            "page": 1,
+            "page_size": 10,
+            "filters": {"has_key_recording_support": True},
+        },
+        {
+            "page": 2,
+            "page_size": 10,
+            "filters": {"has_key_recording_support": True},
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_physical_keys_return_only_private_runtime_minimum(
+    api: UfanetApi,
+) -> None:
+    api._async_ufanet_json = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "data": {
+                "keys": [
+                    {
+                        "id": 77,
+                        "external_id": "must-not-be-retained",
+                        "name": "Private key name",
+                        "create_date": 1788220800,
+                        "devices": ["7", 8],
+                    }
+                ]
+            }
+        }
+    )
+
+    assert await api.async_get_physical_keys() == [
+        {"key_id": 77, "devices": (7, 8)}
+    ]
+    api._async_ufanet_json.assert_awaited_once_with(  # type: ignore[attr-defined]
+        "POST",
+        "/api/v4/key/list/",
+    )
+
+
+@pytest.mark.asyncio
+async def test_key_passage_history_normalizes_confirmed_contract(
+    api: UfanetApi,
+) -> None:
+    api._async_ufanet_json = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "count": 1,
+            "current_page": 0,
+            "page_count": 1,
+            "page_size": 25,
+            "results": [
+                {
+                    "key": 77,
+                    "key_name": "Front key",
+                    "time_passage": 1788220800,
+                }
+            ],
+        }
+    )
+
+    result = await api.async_get_key_passage_history(7)
+
+    assert result == {
+        "count": 1,
+        "current_page": 0,
+        "page_count": 1,
+        "page_size": 25,
+        "results": [
+            {
+                "key_id": 77,
+                "key_name": "Front key",
+                "timestamp": 1788220800,
+            }
+        ],
+    }
+    api._async_ufanet_json.assert_awaited_once_with(  # type: ignore[attr-defined]
+        "POST",
+        "/api/v4/key/skud/7/key/pass_history/",
+        json_body={"page": 0, "page_size": 25},
+    )
+
+
+@pytest.mark.asyncio
+async def test_empty_physical_keys_and_passages_are_valid(api: UfanetApi) -> None:
+    api._async_ufanet_json = AsyncMock(  # type: ignore[method-assign]
+        side_effect=[
+            {"data": {"keys": []}},
+            {
+                "count": 0,
+                "current_page": 0,
+                "page_count": 0,
+                "page_size": 25,
+                "results": [],
+            },
+        ]
+    )
+
+    assert await api.async_get_physical_keys() == []
+    assert (await api.async_get_key_passage_history(7))["results"] == []
+
+
+@pytest.mark.asyncio
+async def test_key_passage_rejects_unrepresentable_timestamp(api: UfanetApi) -> None:
+    api._async_ufanet_json = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "count": 1,
+            "current_page": 0,
+            "page_count": 1,
+            "page_size": 25,
+            "results": [
+                {
+                    "key": 1,
+                    "key_name": "Private name",
+                    "time_passage": 253_402_300_800,
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(UfanetResponseError, match="invalid fields"):
+        await api.async_get_key_passage_history(7)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("payload", "expected"),
     [

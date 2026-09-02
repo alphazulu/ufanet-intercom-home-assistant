@@ -11,13 +11,12 @@ import asyncio
 import base64
 import json
 import time
-from typing import Any
+from typing import Any, TypedDict
 from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 
 from aiohttp import ClientError, ClientResponse, ClientSession
 
 from .const import UCAMS_BASE_URL, UCAMS_TOKEN_TTL, UFANET_BASE_URL
-
 
 CAMERA_FIELDS = [
     "number",
@@ -39,6 +38,33 @@ CAMERA_FIELDS = [
 ]
 
 CALL_PREVIEW_MAX_BYTES = 32 * 1024 * 1024
+KEY_INTERCOM_PAGE_SIZE = 10
+KEY_PASSAGE_PAGE_SIZE = 25
+
+
+class PhysicalKey(TypedDict):
+    """Privacy-minimized physical key data used by the integration."""
+
+    key_id: int
+    devices: tuple[int, ...]
+
+
+class KeyPassage(TypedDict):
+    """Normalized physical-key passage returned by Ufanet."""
+
+    key_id: int
+    key_name: str
+    timestamp: int
+
+
+class KeyPassagePage(TypedDict):
+    """Normalized page of physical-key passages."""
+
+    count: int
+    current_page: int
+    page_count: int
+    page_size: int
+    results: list[KeyPassage]
 
 
 class UfanetApiError(Exception):
@@ -272,6 +298,168 @@ class UfanetApi:
                 item["_is_shared"] = is_shared
                 by_id[int(item["id"])] = item
         return list(by_id.values())
+
+    async def async_get_key_recording_intercom_ids(self) -> set[int]:
+        """Return all intercom IDs that advertise physical-key recording."""
+        page = 1
+        visited_pages: set[int] = set()
+        intercom_ids: set[int] = set()
+
+        while page not in visited_pages:
+            visited_pages.add(page)
+            data = await self._async_ufanet_json(
+                "POST",
+                "/api/v0/intercoms/",
+                json_body={
+                    "page": page,
+                    "page_size": KEY_INTERCOM_PAGE_SIZE,
+                    "filters": {"has_key_recording_support": True},
+                },
+            )
+            if not isinstance(data, dict) or not isinstance(
+                result := data.get("result"), dict
+            ):
+                raise UfanetResponseError("Unexpected key-capable intercom response")
+            intercoms = result.get("intercoms")
+            if not isinstance(intercoms, list):
+                raise UfanetResponseError(
+                    "Key-capable intercom response has no intercom list"
+                )
+
+            for item in intercoms:
+                if not isinstance(item, dict):
+                    raise UfanetResponseError(
+                        "Key-capable intercom response contains an invalid item"
+                    )
+                skud_id = item.get("id")
+                supported = item.get("has_key_recording_support")
+                if (
+                    not isinstance(skud_id, int)
+                    or isinstance(skud_id, bool)
+                    or not isinstance(supported, bool)
+                ):
+                    raise UfanetResponseError(
+                        "Key-capable intercom response contains invalid fields"
+                    )
+                if supported:
+                    intercom_ids.add(skud_id)
+
+            page_info = result.get("page_info")
+            next_page = (
+                page_info.get("next_page") if isinstance(page_info, dict) else None
+            )
+            if next_page is None:
+                break
+            if (
+                not isinstance(next_page, int)
+                or isinstance(next_page, bool)
+                or next_page < 1
+            ):
+                raise UfanetResponseError(
+                    "Key-capable intercom response has invalid pagination"
+                )
+            page = next_page
+
+        return intercom_ids
+
+    async def async_get_physical_keys(self) -> list[PhysicalKey]:
+        """Return physical keys with only the fields needed for counting."""
+        data = await self._async_ufanet_json("POST", "/api/v4/key/list/")
+        payload = data.get("data") if isinstance(data, dict) else None
+        raw_keys = payload.get("keys") if isinstance(payload, dict) else None
+        if not isinstance(raw_keys, list):
+            raise UfanetResponseError("Physical-key response has no key list")
+
+        keys: list[PhysicalKey] = []
+        for item in raw_keys:
+            if not isinstance(item, dict):
+                raise UfanetResponseError("Physical-key response contains invalid item")
+            key_id = item.get("id")
+            raw_devices = item.get("devices")
+            if (
+                not isinstance(key_id, int)
+                or isinstance(key_id, bool)
+                or not isinstance(raw_devices, list)
+            ):
+                raise UfanetResponseError("Physical-key response contains invalid fields")
+
+            devices: list[int] = []
+            for raw_device in raw_devices:
+                try:
+                    device_id = int(raw_device)
+                except (TypeError, ValueError) as err:
+                    raise UfanetResponseError(
+                        "Physical-key response contains invalid device reference"
+                    ) from err
+                devices.append(device_id)
+            keys.append({"key_id": key_id, "devices": tuple(devices)})
+        return keys
+
+    async def async_get_key_passage_history(
+        self,
+        skud_id: int,
+        *,
+        page: int = 0,
+        page_size: int = KEY_PASSAGE_PAGE_SIZE,
+    ) -> KeyPassagePage:
+        """Return one normalized page of physical-key passage history."""
+        data = await self._async_ufanet_json(
+            "POST",
+            f"/api/v4/key/skud/{int(skud_id)}/key/pass_history/",
+            json_body={"page": int(page), "page_size": int(page_size)},
+        )
+        if not isinstance(data, dict):
+            raise UfanetResponseError("Unexpected key-passage response")
+
+        pagination: dict[str, int] = {}
+        for field in ("count", "current_page", "page_count", "page_size"):
+            value = data.get(field)
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or value < 0
+            ):
+                raise UfanetResponseError(
+                    "Key-passage response contains invalid pagination"
+                )
+            pagination[field] = value
+
+        raw_results = data.get("results")
+        if not isinstance(raw_results, list):
+            raise UfanetResponseError("Key-passage response has no results list")
+
+        passages: list[KeyPassage] = []
+        for item in raw_results:
+            if not isinstance(item, dict):
+                raise UfanetResponseError("Key-passage response contains invalid item")
+            key_id = item.get("key")
+            key_name = item.get("key_name")
+            timestamp = item.get("time_passage")
+            if (
+                not isinstance(key_id, int)
+                or isinstance(key_id, bool)
+                or not isinstance(key_name, str)
+                or not isinstance(timestamp, int)
+                or isinstance(timestamp, bool)
+                or timestamp <= 0
+                or timestamp > 253_402_300_799
+            ):
+                raise UfanetResponseError("Key-passage response contains invalid fields")
+            passages.append(
+                {
+                    "key_id": key_id,
+                    "key_name": key_name,
+                    "timestamp": timestamp,
+                }
+            )
+
+        return {
+            "count": pagination["count"],
+            "current_page": pagination["current_page"],
+            "page_count": pagination["page_count"],
+            "page_size": pagination["page_size"],
+            "results": passages,
+        }
 
     async def async_open_door(self, skud_id: int, door: int = 1) -> None:
         """Open a SKUD/intercom relay using the HTTP open method."""
