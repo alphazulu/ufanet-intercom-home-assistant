@@ -1,0 +1,31 @@
+name: Apply archive motion timeline patch
+
+on:
+  push:
+    branches:
+      - codex/archive-motion-timeline
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/archive-motion-timeline
+      - name: Apply strict patch
+        run: python tools/apply_motion_timeline_patch.py
+      - name: Verify parsers
+        run: |
+          python -m py_compile custom_components/ufanet_intercom/analytics.py custom_components/ufanet_intercom/services.py custom_components/ufanet_intercom/const.py
+          node --check custom_components/ufanet_intercom/frontend/ufanet-archive-card.js
+      - name: Commit feature changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Add motion events to archive timeline"
+          git push origin HEAD:codex/archive-motion-timeline
