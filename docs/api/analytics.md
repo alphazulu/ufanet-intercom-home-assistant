@@ -120,9 +120,9 @@ rolled back for the whole poll.
 
 For an intercom whose camera advertises `motion_alarm`, the integration exposes:
 
-- a **Motion** Home Assistant `EventEntity`;
+- a **Motion detected** Home Assistant `EventEntity`;
 - the `ufanet_intercom_motion` Home Assistant bus event;
-- the `motion_detected` device trigger for the visual automation editor.
+- the **Motion detected** device trigger (`motion_detected`) for the visual automation editor.
 
 The EventEntity exposes only `occurred_at`. Internal bus routing can include the
 intercom/Home Assistant device reference needed to match an automation, but it
@@ -130,8 +130,8 @@ does not expose the UCAMS camera number, provider event/cursor ID, `length`, raw
 history, media, screenshots, recognition output, or arbitrary response fields.
 
 Motion entity discovery is recoverable: if UCAMS analytics is unavailable during
-initial setup, a later successful capability refresh can add the Motion entity
-without reloading the ConfigEntry.
+initial setup, a later successful capability refresh can add the **Motion detected**
+entity without reloading the ConfigEntry.
 
 The analytics coordinator normally polls at low frequency (60 seconds). It is an
 event source for automation, not an instantaneous security-alarm transport.
