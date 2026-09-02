@@ -1,4 +1,5 @@
-const CARD_VERSION = "0.28.0";
+const CARD_VERSION = "0.29.0";
+const MOTION_EVENT_LEAD_SECONDS = 18;
 
 class UfanetArchiveCard extends HTMLElement {
   constructor() {
@@ -28,6 +29,11 @@ class UfanetArchiveCard extends HTMLElement {
     this._callEvents = [];
     this._callEventsDate = null;
     this._callEventsCache = new Map();
+    this._motionEvents = [];
+    this._motionEventsDate = null;
+    this._motionEventsSupported = null;
+    this._motionEventsError = false;
+    this._motionEventsCache = new Map();
     this._activeTab = "archive";
     this._liveEntityId = null;
     this._openDoorEntityId = null;
@@ -1511,6 +1517,75 @@ class UfanetArchiveCard extends HTMLElement {
     }
   }
 
+  async _refreshMotionEvents(dateText, force = false) {
+    if (!dateText || !this._deviceId) return;
+
+    if (!force && this._motionEventsCache.has(dateText)) {
+      const cached = this._motionEventsCache.get(dateText) || {};
+      this._motionEvents = Array.isArray(cached.events) ? cached.events : [];
+      this._motionEventsDate = dateText;
+      this._motionEventsSupported = cached.supported === true;
+      this._motionEventsError = false;
+      this._renderTimeline(dateText);
+      return;
+    }
+
+    try {
+      const response = await this._callResponseService("get_motion_events", {
+        device_id: this._deviceId,
+        date: dateText,
+      });
+      const supported = response?.supported === true;
+      const events = supported && Array.isArray(response?.events)
+        ? response.events
+            .map((item) => ({
+              timestamp: Number(item.timestamp),
+              local_datetime: item.local_datetime,
+              local_time: item.local_time,
+              second_of_day: Number(item.second_of_day),
+            }))
+            .filter(
+              (item) =>
+                Number.isFinite(item.timestamp) &&
+                Number.isFinite(item.second_of_day)
+            )
+            .sort((a, b) => a.timestamp - b.timestamp)
+        : [];
+
+      this._motionEventsCache.set(dateText, { supported, events });
+      const selectedDate = this.shadowRoot.getElementById("date")?.value;
+      if (selectedDate === dateText) {
+        this._motionEvents = events;
+        this._motionEventsDate = dateText;
+        this._motionEventsSupported = supported;
+        this._motionEventsError = false;
+        this._renderTimeline(dateText);
+      }
+    } catch (_err) {
+      const selectedDate = this.shadowRoot.getElementById("date")?.value;
+      if (selectedDate === dateText) {
+        this._motionEvents = [];
+        this._motionEventsDate = dateText;
+        this._motionEventsSupported = null;
+        this._motionEventsError = true;
+        this._renderTimeline(dateText);
+      }
+    }
+  }
+
+  async _loadMotionEvent(event) {
+    if (!event || !Number.isFinite(Number(event.timestamp))) return;
+    const eventEpoch = Number(event.timestamp);
+    const requested = eventEpoch - MOTION_EVENT_LEAD_SECONDS;
+    let resolved = this._resolveTarget(requested, 1);
+    if (resolved == null) resolved = this._resolveTarget(eventEpoch, -1);
+    if (resolved == null) {
+      this._setStatus("Для этого события движения запись архива недоступна", "warning");
+      return;
+    }
+    await this._loadEpoch(resolved);
+  }
+
   _callAddress(event) {
     const parts = [];
     if (event?.address) parts.push(String(event.address));
@@ -1781,7 +1856,10 @@ class UfanetArchiveCard extends HTMLElement {
     }
 
     this._renderDayIntervals(resolvedDate);
-    await this._refreshCallEvents(resolvedDate);
+    await Promise.all([
+      this._refreshCallEvents(resolvedDate),
+      this._refreshMotionEvents(resolvedDate),
+    ]);
     const day = this._daysByDate.get(resolvedDate);
     if (!day?.intervals?.length) return;
 
@@ -2624,6 +2702,9 @@ class UfanetArchiveCard extends HTMLElement {
     } else {
       this._renderCallEvents(local.date);
     }
+    if (this._motionEventsDate !== local.date) {
+      void this._refreshMotionEvents(local.date);
+    }
   }
 
   _formatIntervalTime(value) {
@@ -2900,11 +2981,26 @@ class UfanetArchiveCard extends HTMLElement {
     const hint = this.shadowRoot.getElementById("timeline-hint");
     if (!track) return;
 
-    for (const node of [...track.querySelectorAll(".timeline-segment, .call-marker")]) {
+    for (const node of [...track.querySelectorAll(".timeline-segment, .call-marker, .motion-marker")]) {
       node.remove();
     }
 
     const windowRange = this._timelineWindow();
+    const eventSummary = this.shadowRoot.getElementById("timeline-event-summary");
+    if (eventSummary) {
+      const callText = this._callEventsDate === dateText ? String(this._callEvents.length) : "…";
+      let motionText = "…";
+      if (this._motionEventsDate === dateText) {
+        if (this._motionEventsSupported === true) {
+          motionText = String(this._motionEvents.length);
+        } else if (this._motionEventsError) {
+          motionText = "ошибка";
+        } else {
+          motionText = "—";
+        }
+      }
+      eventSummary.textContent = `🔔 ${callText} • движение ${motionText}`;
+    }
     track.dataset.pannable = this._timelineCanPan() ? "true" : "false";
     this._renderTimelineAxis(windowRange);
     this._updateZoomButtons();
@@ -2980,6 +3076,32 @@ class UfanetArchiveCard extends HTMLElement {
         marker.addEventListener("click", (ev) => {
           ev.stopPropagation();
           void this._loadCallEvent(event);
+        });
+        track.appendChild(marker);
+      }
+    }
+
+    if (
+      this._motionEventsDate === dateText &&
+      this._motionEventsSupported === true &&
+      this._motionEvents.length
+    ) {
+      for (const event of this._motionEvents) {
+        const seconds = Number(event.second_of_day);
+        if (!Number.isFinite(seconds)) continue;
+        if (seconds < windowRange.start || seconds > windowRange.end) continue;
+
+        const left = ((seconds - windowRange.start) / windowRange.span) * 100;
+        const marker = document.createElement("button");
+        marker.type = "button";
+        marker.className = "motion-marker";
+        marker.style.left = `${Math.max(0, Math.min(100, left))}%`;
+        marker.title = `Движение ${event.local_time || ""}`.trim();
+        marker.setAttribute("aria-label", marker.title);
+        marker.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+        marker.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          void this._loadMotionEvent(event);
         });
         track.appendChild(marker);
       }
@@ -3255,6 +3377,9 @@ class UfanetArchiveCard extends HTMLElement {
           margin-bottom: 5px; color: var(--secondary-text-color); font-size: 12px;
         }
         .timeline-zoom { display: inline-flex; gap: 4px; align-items: center; }
+        .timeline-event-summary {
+          margin-left: 7px; color: var(--secondary-text-color); font-size: 10px; font-weight: 400;
+        }
         .zoom-button {
           min-height: 28px; padding: 3px 9px; border-radius: 8px; font-size: 11px; font-weight: 500;
         }
@@ -3302,6 +3427,17 @@ class UfanetArchiveCard extends HTMLElement {
           box-shadow: 0 1px 3px rgba(0,0,0,.28);
         }
         .call-marker:hover { transform: translateX(-50%) scale(1.12); }
+        .motion-marker {
+          position: absolute; top: 0; bottom: 0; width: 12px; min-height: 0; padding: 0;
+          transform: translateX(-50%); z-index: 4; border: 0; border-radius: 0;
+          background: transparent; cursor: pointer;
+        }
+        .motion-marker::before {
+          content: ""; position: absolute; top: 3px; bottom: 3px; left: 4px; width: 4px;
+          border-radius: 2px; background: var(--success-color, #43a047);
+          box-shadow: 0 0 0 1px color-mix(in srgb, var(--card-background-color) 70%, transparent);
+        }
+        .motion-marker:hover::before { left: 3px; width: 6px; }
         #timeline-marker {
           position: absolute; top: -5px; bottom: -5px; width: 3px; transform: translateX(-1px);
           background: var(--error-color); border-radius: 2px; z-index: 6; pointer-events: none;
@@ -3682,7 +3818,7 @@ class UfanetArchiveCard extends HTMLElement {
 
           <div class="timeline-wrap">
             <div class="timeline-head">
-              <span>Timeline архива</span>
+              <span>Timeline архива <span id="timeline-event-summary" class="timeline-event-summary"></span></span>
               <div class="timeline-zoom" role="group" aria-label="Масштаб timeline">
                 <button id="zoom-24" class="zoom-button" type="button" aria-pressed="true">24 ч</button>
                 <button id="zoom-6" class="zoom-button" type="button" aria-pressed="false">6 ч</button>
@@ -3710,7 +3846,7 @@ class UfanetArchiveCard extends HTMLElement {
           <div class="calls">
             <div class="calls-head">
               <div id="calls-label">Звонки: загрузка…</div>
-              <button id="refresh-calls" type="button">Обновить</button>
+              <button id="refresh-calls" type="button">Обновить события</button>
             </div>
             <div id="call-events"></div>
           </div>
@@ -3901,7 +4037,12 @@ class UfanetArchiveCard extends HTMLElement {
     this.shadowRoot.getElementById("latest")?.addEventListener("click", () => void this._goLatest(true));
     this.shadowRoot.getElementById("refresh-calls")?.addEventListener("click", () => {
       const dateText = this.shadowRoot.getElementById("date")?.value;
-      if (dateText) void this._refreshCallEvents(dateText, true);
+      if (dateText) {
+        void Promise.all([
+          this._refreshCallEvents(dateText, true),
+          this._refreshMotionEvents(dateText, true),
+        ]);
+      }
     });
 
     this.shadowRoot.getElementById("prepare-archive-download")?.addEventListener(

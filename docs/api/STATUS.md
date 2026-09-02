@@ -28,6 +28,7 @@ This table is a compact index of what has actually been tested by the project. T
 | Analytics | `analytics` in camera metadata: `motion_alarm` | **Confirmed** | Live-tested camera advertises motion analytics; used by production v0.28.0 |
 | Analytics | `analytics` in camera metadata: `perimeter_security` | **Observed** | Android capability exists; not advertised by the tested tariff and not used by production runtime |
 | Analytics | `POST /api/v0/analytics/motion_alarm/report/` | **Confirmed** | HTTP 200; envelope `count/page/results`; result fields `id/date/length`; `date` is authoritative and `id` is a private opaque cursor |
+| Analytics | `POST /api/v0/analytics/archive_events/` | **Observed** | Decompiled Android archive player can request all analytics for an archive interval; not live-confirmed and not used by production runtime |
 | Analytics | motion report pagination | **Confirmed** | `page` has `current/next/previous/all/page_size`; server returned page size 60 despite a smaller requested `limit`. No pagination request field is yet live-confirmed, so v0.28.0 resolves incomplete reports by splitting only the confirmed `start`/`end` window and never advances the cursor past an unresolved gap |
 | Live | `.../<camera>/index.m3u8?...` | **Confirmed** | HTTP 200 |
 | Snapshot | `/api/v0/screenshots/<camera>.jpg?...` | **Confirmed** | Working snapshot |

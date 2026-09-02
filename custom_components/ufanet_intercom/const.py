@@ -1,7 +1,7 @@
 """Constants for the Ufanet Intercom integration."""
 
 DOMAIN = "ufanet_intercom"
-INTEGRATION_VERSION = "0.28.0"
+INTEGRATION_VERSION = "0.29.0"
 
 UFANET_BASE_URL = "https://dom.ufanet.ru"
 UCAMS_BASE_URL = "https://cloud.ucams.ru"
@@ -65,6 +65,7 @@ SERVICE_LIST_ARCHIVE_EXPORTS = "list_archive_exports"
 SERVICE_DELETE_ARCHIVE_EXPORT = "delete_archive_export"
 SERVICE_CLEANUP_ARCHIVE_EXPORTS = "cleanup_archive_exports"
 SERVICE_GET_CALL_EVENTS = "get_call_events"
+SERVICE_GET_MOTION_EVENTS = "get_motion_events"
 SERVICE_GET_LAST_CALL_PREVIEW_URL = "get_last_call_preview_url"
 SERVICE_GET_GUEST_ACCESS = "get_guest_access"
 SERVICE_CREATE_GUEST_INVITE = "create_guest_invite"

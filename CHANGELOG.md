@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.29.0
+
+- Added privacy-safe UCAMS motion-event markers to the Lovelace archive timeline for cameras that advertise the live-confirmed `motion_alarm` capability.
+- Added the authenticated `ufanet_intercom.get_motion_events` response service for one camera-local day; frontend responses contain only normalized event times and support/count metadata, never provider camera numbers, event/cursor IDs, `length`, raw history, media, screenshots or recognition data.
+- Kept production history loading on the already live-confirmed `POST /api/v0/analytics/motion_alarm/report/` contract with safe `start`/`end` window splitting; the Android-observed `/api/v0/analytics/archive_events/` endpoint remains documented as Observed only and is not used at runtime.
+- Drew analytics events as point markers at their authoritative timestamps and start archive playback approximately 18 seconds before a selected event, matching the observed Android `EVENT_TIME_OFFSET=18000` behavior without shifting the marker itself.
+- Added capability recovery for archive-marker loading after startup or a temporary analytics outage, while keeping unsupported analytics optional and non-blocking for normal archive playback.
+- Refreshed call and motion markers together, preserved timeline zoom/pan behavior, and added EN/RU documentation for the archive analytics model.
+- Added regression coverage for timestamp-only privacy reduction, service-response privacy, unsupported cameras, capability recovery, sanitized UCAMS errors and frontend marker wiring.
+- Live-tested the feature on Home Assistant: motion positions rendered on the archive timeline and visually matched the corresponding event times during verification.
+
 ## 0.28.0
 
 - Added live-confirmed, read-only UCAMS `motion_alarm` support for intercom cameras that explicitly advertise the capability.

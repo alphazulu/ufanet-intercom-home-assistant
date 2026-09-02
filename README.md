@@ -11,7 +11,7 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 - UI setup with Ufanet contract/login and password.
 - Door opening through Home Assistant `button` entities.
 - Live UCAMS camera stream and snapshots.
-- Native archive browsing with recording ranges, timeline zoom/pan and call markers.
+- Native archive browsing with recording ranges, timeline zoom/pan, call markers, and read-only motion-event markers.
 - Intercom call history, the `ufanet_intercom_call` event, native **Incoming call** and **Last call image** entities, and a matching device trigger for the visual automation editor.
 - Read-only physical-key count, latest-passage timestamp and passage events for supported intercoms.
 - Read-only UCAMS `motion_alarm` analytics with a **Motion detected** event entity, `ufanet_intercom_motion` event, and matching visual device trigger on supported cameras.
@@ -65,10 +65,10 @@ To install it as a HACS custom repository:
 
 ## Lovelace card
 
-Add the resource as a JavaScript module. For release v0.28.0 the cache-bust URL is:
+Add the resource as a JavaScript module. For release v0.29.0 the cache-bust URL is:
 
 ```text
-/ufanet_intercom/ufanet-archive-card.js?v=0.28.0
+/ufanet_intercom/ufanet-archive-card.js?v=0.29.0
 ```
 
 The `?v=` value should match the installed integration release; the repository release check verifies this documentation URL together with the integration, manifest, card, and runtime cache-bust versions.
@@ -129,7 +129,7 @@ The first successful poll establishes a baseline and does not replay historical 
 
 ### Motion analytics
 
-For every camera that explicitly advertises the live-confirmed `motion_alarm` capability, v0.28.0 creates a **Motion detected** event entity and exposes the matching **Motion detected** device trigger (`motion_detected`). The same normalized event is available on the Home Assistant bus as `ufanet_intercom_motion`.
+For every camera that explicitly advertises the live-confirmed `motion_alarm` capability, v0.29.0 creates a **Motion detected** event entity and exposes the matching **Motion detected** device trigger (`motion_detected`). The same normalized event is available on the Home Assistant bus as `ufanet_intercom_motion`. The archive timeline can also request the selected day's privacy-minimized motion timestamps and draw them as point markers over recorded ranges; selecting a marker starts playback about 18 seconds before the event while leaving the marker at the authoritative event time.
 
 The analytics coordinator normally polls every 60 seconds. Its first successful poll establishes a baseline and does not replay older motion history. The private per-camera cursor preserves fractional event timestamps and same-timestamp provider IDs across Home Assistant restarts. If the server returns an incomplete/oversized report, the integration splits only the confirmed `start`/`end` time window; if it still cannot resolve the window safely, the poll fails without advancing the cursor instead of silently losing events.
 
