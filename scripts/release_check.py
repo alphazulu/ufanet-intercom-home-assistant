@@ -20,6 +20,8 @@ INIT = COMP / "__init__.py"
 JS = COMP / "frontend" / "ufanet-archive-card.js"
 SERVICES = COMP / "services.yaml"
 HACS = ROOT / "hacs.json"
+README = ROOT / "README.md"
+README_RU = ROOT / "README_RU.md"
 
 ERRORS: list[str] = []
 WARNINGS: list[str] = []
@@ -55,12 +57,24 @@ def check_versions() -> None:
     const_text = CONST.read_text(encoding="utf-8")
     init_text = INIT.read_text(encoding="utf-8")
     js_text = JS.read_text(encoding="utf-8")
+    readme_text = README.read_text(encoding="utf-8")
+    readme_ru_text = README_RU.read_text(encoding="utf-8")
 
     python_version = extract(r'^INTEGRATION_VERSION\s*=\s*["\']([^"\']+)', const_text, "INTEGRATION_VERSION")
     card_version = extract(r'^const CARD_VERSION\s*=\s*["\']([^"\']+)', js_text, "CARD_VERSION")
     cache_version = extract(r'_ARCHIVE_CARD_MODULE_URL\s*=.*?\?v=([0-9A-Za-z._-]+)', init_text, "frontend cache-bust version")
+    resource_pattern = r'/ufanet_intercom/ufanet-archive-card\.js\?v=([0-9A-Za-z._-]+)'
+    readme_version = extract(resource_pattern, readme_text, "README Lovelace resource version")
+    readme_ru_version = extract(resource_pattern, readme_ru_text, "README_RU Lovelace resource version")
 
-    versions = {"manifest": manifest_version, "python": python_version, "card": card_version, "cache": cache_version}
+    versions = {
+        "manifest": manifest_version,
+        "python": python_version,
+        "card": card_version,
+        "cache": cache_version,
+        "readme": readme_version,
+        "readme_ru": readme_ru_version,
+    }
     present = {value for value in versions.values() if value}
     if len(present) != 1:
         error(f"version mismatch: {versions}")

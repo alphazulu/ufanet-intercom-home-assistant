@@ -2,34 +2,38 @@
 
 [Русская версия](analytics_RU.md)
 
-This page records read-only camera analytics contracts observed in the official
-Android client and verified against the live UCAMS service where noted.
+This page records the read-only UCAMS camera-analytics contract observed in the
+official Android client, the parts verified against the live UCAMS service, and
+the privacy-safe production behavior implemented by Ufanet Intercom v0.28.0.
 
 ## Camera capability metadata
 
 **Status: Confirmed for `motion_alarm`; Observed for `perimeter_security`**
 
-The existing `POST /api/v0/cameras/this/` request can include the `analytics`
-field. The live-tested camera returned `motion_alarm`. The same Android contract
-also exposes `perimeter_security`, but the tested tariff did not advertise that
-capability, so the event endpoint was not called for it.
+`POST /api/v0/cameras/this/` can include the `analytics` field. The live-tested
+camera advertised `motion_alarm`. The Android client also knows about
+`perimeter_security`, but the tested tariff did not advertise that capability,
+so its event endpoint was not called and production runtime does not use it.
 
-The research probe requests only:
+For production capability discovery v0.28.0 requests only the minimum required
+fields:
 
 ```json
 {
-  "fields": ["number", "analytics", "tariff", "timezone"],
+  "fields": ["number", "analytics"],
   "numbers": ["<CAMERA_NUMBER>"]
 }
 ```
 
-No live, archive, or screenshot token is requested for capability discovery.
+The research probe may request additional non-media metadata such as `tariff` to
+classify what was observed, but production discovery does not need tariff,
+timezone, live/archive tokens, screenshots, or recognition data.
 
 ## Motion event report
 
 **Status: Confirmed for `motion_alarm`**
 
-The live-confirmed request is:
+The live-confirmed endpoint is:
 
 ```http
 POST https://cloud.ucams.ru/api/v0/analytics/motion_alarm/report/
@@ -37,48 +41,115 @@ Authorization: Bearer <UCAMS_TOKEN>
 Content-Type: application/json
 ```
 
-Request fields:
+Confirmed request fields:
 
 ```json
 {
   "camera_number": "<CAMERA_NUMBER>",
   "start": "<ISO-8601 UTC>",
   "end": "<ISO-8601 UTC>",
-  "limit": 5,
+  "limit": 25,
   "order_by_date": "desc"
 }
 ```
 
-The live response uses a dictionary envelope containing `count`, `page` and
-`results`. Each confirmed `motion_alarm` result contains an opaque numeric `id`,
-an ISO-8601 UTC `date`, and `length`.
+`limit` is advisory only: the server did not obey a smaller tested value, so
+clients must validate the returned envelope rather than assuming the requested
+row count is enforced.
+
+The live response is a dictionary containing `count`, `page`, and `results`.
+Each confirmed `motion_alarm` result contains:
+
+| Field | Confirmed meaning |
+|---|---|
+| `id` | opaque numeric event identifier; private replay cursor only |
+| `date` | authoritative ISO-8601 UTC event time |
+| `length` | event length reported by UCAMS |
 
 The Android DTO contains a field named `time`, but the live wire schema uses
-`date`. Runtime code must therefore treat `date` as authoritative and must not
-apply any archive playback offset to it.
+`date`. Runtime code therefore treats `date` as authoritative and never applies
+the archive playback-before-event offset to the event timestamp.
 
-The `id` is not user-facing event data. It is treated only as a private opaque
-cursor for deduplication.
-
-## Pagination and limits
+## Pagination and oversized windows
 
 The confirmed `page` object contains `current`, `next`, `previous`, `all`, and
 `page_size`. In the live test the server returned a page size of 60 even though
-a smaller `limit` was requested. Clients must not assume that the server obeys
-the requested row limit and must cap local processing themselves.
+a smaller `limit` was requested.
 
-## Scope and privacy boundary
+No pagination request field such as `page` or `offset` has been live-confirmed
+for this report endpoint, so v0.28.0 intentionally does **not** invent one.
+Instead production runtime:
+
+1. checks `count`/`page` to determine whether the returned time window is
+   complete;
+2. accepts and immediately normalizes complete windows;
+3. if a post-baseline window is incomplete, recursively splits only the already
+   confirmed `start`/`end` time interval and queries the smaller windows;
+4. refuses to advance the cursor if a window remains too dense to resolve
+   safely.
+
+This makes overflow fail closed: a temporary analytics update can fail, but
+unseen events are not silently skipped by advancing the cursor past an
+unprocessed gap.
+
+## Replay cursor and first-poll baseline
+
+The provider `id` is never published as Home Assistant event data. Production
+stores only a private per-camera replay cursor containing the latest exact UTC
+`date` plus the set of IDs seen at that same timestamp.
+
+Important v0.28.0 behavior:
+
+- fractional timestamp precision is preserved in private storage, so a reload
+  cannot move the cursor backwards and replay an already processed event;
+- same-timestamp IDs are retained for deterministic deduplication;
+- the first successful poll establishes a baseline and does not replay existing
+  history;
+- if that first poll is empty, the baseline is the poll time rather than Unix
+  epoch;
+- subsequent queries use a small overlap around the private cursor and rely on
+  the cursor to suppress duplicates;
+- the analytics lookback is bounded rather than allowing an unbounded history
+  replay.
+
+Cursor updates are transactional across cameras. If any camera request or the
+private storage write fails, transient events are cleared and cursor state is
+rolled back for the whole poll.
+
+## Home Assistant surface in v0.28.0
+
+For an intercom whose camera advertises `motion_alarm`, the integration exposes:
+
+- a **Motion detected** Home Assistant `EventEntity`;
+- the `ufanet_intercom_motion` Home Assistant bus event;
+- the **Motion detected** device trigger (`motion_detected`) for the visual automation editor.
+
+The EventEntity exposes only `occurred_at`. Internal bus routing can include the
+intercom/Home Assistant device reference needed to match an automation, but it
+does not expose the UCAMS camera number, provider event/cursor ID, `length`, raw
+history, media, screenshots, recognition output, or arbitrary response fields.
+
+Motion entity discovery is recoverable: if UCAMS analytics is unavailable during
+initial setup, a later successful capability refresh can add the **Motion detected**
+entity without reloading the ConfigEntry.
+
+The analytics coordinator normally polls at low frequency (60 seconds). It is an
+event source for automation, not an instantaneous security-alarm transport.
+
+## Errors, diagnostics, and privacy boundary
 
 Production support is intentionally limited to `motion_alarm`. The project does
 not request face recognition, license plates, thermal data, crowd analysis,
-helmet detection, screenshots, free text, or media URLs.
+helmet detection, screenshots, free text, or analytics media URLs.
 
-The probe reports only status codes, counts, capability presence, envelope
-shape, known field names, and pagination behavior. It never prints camera
-numbers, event IDs/timestamps, text, tokens, media URLs, images, recognition
+The research probe reports only status codes, counts, capability presence,
+envelope shape, known field names, and pagination behavior. It never prints
+camera numbers, event IDs/timestamps, tokens, media URLs, images, recognition
 results, or raw JSON.
 
-Production support may retain only the private cursor required for replay
-suppression plus coarse event time required by Home Assistant. Raw event history,
-media, recognition data, camera identifiers and cursor values must not be
-exposed through entities, logs or diagnostics.
+At the production boundary, raw result objects are immediately reduced to the
+private cursor ID and authoritative `date`; extra response fields are discarded.
+UCAMS API failures are mapped to a fixed safe coordinator error rather than
+surfacing response-body text. Diagnostics expose aggregate counts/health and the
+exception type only, not the exception message, raw events, camera identifiers,
+or cursor values.

@@ -14,6 +14,7 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 - Native archive browsing with recording ranges, timeline zoom/pan and call markers.
 - Intercom call history, the `ufanet_intercom_call` event, native **Incoming call** and **Last call image** entities, and a matching device trigger for the visual automation editor.
 - Read-only physical-key count, latest-passage timestamp and passage events for supported intercoms.
+- Read-only UCAMS `motion_alarm` analytics with a **Motion detected** event entity, `ufanet_intercom_motion` event, and matching visual device trigger on supported cameras.
 - Selectable call updates: polling by default or experimental low-latency FCM with safety polling.
 - Temporary guest keys and accepted shared-access management.
 - Manual archive export to MP4 using `ffmpeg -c copy` into Home Assistant Media.
@@ -64,11 +65,13 @@ To install it as a HACS custom repository:
 
 ## Lovelace card
 
-Add the resource as a JavaScript module:
+Add the resource as a JavaScript module. For release v0.28.0 the cache-bust URL is:
 
 ```text
-/ufanet_intercom/ufanet-archive-card.js?v=0.27.0
+/ufanet_intercom/ufanet-archive-card.js?v=0.28.0
 ```
+
+The `?v=` value should match the installed integration release; the repository release check verifies this documentation URL together with the integration, manifest, card, and runtime cache-bust versions.
 
 Minimal card:
 
@@ -124,6 +127,14 @@ For every intercom advertising key-recording support, the integration creates **
 
 The first successful poll establishes a baseline and does not replay historical passages. A private cursor prevents duplicates after an integration reload or Home Assistant restart. An actual event contains only `key_name` and `occurred_at`; the provider's `external_id` and full passage history are never exposed. Diagnostics contain only aggregate counts and health flags. Key creation, rename, deletion and BLE access remain outside this read-only feature.
 
+### Motion analytics
+
+For every camera that explicitly advertises the live-confirmed `motion_alarm` capability, v0.28.0 creates a **Motion detected** event entity and exposes the matching **Motion detected** device trigger (`motion_detected`). The same normalized event is available on the Home Assistant bus as `ufanet_intercom_motion`.
+
+The analytics coordinator normally polls every 60 seconds. Its first successful poll establishes a baseline and does not replay older motion history. The private per-camera cursor preserves fractional event timestamps and same-timestamp provider IDs across Home Assistant restarts. If the server returns an incomplete/oversized report, the integration splits only the confirmed `start`/`end` time window; if it still cannot resolve the window safely, the poll fails without advancing the cursor instead of silently losing events.
+
+The **Motion detected** EventEntity publishes only `occurred_at`. UCAMS camera identifiers, provider event/cursor IDs, raw history, `length`, screenshots, media and recognition data are not exposed through the entity or diagnostics. UCAMS error response text is also kept out of coordinator errors/logs. If analytics is unavailable during initial setup, entity discovery can recover later without reloading the integration. See [UCAMS camera analytics](docs/api/analytics.md) for the confirmed wire contract and implementation details.
+
 ## Automatic call recording
 
 Disabled by default. When enabled, a new call is exported asynchronously after the requested post-call interval has entered the UCAMS archive. For example:
@@ -146,6 +157,7 @@ Manual and automatic MP4 exports are saved under the Home Assistant media direct
 - Downloadable diagnostics redact login/password and avoid guest/media URLs and exact camera identifiers.
 - The last-call image keeps only a generated JPEG in memory; tokenized preview video and its URL are not persisted.
 - Tokenized call-media URLs remain internal runtime data and are not published in entity state or `ufanet_intercom_call` events. Explicit authenticated archive service responses may still contain a temporary URL required for playback.
+- Motion analytics stores provider cursor data only in Home Assistant private storage; camera/cursor identifiers and raw motion history are not published through entities, logs, or diagnostics.
 - Firebase values, FCM credentials and the local Firebase config path are never included in diagnostics. Do not commit `firebase_config.json`.
 
 ## Troubleshooting
@@ -166,7 +178,7 @@ If local `ffmpeg` is unavailable or last-call JPEG extraction repeatedly fails, 
 
 - Python compilation and JSON validity;
 - JavaScript syntax when Node.js is installed;
-- matching integration/card/cache-bust versions;
+- matching integration/card/cache-bust versions and documented Lovelace resource versions in both READMEs;
 - unresolved custom-card `this._method()` calls;
 - service names referenced by the card;
 - absence of packaged `__pycache__`, `.pyc`, obvious JWTs and live guest links.

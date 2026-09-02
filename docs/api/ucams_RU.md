@@ -54,9 +54,12 @@ Content-Type: application/json
 - количество потоков;
 - домен/производитель медиасервера;
 - домен сервиса снимков;
+- объявленные `analytics` capabilities; `motion_alarm` live-подтверждён на проверенной камере, а `perimeter_security` остаётся только Observed;
 - данные тарифа, включая глубину архива (`dvr_hours`).
 
 Полная структура ответа намеренно не объявляется стабильной схемой: это закрытый API, и вложенность может отличаться.
+
+Для production capability discovery аналитики полный media-metadata запрос выше не требуется. Ufanet Intercom v0.28.0 использует отдельный минимальный `cameras/this/` только с `number` и `analytics`. Подтверждённый контракт отчёта `motion_alarm` и privacy boundary описаны на странице [аналитики камер UCAMS](analytics_RU.md).
 
 ## Live HLS
 
@@ -85,7 +88,7 @@ https://<SCREENSHOT_DOMAIN>/api/v0/screenshots/<CAMERA_NUMBER>.jpg?token=<TOKEN_
 | Токен | Назначение |
 |---|---|
 | Ufanet access JWT | Ufanet API и обмен на UCAMS |
-| UCAMS JWT | управляющий API UCAMS (`Bearer`) |
+| UCAMS JWT | управляющий API UCAMS (`Bearer`), включая metadata камеры и analytics reports |
 | `token_l` | live HLS и снимки |
 | `token_r` | архив и диапазоны записи |
 

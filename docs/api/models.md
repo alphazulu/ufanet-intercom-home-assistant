@@ -28,9 +28,9 @@ Do not hard-code `model == 39` or assume `camera == null` for all devices.
 
 ## UCAMS camera metadata
 
-**Status: Observed**
+**Status: Observed; `motion_alarm` capability Confirmed on the live-tested camera**
 
-Fields requested by this project include:
+Fields requested by the broader camera/media flow include:
 
 ```text
 number
@@ -51,7 +51,41 @@ is_sounding
 streams_count
 ```
 
-Observed nested server/tariff data can include media-server domain/vendor, screenshot domain and archive depth (`dvr_hours`). Exact nesting should be treated as implementation detail until broader samples are collected.
+`analytics` is a capability list. `motion_alarm` was returned by the live-tested camera and is Confirmed; `perimeter_security` is known from the Android client but was not advertised by the tested tariff and remains Observed.
+
+Production v0.28.0 analytics discovery requests only `number` and `analytics`. Observed nested server/tariff data in the broader media request can include media-server domain/vendor, screenshot domain and archive depth (`dvr_hours`). Exact nesting should be treated as implementation detail until broader samples are collected.
+
+## UCAMS `motion_alarm` report
+
+**Status: Confirmed**
+
+The confirmed response is an object with this structural model:
+
+```text
+count
+page
+  current
+  next
+  previous
+  all
+  page_size
+results[]
+  id
+  date
+  length
+```
+
+Confirmed result semantics:
+
+| Field | Meaning |
+|---|---|
+| `id` | opaque numeric provider event identifier; private cursor/deduplication only |
+| `date` | authoritative ISO-8601 UTC event timestamp |
+| `length` | event length reported by UCAMS |
+
+The Android DTO field `time` is not used as the live wire timestamp; `date` is authoritative. The server may return a `page_size` larger than the requested `limit`; the live test returned 60 despite a smaller requested value.
+
+This is a **private wire model**, not the Home Assistant event schema. Production immediately discards unrelated/unknown result fields, stores cursor identifiers only in private Home Assistant storage, and exposes only coarse `occurred_at` through the Motion detected EventEntity. See [analytics.md](analytics.md).
 
 ## Archive range
 
@@ -92,8 +126,9 @@ Private API responses may differ across accounts, cities, tariffs, firmware and 
 - tolerate absent optional fields;
 - tolerate explicit `null`;
 - avoid assuming all enum values are already known;
-- preserve unknown fields when useful for diagnostics, while redacting sensitive values.
+- validate confirmed fields before use;
+- discard or redact unknown/private analytics fields instead of exposing raw responses through public diagnostics.
 
 ## Schema contribution rule
 
-Only add a field to this document when it was actually observed in a response or client code. Mark uncertain semantics explicitly instead of guessing.
+Only add a field to this document when it was actually observed in a response or client code. Mark uncertain semantics explicitly instead of guessing. Never publish raw account-specific camera/event identifiers or event history as documentation samples.

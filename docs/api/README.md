@@ -28,7 +28,8 @@ The integration currently uses three API layers:
    - guest/shared-access management.
 2. **UCAMS control API** — `https://cloud.ucams.ru`
    - exchanges the Ufanet JWT for a UCAMS bearer token;
-   - returns camera metadata, live/archive tokens and media server information.
+   - returns camera metadata, live/archive tokens and media server information;
+   - advertises camera analytics capabilities and provides the confirmed read-only `motion_alarm` report used by v0.28.0.
 3. **UCAMS media servers** — hostnames returned by the UCAMS API
    - live HLS;
    - archive ranges and archive HLS;
@@ -45,6 +46,8 @@ Ufanet access + refresh JWT
         | POST cloud.ucams.ru/api/v0/auth/
         v
 UCAMS bearer token
+        |
+        +--> camera metadata / analytics reports
         |
         v
 camera metadata -> token_l / token_r -> media servers
@@ -73,8 +76,8 @@ Important distinction:
 ## Verification and examples
 
 - [API verification matrix](STATUS.md) — compact list of tested endpoints and their current evidence status.
-- [curl examples](examples/curl.md) — read-only command-line examples.
-- [Python read-only example](examples/python.md) — minimal authentication/discovery/UCAMS flow.
+- [curl examples](examples/curl.md) — read-only command-line examples, including analytics capability discovery and `motion_alarm` reporting.
+- [Python read-only example](examples/python.md) — authentication/discovery/UCAMS flow with privacy-safe analytics handling guidance.
 
 State-changing examples (door opening, guest creation/revocation) are intentionally kept on the relevant reference pages rather than in the copy/paste examples collection.
 
@@ -93,4 +96,4 @@ For every newly tested endpoint, record:
 
 Update both the detailed page and [STATUS.md](STATUS.md) in the same change.
 
-Never commit real passwords, JWTs, refresh tokens, guest tokens, tokenized media URLs, exact private addresses, or other account-specific secrets.
+Never commit real passwords, JWTs, refresh tokens, guest tokens, tokenized media URLs, exact private addresses, camera/event identifiers from a live account, raw event history, or other account-specific secrets.
