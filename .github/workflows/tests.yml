@@ -47,7 +47,7 @@ jobs:
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add custom_components/ufanet_intercom/fcm.py tests/test_fcm.py
             git commit -m "Start FCM listener before authorization diagnostics"
-            git push origin HEAD:${GITHUB_REF_NAME}
+            git push origin HEAD:refs/heads/codex/fcm-self-registration-diagnostics
           fi
 
       - name: Set up Python 3.14
