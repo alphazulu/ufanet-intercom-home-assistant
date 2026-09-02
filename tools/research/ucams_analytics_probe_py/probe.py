@@ -26,6 +26,7 @@ EVENT_FIELD_ALLOWLIST = frozenset(
     {
         "camera_number",
         "cameraNumber",
+        "date",
         "duration",
         "full_screenshot_url",
         "id",
@@ -66,12 +67,15 @@ class EventSummary:
     """Privacy-safe statistics for one analytics response."""
 
     returned: int
+    processed: int
     valid_timestamps: int
     unexpected_types: int
     unknown_fields: int
     content_fields_present: bool
     schema_fields: tuple[str, ...]
     envelope: str
+    server_page_size: int | None
+    limit_honored: bool | None
 
 
 def _authorization_headers(scheme: str, token: str) -> dict[str, str]:
@@ -249,17 +253,57 @@ def _extract_event_items(payload: Any) -> tuple[list[Any], str]:
     raise ProbeError("analytics events returned an unknown envelope")
 
 
-def parse_event_summary(payload: Any, expected_type: str) -> EventSummary:
+def _parse_server_page_size(payload: Any) -> int | None:
+    if not isinstance(payload, dict):
+        return None
+    page = payload.get("page")
+    if not isinstance(page, dict):
+        return None
+    page_size = page.get("page_size")
+    if (
+        isinstance(page_size, int)
+        and not isinstance(page_size, bool)
+        and page_size >= 0
+    ):
+        return page_size
+    return None
+
+
+def _is_iso_utc_timestamp(value: Any) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if parsed.tzinfo is None:
+        return False
+    return parsed.utcoffset() == timedelta(0)
+
+
+def parse_event_summary(
+    payload: Any,
+    expected_type: str,
+    *,
+    processing_limit: int | None = None,
+) -> EventSummary:
     if expected_type not in SAFE_EVENT_TYPES:
         raise ProbeError("unsupported analytics event type")
     items, envelope = _extract_event_items(payload)
+
+    if processing_limit is not None:
+        if processing_limit < 1:
+            raise ProbeError("invalid analytics processing limit")
+        processed_items = items[:processing_limit]
+    else:
+        processed_items = items
 
     valid_timestamps = 0
     unexpected_types = 0
     schema_fields: set[str] = set()
     unknown_fields: set[str] = set()
     content_fields_present = False
-    for item in items:
+    for item in processed_items:
         if not isinstance(item, dict):
             raise ProbeError("analytics events returned an unexpected item schema")
         for field in item:
@@ -272,26 +316,32 @@ def parse_event_summary(payload: Any, expected_type: str) -> EventSummary:
             if field in MEDIA_OR_CONTENT_FIELDS:
                 content_fields_present = True
 
-        timestamp = item.get("time")
-        if (
-            isinstance(timestamp, (int, float))
-            and not isinstance(timestamp, bool)
-            and timestamp > 0
-        ):
+        if _is_iso_utc_timestamp(item.get("date")):
             valid_timestamps += 1
 
         event_type = item.get("type")
         if event_type is not None and event_type != expected_type:
             unexpected_types += 1
 
+    server_page_size = _parse_server_page_size(payload)
+    limit_honored: bool | None = None
+    if processing_limit is not None:
+        if server_page_size is not None:
+            limit_honored = server_page_size <= processing_limit
+        else:
+            limit_honored = len(items) <= processing_limit
+
     return EventSummary(
         returned=len(items),
+        processed=len(processed_items),
         valid_timestamps=valid_timestamps,
         unexpected_types=unexpected_types,
         unknown_fields=len(unknown_fields),
         content_fields_present=content_fields_present,
         schema_fields=tuple(sorted(schema_fields)),
         envelope=envelope,
+        server_page_size=server_page_size,
+        limit_honored=limit_honored,
     )
 
 
@@ -388,17 +438,34 @@ async def audit_ucams_analytics(
                     "order_by_date": "desc",
                 },
             )
-            summary = parse_event_summary(payload, event_type)
+            summary = parse_event_summary(
+                payload,
+                event_type,
+                processing_limit=limit,
+            )
             schema = ",".join(summary.schema_fields) or "none"
+            server_page_size = (
+                str(summary.server_page_size)
+                if summary.server_page_size is not None
+                else "unknown"
+            )
+            limit_honored = (
+                "unknown"
+                if summary.limit_honored is None
+                else "true" if summary.limit_honored else "false"
+            )
             print(
                 f"[RESULT] {event_type} events [{camera_index}]: "
                 f"returned={summary.returned} "
+                f"processed={summary.processed} "
                 f"valid_timestamps={summary.valid_timestamps} "
                 f"unexpected_types={summary.unexpected_types} "
                 f"unknown_fields={summary.unknown_fields} "
                 f"content_fields_present="
                 f"{'true' if summary.content_fields_present else 'false'} "
-                f"envelope={summary.envelope} schema_fields={schema}"
+                f"envelope={summary.envelope} schema_fields={schema} "
+                f"server_page_size={server_page_size} "
+                f"limit_honored={limit_honored}"
             )
             event_checks += 1
 
@@ -463,7 +530,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--limit",
         type=int,
         default=DEFAULT_LIMIT,
-        help=f"Maximum rows per camera/type (default: {DEFAULT_LIMIT})",
+        help=f"Maximum rows processed per camera/type (default: {DEFAULT_LIMIT})",
     )
     parser.add_argument(
         "--max-cameras",
