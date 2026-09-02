@@ -751,6 +751,9 @@ async def test_fcm_authorized_device_verification_is_privacy_safe(hass) -> None:
             AsyncMock(),
         )
         assert await manager.async_start() is True
+        check_task = manager._authorized_device_check_task  # noqa: SLF001
+        assert check_task is not None
+        await check_task
 
         status = manager.status()
         owned_device_id = manager._state["ufanet_device_id"]  # noqa: SLF001
@@ -801,6 +804,9 @@ async def test_fcm_authorized_device_verification_failure_is_non_fatal(hass) -> 
             AsyncMock(),
         )
         assert await manager.async_start() is True
+        check_task = manager._authorized_device_check_task  # noqa: SLF001
+        assert check_task is not None
+        await check_task
         status = manager.status()
         assert status["active"] is True
         assert status["authorized_device_check_succeeded"] is False
@@ -857,5 +863,65 @@ async def test_fcm_authorization_check_runs_after_listener_start(hass) -> None:
             AsyncMock(),
         )
         assert await manager.async_start() is True
+        check_task = manager._authorized_device_check_task  # noqa: SLF001
+        assert check_task is not None
+        await check_task
         assert order == ["listener_start", "authorization_check"]
+        await manager.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_fcm_authorization_check_does_not_block_async_start(hass) -> None:
+    check_started = asyncio.Event()
+    release_check = asyncio.Event()
+    store = MagicMock()
+    store.async_load = AsyncMock(return_value=None)
+    store.async_save = AsyncMock()
+    client = MagicMock()
+    client.checkin_or_register = AsyncMock(return_value="fcm-token")
+    client.start = AsyncMock()
+    client.stop = AsyncMock()
+    client.run_state = SimpleNamespace(name="RUNNING")
+    api = MagicMock()
+    api.async_register_fcm_device = AsyncMock()
+
+    async def verify_registration(**_kwargs) -> dict[str, object]:
+        check_started.set()
+        await release_check.wait()
+        return {
+            "call_access": True,
+            "last_update": "2026-09-02T12:34:56Z",
+        }
+
+    api.async_get_fcm_authorization_status = AsyncMock(
+        side_effect=verify_registration
+    )
+
+    with (
+        patch("custom_components.ufanet_intercom.fcm.Store", return_value=store),
+        patch(
+            "custom_components.ufanet_intercom.fcm.FcmPushClient",
+            return_value=client,
+        ),
+        patch("custom_components.ufanet_intercom.fcm.FcmRegisterConfig"),
+        patch("custom_components.ufanet_intercom.fcm.async_get_clientsession"),
+    ):
+        manager = UfanetFcmManager(
+            hass,
+            _entry(),
+            api,
+            FIREBASE_CONFIG,
+            AsyncMock(),
+        )
+        start_task = asyncio.create_task(manager.async_start())
+        await asyncio.wait_for(check_started.wait(), timeout=1)
+        await asyncio.sleep(0)
+        assert start_task.done()
+        assert await start_task is True
+        assert manager.listener_started is True
+
+        release_check.set()
+        check_task = manager._authorized_device_check_task  # noqa: SLF001
+        assert check_task is not None
+        await check_task
         await manager.async_stop()

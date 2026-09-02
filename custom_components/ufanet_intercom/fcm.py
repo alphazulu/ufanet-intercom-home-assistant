@@ -230,6 +230,7 @@ class UfanetFcmManager:
         self._save_pending = False
         self._sip_tasks: set[asyncio.Task[None]] = set()
         self._watchdog_task: asyncio.Task[None] | None = None
+        self._authorized_device_check_task: asyncio.Task[None] | None = None
         self._stopping = False
         self._ever_connected = False
         self._unhealthy_since: float | None = None
@@ -382,6 +383,7 @@ class UfanetFcmManager:
 
     async def _async_attempt_start(self) -> bool:
         """Register a fresh client and launch its listener tasks once."""
+        await self._async_cancel_authorized_device_check()
         self.firebase_registration_succeeded = False
         self.ufanet_registration_succeeded = False
         self.listener_started = False
@@ -429,7 +431,7 @@ class UfanetFcmManager:
             _delete_unregister_issue(self.hass, self._entry_id)
             await self._client.start()
             self.listener_started = True
-            await self._async_refresh_authorized_device_status()
+            self._queue_authorized_device_status_refresh()
         except Exception as err:  # noqa: BLE001 - optional transport is isolated
             self.last_error_type = type(err).__name__
             self.consecutive_failures += 1
@@ -548,6 +550,7 @@ class UfanetFcmManager:
             watchdog.cancel()
             await asyncio.gather(watchdog, return_exceptions=True)
         self.watchdog_running = False
+        await self._async_cancel_authorized_device_check()
 
         await self._safe_stop_client()
         self.active = False
@@ -600,6 +603,22 @@ class UfanetFcmManager:
             )
         _delete_unregister_issue(self.hass, self._entry_id)
         return True
+
+    def _queue_authorized_device_status_refresh(self) -> None:
+        """Run optional authorization diagnostics outside the FCM start path."""
+        self._authorized_device_check_task = self.hass.async_create_background_task(
+            self._async_refresh_authorized_device_status(),
+            "ufanet_intercom_fcm_authorization_check",
+        )
+
+    async def _async_cancel_authorized_device_check(self) -> None:
+        """Cancel any previous authorization diagnostic before restart/unload."""
+        task = self._authorized_device_check_task
+        self._authorized_device_check_task = None
+        if task is None or task.done():
+            return
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
     async def _async_refresh_authorized_device_status(self) -> None:
         """Verify this manager's owned Ufanet registration without exposing its ID."""
