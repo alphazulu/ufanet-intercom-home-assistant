@@ -4,22 +4,27 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import logging
 from typing import Any, TypedDict
 
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import UfanetApi, UfanetApiError, UfanetAuthError, UfanetResponseError
+from .api import UfanetApi, UfanetApiError, UfanetResponseError
 from .const import ANALYTICS_SCAN_INTERVAL_SECONDS, DOMAIN
+
+_LOGGER = logging.getLogger(__name__)
 
 _MOTION_TYPE = "motion_alarm"
 _MOTION_FIELDS = ["number", "analytics"]
 _MOTION_REQUEST_LIMIT = 25
 _MOTION_PROCESSING_LIMIT = 60
 _MOTION_LOOKBACK = timedelta(hours=24)
+_MOTION_SPLIT_MIN_WINDOW = timedelta(seconds=1)
+_MOTION_SPLIT_MAX_DEPTH = 16
 _MOTION_STORE_VERSION = 1
+_SAFE_UPDATE_ERROR = "UCAMS motion analytics update failed"
 
 
 class MotionAnalyticsEvent(TypedDict):
@@ -37,12 +42,26 @@ class _MotionCursor:
     ids: frozenset[int]
 
 
-def _iso_utc(value: datetime) -> str:
+@dataclass(frozen=True)
+class _MotionEventPage:
+    """One normalized report page plus whether the queried window is complete."""
+
+    events: tuple[MotionAnalyticsEvent, ...]
+    complete: bool
+
+
+def _iso_utc_request(value: datetime) -> str:
+    """Format bounded report query timestamps using the confirmed wire shape."""
     return (
         value.astimezone(timezone.utc)
         .isoformat(timespec="seconds")
         .replace("+00:00", "Z")
     )
+
+
+def _iso_utc_storage(value: datetime) -> str:
+    """Persist the cursor without losing fractional-second precision."""
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _parse_wire_datetime(value: Any) -> datetime:
@@ -100,22 +119,39 @@ async def async_get_motion_events(
     *,
     start: datetime,
     end: datetime,
-) -> list[MotionAnalyticsEvent]:
-    """Return a bounded normalized motion page without retaining raw fields."""
+) -> _MotionEventPage:
+    """Return a bounded normalized report page without retaining raw fields."""
     data = await api._async_ucams_json(  # noqa: SLF001 - package-private API boundary
         "POST",
         "/api/v0/analytics/motion_alarm/report/",
         json_body={
             "camera_number": camera_number,
-            "start": _iso_utc(start),
-            "end": _iso_utc(end),
+            "start": _iso_utc_request(start),
+            "end": _iso_utc_request(end),
             "limit": _MOTION_REQUEST_LIMIT,
             "order_by_date": "desc",
         },
     )
-    results = data.get("results") if isinstance(data, dict) else None
-    if not isinstance(results, list):
+    if not isinstance(data, dict):
         raise UfanetResponseError("Unexpected UCAMS motion analytics response")
+    results = data.get("results")
+    count = data.get("count")
+    page = data.get("page")
+    if (
+        not isinstance(results, list)
+        or not isinstance(count, int)
+        or isinstance(count, bool)
+        or count < 0
+        or not isinstance(page, dict)
+    ):
+        raise UfanetResponseError("Unexpected UCAMS motion analytics response")
+    page_all = page.get("all")
+    if (
+        not isinstance(page_all, int)
+        or isinstance(page_all, bool)
+        or page_all < 1
+    ):
+        raise UfanetResponseError("Unexpected UCAMS motion analytics pagination")
 
     events: list[MotionAnalyticsEvent] = []
     for item in results[:_MOTION_PROCESSING_LIMIT]:
@@ -130,7 +166,69 @@ async def async_get_motion_events(
                 "occurred_at": _parse_wire_datetime(item.get("date")),
             }
         )
-    return sorted(events, key=lambda item: (item["occurred_at"], item["cursor_id"]))
+
+    normalized = tuple(
+        sorted(events, key=lambda item: (item["occurred_at"], item["cursor_id"]))
+    )
+    complete = (
+        len(results) <= _MOTION_PROCESSING_LIMIT
+        and count <= len(results)
+        and page_all <= 1
+    )
+    return _MotionEventPage(normalized, complete)
+
+
+def _merge_motion_events(
+    *batches: list[MotionAnalyticsEvent] | tuple[MotionAnalyticsEvent, ...],
+) -> list[MotionAnalyticsEvent]:
+    """Merge overlapping time windows without replaying boundary rows."""
+    unique: dict[tuple[datetime, int], MotionAnalyticsEvent] = {}
+    for batch in batches:
+        for event in batch:
+            unique[(event["occurred_at"], event["cursor_id"])] = event
+    return sorted(
+        unique.values(),
+        key=lambda item: (item["occurred_at"], item["cursor_id"]),
+    )
+
+
+async def _async_collect_motion_events(
+    api: UfanetApi,
+    camera_number: str,
+    *,
+    start: datetime,
+    end: datetime,
+    depth: int = 0,
+) -> list[MotionAnalyticsEvent]:
+    """Split a confirmed start/end window until no server page is truncated."""
+    report = await async_get_motion_events(
+        api,
+        camera_number,
+        start=start,
+        end=end,
+    )
+    if report.complete:
+        return list(report.events)
+
+    if depth >= _MOTION_SPLIT_MAX_DEPTH or end - start <= _MOTION_SPLIT_MIN_WINDOW:
+        raise UfanetResponseError("UCAMS motion analytics window is too dense")
+
+    midpoint = start + (end - start) / 2
+    older = await _async_collect_motion_events(
+        api,
+        camera_number,
+        start=start,
+        end=midpoint,
+        depth=depth + 1,
+    )
+    newer = await _async_collect_motion_events(
+        api,
+        camera_number,
+        start=midpoint,
+        end=end,
+        depth=depth + 1,
+    )
+    return _merge_motion_events(older, newer)
 
 
 class UfanetMotionAnalyticsCoordinator(
@@ -160,7 +258,7 @@ class UfanetMotionAnalyticsCoordinator(
         )
         super().__init__(
             hass,
-            __import__("logging").getLogger(__name__),
+            _LOGGER,
             name=f"{DOMAIN}_motion_analytics",
             update_interval=timedelta(seconds=int(scan_interval_seconds)),
         )
@@ -176,13 +274,14 @@ class UfanetMotionAnalyticsCoordinator(
         self.new_events = {}
         if not self.camera_by_skud:
             return {}
+
+        previous_cursors = dict(self._cursors)
         try:
             supported_cameras = await async_get_motion_capabilities(
                 self.api,
                 list(dict.fromkeys(self.camera_by_skud.values())),
             )
             now = datetime.now(timezone.utc)
-            previous_cursors = dict(self._cursors)
             data: dict[int, dict[str, Any]] = {}
             for skud_id, camera_number in sorted(self.camera_by_skud.items()):
                 if camera_number not in supported_cameras:
@@ -193,13 +292,27 @@ class UfanetMotionAnalyticsCoordinator(
                     if cursor is not None
                     else now - _MOTION_LOOKBACK
                 )
-                events = await async_get_motion_events(
-                    self.api,
-                    camera_number,
-                    start=start,
-                    end=now,
+                if cursor is None:
+                    report = await async_get_motion_events(
+                        self.api,
+                        camera_number,
+                        start=start,
+                        end=now,
+                    )
+                    events = list(report.events)
+                else:
+                    events = await _async_collect_motion_events(
+                        self.api,
+                        camera_number,
+                        start=start,
+                        end=now,
+                    )
+
+                next_cursor, unseen = _advance_cursor(
+                    cursor,
+                    events,
+                    baseline_at=now,
                 )
-                next_cursor, unseen = _advance_cursor(cursor, events)
                 self._cursors[camera_number] = next_cursor
                 if unseen:
                     self.new_events[skud_id] = [
@@ -221,10 +334,10 @@ class UfanetMotionAnalyticsCoordinator(
                     self._cursors = previous_cursors
                     raise UpdateFailed("Unable to save motion analytics cursor state") from err
             return data
-        except UfanetAuthError as err:
-            raise ConfigEntryAuthFailed from err
-        except UfanetApiError as err:
-            raise UpdateFailed(str(err)) from err
+        except UfanetApiError:
+            self.new_events = {}
+            self._cursors = previous_cursors
+            raise UpdateFailed(_SAFE_UPDATE_ERROR) from None
 
     def diagnostic_summary(self) -> dict[str, int]:
         """Return aggregate analytics state without camera/cursor identifiers."""
@@ -239,10 +352,20 @@ class UfanetMotionAnalyticsCoordinator(
 def _advance_cursor(
     cursor: _MotionCursor | None,
     events: list[MotionAnalyticsEvent],
+    *,
+    baseline_at: datetime | None = None,
 ) -> tuple[_MotionCursor, list[MotionAnalyticsEvent]]:
     """Build baseline or return only events beyond the private cursor."""
     if not events:
-        return cursor or _MotionCursor(datetime.fromtimestamp(0, timezone.utc), frozenset()), []
+        if cursor is not None:
+            return cursor, []
+        if baseline_at is None:
+            raise ValueError("baseline_at is required for an empty initial motion page")
+        return _MotionCursor(
+            baseline_at.astimezone(timezone.utc),
+            frozenset(),
+        ), []
+
     latest_time = events[-1]["occurred_at"]
     latest_ids = frozenset(
         event["cursor_id"] for event in events if event["occurred_at"] == latest_time
@@ -289,7 +412,10 @@ def _parse_cursors(data: Any) -> dict[str, _MotionCursor]:
 def _serialize_cursors(cursors: dict[str, _MotionCursor]) -> dict[str, Any]:
     return {
         "cameras": {
-            camera_ref: {"date": _iso_utc(cursor.timestamp), "ids": sorted(cursor.ids)}
+            camera_ref: {
+                "date": _iso_utc_storage(cursor.timestamp),
+                "ids": sorted(cursor.ids),
+            }
             for camera_ref, cursor in sorted(cursors.items())
         }
     }
