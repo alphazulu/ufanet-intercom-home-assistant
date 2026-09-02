@@ -1,0 +1,372 @@
+name: Patch authorized OS audit
+
+on:
+  push:
+    branches:
+      - codex/fcm-authorized-devices-audit
+    paths:
+      - .github/workflows/patch-authorized-os-audit.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/fcm-authorized-devices-audit
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Apply privacy-safe OS metadata audit
+        shell: python
+        run: |
+          from pathlib import Path
+
+          probe_path = Path("tools/research/fcm_probe_py/probe.py")
+          text = probe_path.read_text(encoding="utf-8")
+
+          old_fields = '''EXPECTED_AUTHORIZED_DEVICE_FIELDS = {
+              "device_id",
+              "title",
+              "last_update",
+              "is_call_access",
+          }
+          '''
+          new_fields = '''EXPECTED_AUTHORIZED_DEVICE_FIELDS = {
+              "device_id",
+              "title",
+              "last_update",
+              "is_call_access",
+              "os",
+              "os_display",
+          }
+
+
+          def _safe_os_display_category(value: Any) -> str | None:
+              """Normalize only well-known OS labels; never return provider free-form text."""
+              if not isinstance(value, str):
+                  return None
+              normalized = value.strip().casefold()
+              if not normalized:
+                  return None
+              if normalized.startswith("android"):
+                  return "android"
+              if (
+                  normalized == "ios"
+                  or normalized.startswith("ios ")
+                  or normalized.startswith("iphone")
+                  or normalized.startswith("ipad")
+              ):
+                  return "ios"
+              if normalized.startswith("huawei"):
+                  return "huawei"
+              if normalized.startswith("harmony"):
+                  return "harmonyos"
+              return "other"
+          '''
+          if text.count(old_fields) != 1:
+              raise SystemExit("expected authorized-device field anchor not found exactly once")
+          text = text.replace(old_fields, new_fields)
+
+          old_counters = '''    with_call_access = 0
+              call_access_true = 0
+              call_access_false = 0
+              call_access_invalid = 0
+              unknown_fields: set[str] = set()
+          '''
+          new_counters = '''    with_call_access = 0
+              call_access_true = 0
+              call_access_false = 0
+              call_access_invalid = 0
+              with_os = 0
+              os_code_counts: dict[int, int] = {}
+              os_code_unexpected = 0
+              os_invalid = 0
+              with_os_display = 0
+              os_display_counts: dict[str, int] = {}
+              os_display_invalid = 0
+              os_display_pairs: dict[str, int] = {}
+              stale_gt_90d_os_display_counts: dict[str, int] = {}
+              unknown_fields: set[str] = set()
+          '''
+          if text.count(old_counters) != 1:
+              raise SystemExit("counter anchor not found exactly once")
+          text = text.replace(old_counters, new_counters)
+
+          old_last_update = '''        last_update = item.get("last_update")
+              if last_update not in (None, ""):
+                  with_last_update += 1
+                  parsed_last_update = parse_iso_datetime(last_update)
+                  if parsed_last_update is not None:
+                      parseable_last_update += 1
+                      age_seconds = (
+                          reference_time - parsed_last_update.astimezone(timezone.utc)
+                      ).total_seconds()
+                      if age_seconds < 0:
+                          last_update_age_future += 1
+                      elif age_seconds <= 24 * 60 * 60:
+                          last_update_age_le_24h += 1
+                      elif age_seconds <= 7 * 24 * 60 * 60:
+                          last_update_age_1_7d += 1
+                      elif age_seconds <= 30 * 24 * 60 * 60:
+                          last_update_age_7_30d += 1
+                      elif age_seconds <= 90 * 24 * 60 * 60:
+                          last_update_age_30_90d += 1
+                      else:
+                          last_update_age_gt_90d += 1
+
+              if "is_call_access" in item:
+          '''
+          new_last_update = '''        last_update_is_gt_90d = False
+              last_update = item.get("last_update")
+              if last_update not in (None, ""):
+                  with_last_update += 1
+                  parsed_last_update = parse_iso_datetime(last_update)
+                  if parsed_last_update is not None:
+                      parseable_last_update += 1
+                      age_seconds = (
+                          reference_time - parsed_last_update.astimezone(timezone.utc)
+                      ).total_seconds()
+                      if age_seconds < 0:
+                          last_update_age_future += 1
+                      elif age_seconds <= 24 * 60 * 60:
+                          last_update_age_le_24h += 1
+                      elif age_seconds <= 7 * 24 * 60 * 60:
+                          last_update_age_1_7d += 1
+                      elif age_seconds <= 30 * 24 * 60 * 60:
+                          last_update_age_7_30d += 1
+                      elif age_seconds <= 90 * 24 * 60 * 60:
+                          last_update_age_30_90d += 1
+                      else:
+                          last_update_age_gt_90d += 1
+                          last_update_is_gt_90d = True
+
+              os_value = item.get("os", ...)
+              if os_value is not ...:
+                  with_os += 1
+                  if type(os_value) is int and 0 <= os_value <= 8:
+                      os_code_counts[os_value] = os_code_counts.get(os_value, 0) + 1
+                  elif type(os_value) is int:
+                      os_code_unexpected += 1
+                  else:
+                      os_invalid += 1
+
+              os_display_category: str | None = None
+              os_display_value = item.get("os_display", ...)
+              if os_display_value is not ...:
+                  with_os_display += 1
+                  os_display_category = _safe_os_display_category(os_display_value)
+                  if os_display_category is None:
+                      os_display_invalid += 1
+                  else:
+                      os_display_counts[os_display_category] = (
+                          os_display_counts.get(os_display_category, 0) + 1
+                      )
+                      if last_update_is_gt_90d:
+                          stale_gt_90d_os_display_counts[os_display_category] = (
+                              stale_gt_90d_os_display_counts.get(os_display_category, 0) + 1
+                          )
+
+              if (
+                  type(os_value) is int
+                  and 0 <= os_value <= 8
+                  and os_display_category in {"android", "ios", "huawei", "harmonyos"}
+              ):
+                  pair = f"{os_value}->{os_display_category}"
+                  os_display_pairs[pair] = os_display_pairs.get(pair, 0) + 1
+
+              if "is_call_access" in item:
+          '''
+          if text.count(old_last_update) != 1:
+              raise SystemExit("last_update anchor not found exactly once")
+          text = text.replace(old_last_update, new_last_update)
+
+          old_return = '''        "call_access_invalid": call_access_invalid,
+              "unknown_field_count": len(unknown_fields),
+              "unknown_field_names": tuple(sorted(unknown_fields)),
+              "devices_num_permission": permission_state,
+          '''
+          new_return = '''        "call_access_invalid": call_access_invalid,
+              "with_os": with_os,
+              "os_code_counts": tuple(
+                  f"{code}={count}" for code, count in sorted(os_code_counts.items())
+              ),
+              "os_code_unexpected": os_code_unexpected,
+              "os_invalid": os_invalid,
+              "with_os_display": with_os_display,
+              "os_display_counts": tuple(
+                  f"{category}={count}"
+                  for category, count in sorted(os_display_counts.items())
+              ),
+              "os_display_invalid": os_display_invalid,
+              "os_display_pairs": tuple(
+                  f"{pair}={count}" for pair, count in sorted(os_display_pairs.items())
+              ),
+              "last_update_gt_90d_os_display_counts": tuple(
+                  f"{category}={count}"
+                  for category, count in sorted(stale_gt_90d_os_display_counts.items())
+              ),
+              "unknown_field_count": len(unknown_fields),
+              "unknown_field_names": tuple(sorted(unknown_fields)),
+              "devices_num_permission": permission_state,
+          '''
+          if text.count(old_return) != 1:
+              raise SystemExit("return anchor not found exactly once")
+          text = text.replace(old_return, new_return)
+
+          old_print = '''        "call_access_invalid",
+              "unknown_field_count",
+          ):
+              print(f"  {key}: {summary[key]}")
+              unknown_names = summary["unknown_field_names"]
+          '''
+          new_print = '''        "call_access_invalid",
+              "with_os",
+              "os_code_unexpected",
+              "os_invalid",
+              "with_os_display",
+              "os_display_invalid",
+              "unknown_field_count",
+          ):
+              print(f"  {key}: {summary[key]}")
+              for key in (
+                  "os_code_counts",
+                  "os_display_counts",
+                  "os_display_pairs",
+                  "last_update_gt_90d_os_display_counts",
+              ):
+                  values = summary[key]
+                  print(f"  {key}: " + (", ".join(values) if values else "(none)"))
+              unknown_names = summary["unknown_field_names"]
+          '''
+          if text.count(old_print) != 1:
+              raise SystemExit("print anchor not found exactly once")
+          text = text.replace(old_print, new_print)
+          probe_path.write_text(text, encoding="utf-8", newline="\n")
+
+          test_path = Path("tests/test_fcm_probe.py")
+          tests = test_path.read_text(encoding="utf-8")
+          old_expected = '''        "call_access_invalid": 0,
+              "unknown_field_count": 1,
+              "unknown_field_names": ("provider_private_extra",),
+              "devices_num_permission": "true",
+          '''
+          new_expected = '''        "call_access_invalid": 0,
+              "with_os": 0,
+              "os_code_counts": (),
+              "os_code_unexpected": 0,
+              "os_invalid": 0,
+              "with_os_display": 0,
+              "os_display_counts": (),
+              "os_display_invalid": 0,
+              "os_display_pairs": (),
+              "last_update_gt_90d_os_display_counts": (),
+              "unknown_field_count": 1,
+              "unknown_field_names": ("provider_private_extra",),
+              "devices_num_permission": "true",
+          '''
+          if tests.count(old_expected) != 1:
+              raise SystemExit("test expected anchor not found exactly once")
+          tests = tests.replace(old_expected, new_expected)
+
+          anchor = '''def test_authorized_devices_summary_rejects_unknown_envelope_without_values() -> None:
+          '''
+          new_test = '''def test_authorized_devices_os_metadata_is_bounded_and_privacy_safe() -> None:
+              payload = {
+                  "data": {
+                      "device_list": [
+                          {
+                              "last_update": "2026-01-01T00:00:00Z",
+                              "os": 0,
+                              "os_display": "Android",
+                          },
+                          {
+                              "last_update": "2026-09-02T15:00:00Z",
+                              "os": 1,
+                              "os_display": "iOS",
+                          },
+                          {
+                              "last_update": "2026-09-02T15:00:00Z",
+                              "os": 99,
+                              "os_display": "private-provider-platform-value",
+                          },
+                          {
+                              "last_update": "2026-09-02T15:00:00Z",
+                              "os": "0",
+                              "os_display": 123,
+                          },
+                      ],
+                      "devices_num_permission": False,
+                  }
+              }
+              summary = probe.summarize_authorized_devices(
+                  payload,
+                  now=datetime(2026, 9, 2, 16, 0, tzinfo=timezone.utc),
+              )
+
+              assert summary["with_os"] == 4
+              assert summary["os_code_counts"] == ("0=1", "1=1")
+              assert summary["os_code_unexpected"] == 1
+              assert summary["os_invalid"] == 1
+              assert summary["with_os_display"] == 4
+              assert summary["os_display_counts"] == (
+                  "android=1",
+                  "ios=1",
+                  "other=1",
+              )
+              assert summary["os_display_invalid"] == 1
+              assert summary["os_display_pairs"] == ("0->android=1", "1->ios=1")
+              assert summary["last_update_gt_90d_os_display_counts"] == ("android=1",)
+              assert "private-provider-platform-value" not in repr(summary)
+
+
+          def test_authorized_devices_summary_rejects_unknown_envelope_without_values() -> None:
+          '''
+          if tests.count(anchor) != 1:
+              raise SystemExit("new test insertion anchor not found exactly once")
+          tests = tests.replace(anchor, new_test)
+          test_path.write_text(tests, encoding="utf-8", newline="\n")
+
+          readme_path = Path("tools/research/fcm_probe_py/README_RU.md")
+          readme = readme_path.read_text(encoding="utf-8")
+          old_doc = '''Возраст `last_update` выводится только корзинами `<=24h`, `1-7d`, `7-30d`, `30-90d`,
+          `>90d`; отдельный `future`-счётчик позволяет заметить рассинхронизацию часов без
+          публикации точной даты.
+          '''
+          new_doc = '''Возраст `last_update` выводится только корзинами `<=24h`, `1-7d`, `7-30d`, `30-90d`,
+          `>90d`; отдельный `future`-счётчик позволяет заметить рассинхронизацию часов без
+          публикации точной даты.
+
+          Live-аудит 2 сентября 2026 года также подтвердил поля `os` и `os_display`.
+          Декомпилированный Android-клиент отправляет `os: 0` при `/api/v0/fcm/`, но его
+          `AuthorizedDevice` DTO не объявляет ни `os`, ни `os_display`, поэтому эти поля
+          считаются серверной расширенной метаинформацией. Probe выводит числовой `os`
+          только как ограниченный категориальный код `0..8`; `os_display` нормализуется
+          только в категории `android`, `ios`, `huawei`, `harmonyos`, `other`, а исходная
+          неизвестная строка никогда не печатается. Также выводится агрегированное
+          соответствие `os -> os_display` и категория ОС для записей старше 90 дней.
+
+          Поле `devices_num_permission` Android DTO называет `isQuantityLimited`, однако
+          текущий экран управления активными устройствами это значение не использует.
+          Поэтому его семантика пока считается наблюдаемой, но не подтверждённой поведением.
+          '''
+          if readme.count(old_doc) != 1:
+              raise SystemExit("README anchor not found exactly once")
+          readme = readme.replace(old_doc, new_doc)
+          readme_path.write_text(readme, encoding="utf-8", newline="\n")
+      - name: Compile and run focused tests
+        run: |
+          python -m py_compile tools/research/fcm_probe_py/probe.py
+          python -m pip install -r requirements_test.txt
+          pytest -q tests/test_fcm_probe.py
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/research/fcm_probe_py/probe.py tests/test_fcm_probe.py tools/research/fcm_probe_py/README_RU.md
+          git diff --cached --check
+          git commit -m "Audit authorized-device OS metadata safely"
+          git push origin HEAD:codex/fcm-authorized-devices-audit
