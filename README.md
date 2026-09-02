@@ -14,7 +14,7 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 - Native archive browsing with recording ranges, timeline zoom/pan and call markers.
 - Intercom call history, the `ufanet_intercom_call` event, native **Incoming call** and **Last call image** entities, and a matching device trigger for the visual automation editor.
 - Read-only physical-key count, latest-passage timestamp and passage events for supported intercoms.
-- Read-only UCAMS `motion_alarm` analytics with a Motion event entity, `ufanet_intercom_motion` event, and visual device trigger on supported cameras.
+- Read-only UCAMS `motion_alarm` analytics with a **Motion detected** event entity, `ufanet_intercom_motion` event, and matching visual device trigger on supported cameras.
 - Selectable call updates: polling by default or experimental low-latency FCM with safety polling.
 - Temporary guest keys and accepted shared-access management.
 - Manual archive export to MP4 using `ffmpeg -c copy` into Home Assistant Media.
@@ -129,11 +129,11 @@ The first successful poll establishes a baseline and does not replay historical 
 
 ### Motion analytics
 
-For every camera that explicitly advertises the live-confirmed `motion_alarm` capability, v0.28.0 creates a **Motion** event entity and exposes the matching **Motion detected** device trigger. The same normalized event is available on the Home Assistant bus as `ufanet_intercom_motion`.
+For every camera that explicitly advertises the live-confirmed `motion_alarm` capability, v0.28.0 creates a **Motion detected** event entity and exposes the matching **Motion detected** device trigger (`motion_detected`). The same normalized event is available on the Home Assistant bus as `ufanet_intercom_motion`.
 
 The analytics coordinator normally polls every 60 seconds. Its first successful poll establishes a baseline and does not replay older motion history. The private per-camera cursor preserves fractional event timestamps and same-timestamp provider IDs across Home Assistant restarts. If the server returns an incomplete/oversized report, the integration splits only the confirmed `start`/`end` time window; if it still cannot resolve the window safely, the poll fails without advancing the cursor instead of silently losing events.
 
-The Motion EventEntity publishes only `occurred_at`. UCAMS camera identifiers, provider event/cursor IDs, raw history, `length`, screenshots, media and recognition data are not exposed through the entity or diagnostics. UCAMS error response text is also kept out of coordinator errors/logs. If analytics is unavailable during initial setup, entity discovery can recover later without reloading the integration. See [UCAMS camera analytics](docs/api/analytics.md) for the confirmed wire contract and implementation details.
+The **Motion detected** EventEntity publishes only `occurred_at`. UCAMS camera identifiers, provider event/cursor IDs, raw history, `length`, screenshots, media and recognition data are not exposed through the entity or diagnostics. UCAMS error response text is also kept out of coordinator errors/logs. If analytics is unavailable during initial setup, entity discovery can recover later without reloading the integration. See [UCAMS camera analytics](docs/api/analytics.md) for the confirmed wire contract and implementation details.
 
 ## Automatic call recording
 
