@@ -422,7 +422,6 @@ class UfanetFcmManager:
                 application=self.firebase_config["package_name"],
             )
             self.ufanet_registration_succeeded = True
-            await self._async_refresh_authorized_device_status()
             self.unregister_pending = False
             self._state["unregister_pending"] = False
             self.last_unregistration_succeeded = None
@@ -430,6 +429,7 @@ class UfanetFcmManager:
             _delete_unregister_issue(self.hass, self._entry_id)
             await self._client.start()
             self.listener_started = True
+            await self._async_refresh_authorized_device_status()
         except Exception as err:  # noqa: BLE001 - optional transport is isolated
             self.last_error_type = type(err).__name__
             self.consecutive_failures += 1
