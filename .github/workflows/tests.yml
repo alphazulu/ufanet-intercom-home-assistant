@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   pytest:
@@ -16,39 +16,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-
-      - name: Apply FCM verification ordering fix once
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          fcm = Path("custom_components/ufanet_intercom/fcm.py")
-          text = fcm.read_text(encoding="utf-8")
-          old = '''            self.ufanet_registration_succeeded = True\n            await self._async_refresh_authorized_device_status()\n            self.unregister_pending = False\n            self._state["unregister_pending"] = False\n            self.last_unregistration_succeeded = None\n            self.last_unregistration_error_type = None\n            _delete_unregister_issue(self.hass, self._entry_id)\n            await self._client.start()\n            self.listener_started = True\n'''
-          new = '''            self.ufanet_registration_succeeded = True\n            self.unregister_pending = False\n            self._state["unregister_pending"] = False\n            self.last_unregistration_succeeded = None\n            self.last_unregistration_error_type = None\n            _delete_unregister_issue(self.hass, self._entry_id)\n            await self._client.start()\n            self.listener_started = True\n            await self._async_refresh_authorized_device_status()\n'''
-          if old in text:
-              fcm.write_text(text.replace(old, new, 1), encoding="utf-8")
-          elif new not in text:
-              raise SystemExit("FCM ordering anchor not found")
-
-          tests = Path("tests/test_fcm.py")
-          test_text = tests.read_text(encoding="utf-8")
-          marker = "test_fcm_authorization_check_runs_after_listener_start"
-          if marker not in test_text:
-              test_text += '''\n\n@pytest.mark.asyncio\nasync def test_fcm_authorization_check_runs_after_listener_start(hass) -> None:\n    order: list[str] = []\n    store = MagicMock()\n    store.async_load = AsyncMock(return_value=None)\n    store.async_save = AsyncMock()\n    client = MagicMock()\n    client.checkin_or_register = AsyncMock(return_value="fcm-token")\n\n    async def start_listener() -> None:\n        order.append("listener_start")\n\n    async def verify_registration(**_kwargs) -> dict[str, object]:\n        order.append("authorization_check")\n        return {\n            "call_access": True,\n            "last_update": "2026-09-02T12:34:56Z",\n        }\n\n    client.start = AsyncMock(side_effect=start_listener)\n    client.stop = AsyncMock()\n    client.run_state = SimpleNamespace(name="RUNNING")\n    api = MagicMock()\n    api.async_register_fcm_device = AsyncMock()\n    api.async_get_fcm_authorization_status = AsyncMock(\n        side_effect=verify_registration\n    )\n\n    with (\n        patch("custom_components.ufanet_intercom.fcm.Store", return_value=store),\n        patch(\n            "custom_components.ufanet_intercom.fcm.FcmPushClient",\n            return_value=client,\n        ),\n        patch("custom_components.ufanet_intercom.fcm.FcmRegisterConfig"),\n        patch("custom_components.ufanet_intercom.fcm.async_get_clientsession"),\n    ):\n        manager = UfanetFcmManager(\n            hass,\n            _entry(),\n            api,\n            FIREBASE_CONFIG,\n            AsyncMock(),\n        )\n        assert await manager.async_start() is True\n        assert order == ["listener_start", "authorization_check"]\n        await manager.async_stop()\n'''
-              tests.write_text(test_text, encoding="utf-8")
-          PY
-
-          if git diff --quiet; then
-            echo "No ordering changes to commit"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add custom_components/ufanet_intercom/fcm.py tests/test_fcm.py
-            git commit -m "Start FCM listener before authorization diagnostics"
-            git push origin HEAD:refs/heads/codex/fcm-self-registration-diagnostics
-          fi
 
       - name: Set up Python 3.14
         uses: actions/setup-python@v5
