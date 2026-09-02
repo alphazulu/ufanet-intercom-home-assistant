@@ -26,12 +26,15 @@ jobs:
           from pathlib import Path
 
           def replace_once(text: str, old: str, new: str, label: str) -> str:
-              if text.count(old) != 1:
-                  raise SystemExit(f"{label}: expected one anchor, got {text.count(old)}")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one anchor, got {count}")
               return text.replace(old, new)
 
           probe_path = Path("tools/research/fcm_probe_py/probe.py")
           text = probe_path.read_text(encoding="utf-8")
+          if '"os_code_counts"' in text:
+              raise SystemExit("probe.py already contains OS aggregation; refusing duplicate patch")
 
           old = '''EXPECTED_AUTHORIZED_DEVICE_FIELDS = {
               "device_id",
@@ -50,170 +53,142 @@ jobs:
           }
 
 
-          def _safe_os_display_category(value: Any) -> str | None:
-              """Normalize known OS labels without returning provider free-form text."""
+          def _normalize_authorized_os_code(value: Any) -> str | None:
+              """Return a bounded opaque OS code without assigning platform semantics."""
+              if type(value) is not int or not 0 <= value <= 255:
+                  return None
+              return str(value)
+
+
+          def _normalize_authorized_os_display(value: Any) -> str | None:
+              """Reduce provider OS display text to a fixed privacy-safe category."""
               if not isinstance(value, str):
                   return None
-              normalized = value.strip().casefold()
-              if not normalized:
+              stripped = value.strip()
+              if not stripped or len(stripped) > 64:
                   return None
-              if normalized.startswith("android"):
+              if any(ord(char) < 32 or ord(char) == 127 for char in stripped):
+                  return None
+
+              normalized = stripped.casefold()
+              if "android" in normalized:
                   return "android"
               if (
                   normalized == "ios"
                   or normalized.startswith("ios ")
-                  or normalized.startswith("iphone")
-                  or normalized.startswith("ipad")
+                  or "iphone" in normalized
+                  or "ipad" in normalized
               ):
                   return "ios"
-              if normalized.startswith("huawei"):
-                  return "huawei"
-              if normalized.startswith("harmony"):
+              if "harmony" in normalized:
                   return "harmonyos"
               return "other"
           '''
           text = replace_once(text, old, new, "expected fields")
 
-          old = '''    call_access_invalid = 0
+          old = '''    call_access_false = 0
+              call_access_invalid = 0
               unknown_fields: set[str] = set()
           '''
-          new = '''    call_access_invalid = 0
+          new = '''    call_access_false = 0
+              call_access_invalid = 0
               with_os = 0
-              os_code_counts: dict[int, int] = {}
-              os_code_unexpected = 0
-              os_invalid = 0
+              os_code_invalid = 0
+              os_code_counts: dict[str, int] = {}
               with_os_display = 0
-              os_display_counts: dict[str, int] = {}
               os_display_invalid = 0
-              os_display_pairs: dict[str, int] = {}
-              stale_gt_90d_os_display_counts: dict[str, int] = {}
+              os_display_counts: dict[str, int] = {}
+              os_code_display_pairs: dict[tuple[str, str], int] = {}
               unknown_fields: set[str] = set()
           '''
           text = replace_once(text, old, new, "counters")
 
-          old = '''        last_update = item.get("last_update")
-              if last_update not in (None, ""):
-                  with_last_update += 1
-                  parsed_last_update = parse_iso_datetime(last_update)
-                  if parsed_last_update is not None:
-                      parseable_last_update += 1
-                      age_seconds = (
-                          reference_time - parsed_last_update.astimezone(timezone.utc)
-                      ).total_seconds()
-                      if age_seconds < 0:
-                          last_update_age_future += 1
-                      elif age_seconds <= 24 * 60 * 60:
-                          last_update_age_le_24h += 1
-                      elif age_seconds <= 7 * 24 * 60 * 60:
-                          last_update_age_1_7d += 1
-                      elif age_seconds <= 30 * 24 * 60 * 60:
-                          last_update_age_7_30d += 1
-                      elif age_seconds <= 90 * 24 * 60 * 60:
-                          last_update_age_30_90d += 1
-                      else:
-                          last_update_age_gt_90d += 1
-
-              if "is_call_access" in item:
+          old = '''        if "is_call_access" in item:
+                  with_call_access += 1
+                  call_access = item.get("is_call_access")
+                  if call_access is True:
+                      call_access_true += 1
+                  elif call_access is False:
+                      call_access_false += 1
+                  else:
+                      call_access_invalid += 1
           '''
-          new = '''        last_update_is_gt_90d = False
-              last_update = item.get("last_update")
-              if last_update not in (None, ""):
-                  with_last_update += 1
-                  parsed_last_update = parse_iso_datetime(last_update)
-                  if parsed_last_update is not None:
-                      parseable_last_update += 1
-                      age_seconds = (
-                          reference_time - parsed_last_update.astimezone(timezone.utc)
-                      ).total_seconds()
-                      if age_seconds < 0:
-                          last_update_age_future += 1
-                      elif age_seconds <= 24 * 60 * 60:
-                          last_update_age_le_24h += 1
-                      elif age_seconds <= 7 * 24 * 60 * 60:
-                          last_update_age_1_7d += 1
-                      elif age_seconds <= 30 * 24 * 60 * 60:
-                          last_update_age_7_30d += 1
-                      elif age_seconds <= 90 * 24 * 60 * 60:
-                          last_update_age_30_90d += 1
-                      else:
-                          last_update_age_gt_90d += 1
-                          last_update_is_gt_90d = True
-
+          new = '''        os_code: str | None = None
               os_value = item.get("os", ...)
               if os_value is not ...:
                   with_os += 1
-                  if type(os_value) is int and 0 <= os_value <= 8:
-                      os_code_counts[os_value] = os_code_counts.get(os_value, 0) + 1
-                  elif type(os_value) is int:
-                      os_code_unexpected += 1
+                  os_code = _normalize_authorized_os_code(os_value)
+                  if os_code is None:
+                      os_code_invalid += 1
                   else:
-                      os_invalid += 1
+                      os_code_counts[os_code] = os_code_counts.get(os_code, 0) + 1
 
               os_display_category: str | None = None
               os_display_value = item.get("os_display", ...)
               if os_display_value is not ...:
                   with_os_display += 1
-                  os_display_category = _safe_os_display_category(os_display_value)
+                  os_display_category = _normalize_authorized_os_display(os_display_value)
                   if os_display_category is None:
                       os_display_invalid += 1
                   else:
                       os_display_counts[os_display_category] = (
                           os_display_counts.get(os_display_category, 0) + 1
                       )
-                      if last_update_is_gt_90d:
-                          stale_gt_90d_os_display_counts[os_display_category] = (
-                              stale_gt_90d_os_display_counts.get(os_display_category, 0) + 1
-                          )
 
-              if (
-                  type(os_value) is int
-                  and 0 <= os_value <= 8
-                  and os_display_category in {"android", "ios", "huawei", "harmonyos"}
-              ):
-                  pair = f"{os_value}->{os_display_category}"
-                  os_display_pairs[pair] = os_display_pairs.get(pair, 0) + 1
+              if os_code is not None and os_display_category is not None:
+                  pair = (os_code, os_display_category)
+                  os_code_display_pairs[pair] = os_code_display_pairs.get(pair, 0) + 1
 
               if "is_call_access" in item:
+                  with_call_access += 1
+                  call_access = item.get("is_call_access")
+                  if call_access is True:
+                      call_access_true += 1
+                  elif call_access is False:
+                      call_access_false += 1
+                  else:
+                      call_access_invalid += 1
           '''
           text = replace_once(text, old, new, "per-record audit")
 
-          old = '''        "call_access_invalid": call_access_invalid,
+          old = '''        "call_access_false": call_access_false,
+              "call_access_invalid": call_access_invalid,
               "unknown_field_count": len(unknown_fields),
           '''
-          new = '''        "call_access_invalid": call_access_invalid,
+          new = '''        "call_access_false": call_access_false,
+              "call_access_invalid": call_access_invalid,
               "with_os": with_os,
+              "os_code_invalid": os_code_invalid,
               "os_code_counts": tuple(
                   f"{code}={count}" for code, count in sorted(os_code_counts.items())
               ),
-              "os_code_unexpected": os_code_unexpected,
-              "os_invalid": os_invalid,
               "with_os_display": with_os_display,
+              "os_display_invalid": os_display_invalid,
               "os_display_counts": tuple(
                   f"{category}={count}"
                   for category, count in sorted(os_display_counts.items())
               ),
-              "os_display_invalid": os_display_invalid,
-              "os_display_pairs": tuple(
-                  f"{pair}={count}" for pair, count in sorted(os_display_pairs.items())
-              ),
-              "last_update_gt_90d_os_display_counts": tuple(
-                  f"{category}={count}"
-                  for category, count in sorted(stale_gt_90d_os_display_counts.items())
+              "os_code_display_pairs": tuple(
+                  f"{code}->{category}={count}"
+                  for (code, category), count in sorted(os_code_display_pairs.items())
               ),
               "unknown_field_count": len(unknown_fields),
           '''
-          text = replace_once(text, old, new, "summary return")
+          text = replace_once(text, old, new, "summary")
 
-          old = '''        "call_access_invalid",
+          old = '''        "call_access_true",
+              "call_access_false",
+              "call_access_invalid",
               "unknown_field_count",
           ):
               print(f"  {key}: {summary[key]}")
               unknown_names = summary["unknown_field_names"]
           '''
-          new = '''        "call_access_invalid",
+          new = '''        "call_access_true",
+              "call_access_false",
+              "call_access_invalid",
               "with_os",
-              "os_code_unexpected",
-              "os_invalid",
+              "os_code_invalid",
               "with_os_display",
               "os_display_invalid",
               "unknown_field_count",
@@ -222,8 +197,7 @@ jobs:
               for aggregate_key in (
                   "os_code_counts",
                   "os_display_counts",
-                  "os_display_pairs",
-                  "last_update_gt_90d_os_display_counts",
+                  "os_code_display_pairs",
               ):
                   values = summary[aggregate_key]
                   print(
@@ -232,81 +206,73 @@ jobs:
                   )
               unknown_names = summary["unknown_field_names"]
           '''
-          text = replace_once(text, old, new, "safe printer")
+          text = replace_once(text, old, new, "printer")
           probe_path.write_text(text, encoding="utf-8", newline="\n")
 
           test_path = Path("tests/test_fcm_probe.py")
           tests = test_path.read_text(encoding="utf-8")
-          old = '''        "call_access_invalid": 0,
+          old = '''        "call_access_false": 1,
+              "call_access_invalid": 0,
               "unknown_field_count": 1,
           '''
-          new = '''        "call_access_invalid": 0,
+          new = '''        "call_access_false": 1,
+              "call_access_invalid": 0,
               "with_os": 0,
+              "os_code_invalid": 0,
               "os_code_counts": (),
-              "os_code_unexpected": 0,
-              "os_invalid": 0,
               "with_os_display": 0,
-              "os_display_counts": (),
               "os_display_invalid": 0,
-              "os_display_pairs": (),
-              "last_update_gt_90d_os_display_counts": (),
+              "os_display_counts": (),
+              "os_code_display_pairs": (),
               "unknown_field_count": 1,
           '''
-          tests = replace_once(tests, old, new, "test expected summary")
+          tests = replace_once(tests, old, new, "expected summary")
 
           anchor = '''def test_authorized_devices_summary_rejects_unknown_envelope_without_values() -> None:
           '''
           addition = '''def test_authorized_devices_os_metadata_is_bounded_and_privacy_safe() -> None:
+              secret_display = "private-provider-platform-value"
               payload = {
                   "data": {
                       "device_list": [
-                          {
-                              "last_update": "2026-01-01T00:00:00Z",
-                              "os": 0,
-                              "os_display": "Android",
-                          },
-                          {
-                              "last_update": "2026-09-02T15:00:00Z",
-                              "os": 1,
-                              "os_display": "iOS",
-                          },
-                          {
-                              "last_update": "2026-09-02T15:00:00Z",
-                              "os": 99,
-                              "os_display": "private-provider-platform-value",
-                          },
-                          {
-                              "last_update": "2026-09-02T15:00:00Z",
-                              "os": "0",
-                              "os_display": 123,
-                          },
+                          {"os": 0, "os_display": "Android"},
+                          {"os": 1, "os_display": "iOS"},
+                          {"os": 0, "os_display": "Android 15"},
+                          {"os": 255, "os_display": secret_display},
+                          {"os": 256, "os_display": 123},
+                          {"os": "0", "os_display": "secret\\nvalue"},
                       ],
                       "devices_num_permission": False,
                   }
               }
+
               summary = probe.summarize_authorized_devices(
                   payload,
                   now=datetime(2026, 9, 2, 16, 0, tzinfo=timezone.utc),
               )
 
-              assert summary["with_os"] == 4
-              assert summary["os_code_counts"] == ("0=1", "1=1")
-              assert summary["os_code_unexpected"] == 1
-              assert summary["os_invalid"] == 1
-              assert summary["with_os_display"] == 4
+              assert summary["with_os"] == 6
+              assert summary["os_code_invalid"] == 2
+              assert summary["os_code_counts"] == ("0=2", "1=1", "255=1")
+              assert summary["with_os_display"] == 6
+              assert summary["os_display_invalid"] == 2
               assert summary["os_display_counts"] == (
-                  "android=1",
+                  "android=2",
                   "ios=1",
                   "other=1",
               )
-              assert summary["os_display_invalid"] == 1
-              assert summary["os_display_pairs"] == ("0->android=1", "1->ios=1")
-              assert summary["last_update_gt_90d_os_display_counts"] == ("android=1",)
-              assert "private-provider-platform-value" not in repr(summary)
+              assert summary["os_code_display_pairs"] == (
+                  "0->android=2",
+                  "1->ios=1",
+                  "255->other=1",
+              )
+              assert summary["unknown_field_count"] == 0
+              assert secret_display not in repr(summary)
+              assert "secret\\nvalue" not in repr(summary)
 
 
           ''' + anchor
-          tests = replace_once(tests, anchor, addition, "OS privacy test insertion")
+          tests = replace_once(tests, anchor, addition, "OS metadata test")
           test_path.write_text(tests, encoding="utf-8", newline="\n")
 
           readme_path = Path("tools/research/fcm_probe_py/README_RU.md")
@@ -316,20 +282,46 @@ jobs:
           публикации точной даты.
           '''
           new = old + '''
-          Live-аудит 2 сентября 2026 года также подтвердил поля `os` и `os_display`.
-          Android-клиент отправляет `os: 0` при регистрации через `/api/v0/fcm/`, но его
-          `AuthorizedDevice` DTO не объявляет `os`/`os_display`, поэтому таблица кодов ОС
-          пока не считается подтверждённой. Probe выводит `os` только как ограниченный
-          код `0..8`, а `os_display` нормализует в фиксированные категории `android`,
-          `ios`, `huawei`, `harmonyos`, `other`; исходные неизвестные строки не печатаются.
-          Отдельно выводятся агрегированное соответствие `os -> os_display` и категория ОС
-          записей старше 90 дней — без идентификации устройства и без точной даты.
+          Live-аудит 2 сентября 2026 года также подтвердил наличие полей `os` и
+          `os_display`. Их наличие считается подтверждённой частью wire-schema, но
+          числовая семантика `os` пока не подтверждена. Android-клиент при регистрации
+          отправляет `os: 0`, однако его DTO активных авторизаций не использует эти поля,
+          поэтому probe намеренно не зашивает таблицу вида `0 = Android`.
 
-          Поле `devices_num_permission` в Android DTO связано с именем `isQuantityLimited`,
-          однако текущий экран активных устройств это значение не использует. Его точная
-          семантика пока считается наблюдаемой, но не подтверждённой поведением клиента.
+          Для дальнейшего исследования `os` выводится только как ограниченный непрозрачный
+          числовой код `0..255`, а `os_display` сводится к фиксированным категориям
+          `android`, `ios`, `harmonyos`, `other`. Probe может показать только агрегированные
+          счётчики и корреляцию `код -> категория`; исходная строка `os_display`, название
+          устройства и идентификатор устройства в вывод не попадают.
+
+          `devices_num_permission` также наблюдается live. Его точная бизнес-семантика пока
+          не считается подтверждённой: декомпилированная модель содержит близкое по смыслу
+          поле ограничения количества устройств, но текущий экран активных устройств не
+          использует его для поведения интерфейса.
           '''
-          readme = replace_once(readme, old, new, "Russian docs")
+          readme = replace_once(readme, old, new, "README OS notes")
+
+          old = '''  call_access_false: 1
+            call_access_invalid: 0
+            unknown_field_count: 2
+          '''
+          new = '''  call_access_false: 1
+            call_access_invalid: 0
+            with_os: 3
+            os_code_invalid: 0
+            with_os_display: 3
+            os_display_invalid: 0
+            unknown_field_count: 0
+            os_code_counts: 0=2, 1=1
+            os_display_counts: android=2, ios=1
+            os_code_display_pairs: 0->android=2, 1->ios=1
+          '''
+          readme = replace_once(readme, old, new, "README example")
+          old = '''  unknown_field_names: <schema_field_1>, <schema_field_2>
+          '''
+          new = '''  unknown_field_names: (none)
+          '''
+          readme = replace_once(readme, old, new, "README unknown fields example")
           readme_path.write_text(readme, encoding="utf-8", newline="\n")
       - name: Compile and run focused tests
         run: |
