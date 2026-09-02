@@ -68,7 +68,7 @@
 Добавьте ресурс как JavaScript-модуль. Для релиза v0.28.0 cache-bust URL такой:
 
 ```text
-/ufanet_intercom/ufanet-archive-card.js?v=0.28.0
+/ufanet_intercom/ufanet-archive-card.js?v=0.29.0
 ```
 
 Значение `?v=` должно совпадать с установленной версией интеграции. Release-check репозитория теперь проверяет этот URL в обоих README вместе с версиями integration, manifest, card и runtime cache-bust.

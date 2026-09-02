@@ -68,7 +68,7 @@ To install it as a HACS custom repository:
 Add the resource as a JavaScript module. For release v0.28.0 the cache-bust URL is:
 
 ```text
-/ufanet_intercom/ufanet-archive-card.js?v=0.28.0
+/ufanet_intercom/ufanet-archive-card.js?v=0.29.0
 ```
 
 The `?v=` value should match the installed integration release; the repository release check verifies this documentation URL together with the integration, manifest, card, and runtime cache-bust versions.

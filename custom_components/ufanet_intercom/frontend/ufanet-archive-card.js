@@ -1,4 +1,4 @@
-const CARD_VERSION = "0.28.0";
+const CARD_VERSION = "0.29.0";
 const MOTION_EVENT_LEAD_SECONDS = 18;
 
 class UfanetArchiveCard extends HTMLElement {
