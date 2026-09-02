@@ -16,6 +16,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: codex/archive-motion-timeline
+      - name: Repair generated patch script newlines
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tools/apply_motion_timeline_patch.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace("'''\\n(ROOT", "'''\n(ROOT")
+          path.write_text(text, encoding='utf-8')
+          PY
       - name: Apply strict patch
         run: python tools/apply_motion_timeline_patch.py
       - name: Verify parsers
