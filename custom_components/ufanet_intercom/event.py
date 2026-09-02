@@ -30,23 +30,46 @@ async def async_setup_entry(
         "analytics_coordinator"
     )
 
-    entities: list[EventEntity] = [
+    passage_entities: list[EventEntity] = [
         UfanetKeyPassageEvent(passage_coordinator, coordinator.data[skud_id])
         for skud_id in passage_coordinator.data
         if skud_id in coordinator.data
     ]
-    if analytics_coordinator is not None and isinstance(
-        analytics_coordinator.data, dict
-    ):
-        entities.extend(
-            UfanetMotionAnalyticsEvent(
-                analytics_coordinator,
-                coordinator.data[skud_id],
-            )
-            for skud_id in analytics_coordinator.data
-            if skud_id in coordinator.data
+    async_add_entities(passage_entities)
+
+    if analytics_coordinator is None:
+        return
+
+    added_motion_ids: set[int] = set()
+
+    @callback
+    def _add_supported_motion_entities() -> None:
+        """Add newly discovered motion entities after coordinator recovery."""
+        data = analytics_coordinator.data
+        if not isinstance(data, dict):
+            return
+        new_ids = [
+            skud_id
+            for skud_id in data
+            if skud_id in coordinator.data and skud_id not in added_motion_ids
+        ]
+        if not new_ids:
+            return
+        added_motion_ids.update(new_ids)
+        async_add_entities(
+            [
+                UfanetMotionAnalyticsEvent(
+                    analytics_coordinator,
+                    coordinator.data[skud_id],
+                )
+                for skud_id in new_ids
+            ]
         )
-    async_add_entities(entities)
+
+    _add_supported_motion_entities()
+    entry.async_on_unload(
+        analytics_coordinator.async_add_listener(_add_supported_motion_entities)
+    )
 
 
 class UfanetKeyPassageEvent(EventEntity):
@@ -140,8 +163,10 @@ class UfanetMotionAnalyticsEvent(EventEntity):
     def _async_handle_motion(self, event: Event) -> None:
         if event.data.get("skud_id") != self.skud_id:
             return
-        attributes = {
-            "occurred_at": event.data["occurred_at"]
-        } if "occurred_at" in event.data else {}
+        attributes = (
+            {"occurred_at": event.data["occurred_at"]}
+            if "occurred_at" in event.data
+            else {}
+        )
         self._trigger_event("motion", attributes)
         self.async_write_ha_state()
