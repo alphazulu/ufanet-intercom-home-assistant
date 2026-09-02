@@ -60,6 +60,7 @@ Important distinction:
 - [Authentication](auth.md)
 - [Intercom / SKUD](intercom.md)
 - [UCAMS camera control and live video](ucams.md)
+- [UCAMS camera analytics](analytics.md)
 - [Archive](archive.md)
 - [Call events/history](calls.md)
 - [Physical keys and passage history](keys.md)

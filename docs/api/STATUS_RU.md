@@ -25,6 +25,8 @@
 | Проходы | `POST /api/v4/key/skud/<id>/key/pass_history/` | **Confirmed** | Подтверждены HTTP 200, страницы от `0` и пустой `results`; поля записи остаются Observed |
 | Дверь | `GET /api/v0/skud/shared/<id>/open/?door=1` | **Confirmed** | Физическое действие; успешный `{"result":true}` |
 | UCAMS | `POST /api/v0/cameras/this/` | **Confirmed** | Метаданные камеры/сервера/токенов |
+| Аналитика | `analytics` в метаданных камеры | **Observed** | Android-клиент обрабатывает поле как список поддерживаемых типов аналитики |
+| Аналитика | `POST /api/v0/analytics/<type>/report/` | **Observed** | Read-only запрос событий по типу; до runtime требуется live-проверка |
 | Live | `.../<camera>/index.m3u8?...` | **Confirmed** | HTTP 200 |
 | Snapshot | `/api/v0/screenshots/<camera>.jpg?...` | **Confirmed** | Снимок работает |
 | Архив | `recording_status.json?...request=ranges...` | **Confirmed** | Диапазоны `{from,duration}` |

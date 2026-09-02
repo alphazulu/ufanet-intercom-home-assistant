@@ -60,6 +60,7 @@ UCAMS bearer token
 - [Авторизация](auth_RU.md)
 - [Домофон / SKUD](intercom_RU.md)
 - [UCAMS и live-видео](ucams_RU.md)
+- [Аналитические события камер UCAMS](analytics_RU.md)
 - [Видеоархив](archive_RU.md)
 - [Звонки и история](calls_RU.md)
 - [Физические ключи и журнал проходов](keys_RU.md)

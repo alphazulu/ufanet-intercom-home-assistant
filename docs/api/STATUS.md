@@ -25,6 +25,8 @@ This table is a compact index of what has actually been tested by the project. T
 | Passages | `POST /api/v4/key/skud/<id>/key/pass_history/` | **Confirmed** | HTTP 200, zero-based pagination and empty `results` confirmed; item fields remain Observed |
 | Door | `GET /api/v0/skud/shared/<id>/open/?door=1` | **Confirmed** | Physical side effect; successful `{"result":true}` |
 | UCAMS | `POST /api/v0/cameras/this/` | **Confirmed** | Camera/server/token metadata |
+| Analytics | `analytics` in camera metadata | **Observed** | Android client treats it as a list of supported analytics type strings |
+| Analytics | `POST /api/v0/analytics/<type>/report/` | **Observed** | Read-only type-filtered event query; live validation is required before runtime use |
 | Live | `.../<camera>/index.m3u8?...` | **Confirmed** | HTTP 200 |
 | Snapshot | `/api/v0/screenshots/<camera>.jpg?...` | **Confirmed** | Working snapshot |
 | Archive | `recording_status.json?...request=ranges...` | **Confirmed** | `{from,duration}` ranges |
