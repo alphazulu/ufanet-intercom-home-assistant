@@ -25,17 +25,22 @@ jobs:
         run: |
           from pathlib import Path
 
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              if text.count(old) != 1:
+                  raise SystemExit(f"{label}: expected one anchor, got {text.count(old)}")
+              return text.replace(old, new)
+
           probe_path = Path("tools/research/fcm_probe_py/probe.py")
           text = probe_path.read_text(encoding="utf-8")
 
-          old_fields = '''EXPECTED_AUTHORIZED_DEVICE_FIELDS = {
+          old = '''EXPECTED_AUTHORIZED_DEVICE_FIELDS = {
               "device_id",
               "title",
               "last_update",
               "is_call_access",
           }
           '''
-          new_fields = '''EXPECTED_AUTHORIZED_DEVICE_FIELDS = {
+          new = '''EXPECTED_AUTHORIZED_DEVICE_FIELDS = {
               "device_id",
               "title",
               "last_update",
@@ -46,7 +51,7 @@ jobs:
 
 
           def _safe_os_display_category(value: Any) -> str | None:
-              """Normalize only well-known OS labels; never return provider free-form text."""
+              """Normalize known OS labels without returning provider free-form text."""
               if not isinstance(value, str):
                   return None
               normalized = value.strip().casefold()
@@ -67,20 +72,12 @@ jobs:
                   return "harmonyos"
               return "other"
           '''
-          if text.count(old_fields) != 1:
-              raise SystemExit("expected authorized-device field anchor not found exactly once")
-          text = text.replace(old_fields, new_fields)
+          text = replace_once(text, old, new, "expected fields")
 
-          old_counters = '''    with_call_access = 0
-              call_access_true = 0
-              call_access_false = 0
-              call_access_invalid = 0
+          old = '''    call_access_invalid = 0
               unknown_fields: set[str] = set()
           '''
-          new_counters = '''    with_call_access = 0
-              call_access_true = 0
-              call_access_false = 0
-              call_access_invalid = 0
+          new = '''    call_access_invalid = 0
               with_os = 0
               os_code_counts: dict[int, int] = {}
               os_code_unexpected = 0
@@ -92,11 +89,9 @@ jobs:
               stale_gt_90d_os_display_counts: dict[str, int] = {}
               unknown_fields: set[str] = set()
           '''
-          if text.count(old_counters) != 1:
-              raise SystemExit("counter anchor not found exactly once")
-          text = text.replace(old_counters, new_counters)
+          text = replace_once(text, old, new, "counters")
 
-          old_last_update = '''        last_update = item.get("last_update")
+          old = '''        last_update = item.get("last_update")
               if last_update not in (None, ""):
                   with_last_update += 1
                   parsed_last_update = parse_iso_datetime(last_update)
@@ -120,7 +115,7 @@ jobs:
 
               if "is_call_access" in item:
           '''
-          new_last_update = '''        last_update_is_gt_90d = False
+          new = '''        last_update_is_gt_90d = False
               last_update = item.get("last_update")
               if last_update not in (None, ""):
                   with_last_update += 1
@@ -180,16 +175,12 @@ jobs:
 
               if "is_call_access" in item:
           '''
-          if text.count(old_last_update) != 1:
-              raise SystemExit("last_update anchor not found exactly once")
-          text = text.replace(old_last_update, new_last_update)
+          text = replace_once(text, old, new, "per-record audit")
 
-          old_return = '''        "call_access_invalid": call_access_invalid,
+          old = '''        "call_access_invalid": call_access_invalid,
               "unknown_field_count": len(unknown_fields),
-              "unknown_field_names": tuple(sorted(unknown_fields)),
-              "devices_num_permission": permission_state,
           '''
-          new_return = '''        "call_access_invalid": call_access_invalid,
+          new = '''        "call_access_invalid": call_access_invalid,
               "with_os": with_os,
               "os_code_counts": tuple(
                   f"{code}={count}" for code, count in sorted(os_code_counts.items())
@@ -210,20 +201,16 @@ jobs:
                   for category, count in sorted(stale_gt_90d_os_display_counts.items())
               ),
               "unknown_field_count": len(unknown_fields),
-              "unknown_field_names": tuple(sorted(unknown_fields)),
-              "devices_num_permission": permission_state,
           '''
-          if text.count(old_return) != 1:
-              raise SystemExit("return anchor not found exactly once")
-          text = text.replace(old_return, new_return)
+          text = replace_once(text, old, new, "summary return")
 
-          old_print = '''        "call_access_invalid",
+          old = '''        "call_access_invalid",
               "unknown_field_count",
           ):
               print(f"  {key}: {summary[key]}")
               unknown_names = summary["unknown_field_names"]
           '''
-          new_print = '''        "call_access_invalid",
+          new = '''        "call_access_invalid",
               "with_os",
               "os_code_unexpected",
               "os_invalid",
@@ -232,29 +219,28 @@ jobs:
               "unknown_field_count",
           ):
               print(f"  {key}: {summary[key]}")
-              for key in (
+              for aggregate_key in (
                   "os_code_counts",
                   "os_display_counts",
                   "os_display_pairs",
                   "last_update_gt_90d_os_display_counts",
               ):
-                  values = summary[key]
-                  print(f"  {key}: " + (", ".join(values) if values else "(none)"))
+                  values = summary[aggregate_key]
+                  print(
+                      f"  {aggregate_key}: "
+                      + (", ".join(values) if values else "(none)")
+                  )
               unknown_names = summary["unknown_field_names"]
           '''
-          if text.count(old_print) != 1:
-              raise SystemExit("print anchor not found exactly once")
-          text = text.replace(old_print, new_print)
+          text = replace_once(text, old, new, "safe printer")
           probe_path.write_text(text, encoding="utf-8", newline="\n")
 
           test_path = Path("tests/test_fcm_probe.py")
           tests = test_path.read_text(encoding="utf-8")
-          old_expected = '''        "call_access_invalid": 0,
+          old = '''        "call_access_invalid": 0,
               "unknown_field_count": 1,
-              "unknown_field_names": ("provider_private_extra",),
-              "devices_num_permission": "true",
           '''
-          new_expected = '''        "call_access_invalid": 0,
+          new = '''        "call_access_invalid": 0,
               "with_os": 0,
               "os_code_counts": (),
               "os_code_unexpected": 0,
@@ -265,16 +251,12 @@ jobs:
               "os_display_pairs": (),
               "last_update_gt_90d_os_display_counts": (),
               "unknown_field_count": 1,
-              "unknown_field_names": ("provider_private_extra",),
-              "devices_num_permission": "true",
           '''
-          if tests.count(old_expected) != 1:
-              raise SystemExit("test expected anchor not found exactly once")
-          tests = tests.replace(old_expected, new_expected)
+          tests = replace_once(tests, old, new, "test expected summary")
 
           anchor = '''def test_authorized_devices_summary_rejects_unknown_envelope_without_values() -> None:
           '''
-          new_test = '''def test_authorized_devices_os_metadata_is_bounded_and_privacy_safe() -> None:
+          addition = '''def test_authorized_devices_os_metadata_is_bounded_and_privacy_safe() -> None:
               payload = {
                   "data": {
                       "device_list": [
@@ -323,39 +305,31 @@ jobs:
               assert "private-provider-platform-value" not in repr(summary)
 
 
-          def test_authorized_devices_summary_rejects_unknown_envelope_without_values() -> None:
-          '''
-          if tests.count(anchor) != 1:
-              raise SystemExit("new test insertion anchor not found exactly once")
-          tests = tests.replace(anchor, new_test)
+          ''' + anchor
+          tests = replace_once(tests, anchor, addition, "OS privacy test insertion")
           test_path.write_text(tests, encoding="utf-8", newline="\n")
 
           readme_path = Path("tools/research/fcm_probe_py/README_RU.md")
           readme = readme_path.read_text(encoding="utf-8")
-          old_doc = '''Возраст `last_update` выводится только корзинами `<=24h`, `1-7d`, `7-30d`, `30-90d`,
+          old = '''Возраст `last_update` выводится только корзинами `<=24h`, `1-7d`, `7-30d`, `30-90d`,
           `>90d`; отдельный `future`-счётчик позволяет заметить рассинхронизацию часов без
           публикации точной даты.
           '''
-          new_doc = '''Возраст `last_update` выводится только корзинами `<=24h`, `1-7d`, `7-30d`, `30-90d`,
-          `>90d`; отдельный `future`-счётчик позволяет заметить рассинхронизацию часов без
-          публикации точной даты.
-
+          new = old + '''
           Live-аудит 2 сентября 2026 года также подтвердил поля `os` и `os_display`.
-          Декомпилированный Android-клиент отправляет `os: 0` при `/api/v0/fcm/`, но его
-          `AuthorizedDevice` DTO не объявляет ни `os`, ни `os_display`, поэтому эти поля
-          считаются серверной расширенной метаинформацией. Probe выводит числовой `os`
-          только как ограниченный категориальный код `0..8`; `os_display` нормализуется
-          только в категории `android`, `ios`, `huawei`, `harmonyos`, `other`, а исходная
-          неизвестная строка никогда не печатается. Также выводится агрегированное
-          соответствие `os -> os_display` и категория ОС для записей старше 90 дней.
+          Android-клиент отправляет `os: 0` при регистрации через `/api/v0/fcm/`, но его
+          `AuthorizedDevice` DTO не объявляет `os`/`os_display`, поэтому таблица кодов ОС
+          пока не считается подтверждённой. Probe выводит `os` только как ограниченный
+          код `0..8`, а `os_display` нормализует в фиксированные категории `android`,
+          `ios`, `huawei`, `harmonyos`, `other`; исходные неизвестные строки не печатаются.
+          Отдельно выводятся агрегированное соответствие `os -> os_display` и категория ОС
+          записей старше 90 дней — без идентификации устройства и без точной даты.
 
-          Поле `devices_num_permission` Android DTO называет `isQuantityLimited`, однако
-          текущий экран управления активными устройствами это значение не использует.
-          Поэтому его семантика пока считается наблюдаемой, но не подтверждённой поведением.
+          Поле `devices_num_permission` в Android DTO связано с именем `isQuantityLimited`,
+          однако текущий экран активных устройств это значение не использует. Его точная
+          семантика пока считается наблюдаемой, но не подтверждённой поведением клиента.
           '''
-          if readme.count(old_doc) != 1:
-              raise SystemExit("README anchor not found exactly once")
-          readme = readme.replace(old_doc, new_doc)
+          readme = replace_once(readme, old, new, "Russian docs")
           readme_path.write_text(readme, encoding="utf-8", newline="\n")
       - name: Compile and run focused tests
         run: |
