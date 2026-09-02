@@ -11,7 +11,7 @@ import statistics
 import sys
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -335,6 +335,320 @@ async def verify_unregister_with_ufanet(
     print("[OK] FCM unregister contract verified and probe registration restored")
 
 
+EXPECTED_AUTHORIZED_DEVICE_FIELDS = {
+    "device_id",
+    "title",
+    "last_update",
+    "is_call_access",
+    "os",
+    "os_display",
+}
+
+
+def _normalize_authorized_os_code(value: Any) -> str | None:
+    """Return a bounded opaque OS code without assigning platform semantics."""
+    if type(value) is not int or not 0 <= value <= 255:
+        return None
+    return str(value)
+
+
+def _normalize_authorized_os_display(value: Any) -> str | None:
+    """Reduce provider OS display text to a fixed privacy-safe category."""
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    if not stripped or len(stripped) > 64:
+        return None
+    if any(ord(char) < 32 or ord(char) == 127 for char in stripped):
+        return None
+    normalized = stripped.casefold()
+    if "android" in normalized:
+        return "android"
+    if (
+        normalized == "ios"
+        or normalized.startswith("ios ")
+        or "iphone" in normalized
+        or "ipad" in normalized
+    ):
+        return "ios"
+    if "harmony" in normalized:
+        return "harmonyos"
+    return "other"
+
+
+def summarize_authorized_devices(
+    payload: Any,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Reduce authorized-device data to privacy-safe aggregate schema facts."""
+    if not isinstance(payload, dict):
+        raise RuntimeError("Unexpected authorized-devices response schema")
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise RuntimeError("Unexpected authorized-devices response schema")
+    devices = data.get("device_list")
+    if not isinstance(devices, list):
+        raise RuntimeError("Unexpected authorized-devices response schema")
+
+    reference_time = now or datetime.now(timezone.utc)
+    if reference_time.tzinfo is None:
+        raise RuntimeError("Authorized-devices audit reference time must be timezone-aware")
+    reference_time = reference_time.astimezone(timezone.utc)
+
+    valid_objects = 0
+    invalid_entries = 0
+    with_device_id = 0
+    unique_device_ids: set[str] = set()
+    with_title = 0
+    with_last_update = 0
+    parseable_last_update = 0
+    last_update_age_le_24h = 0
+    last_update_age_1_7d = 0
+    last_update_age_7_30d = 0
+    last_update_age_30_90d = 0
+    last_update_age_gt_90d = 0
+    last_update_age_future = 0
+    with_call_access = 0
+    call_access_true = 0
+    call_access_false = 0
+    call_access_invalid = 0
+    with_os = 0
+    os_code_invalid = 0
+    os_code_counts: dict[str, int] = {}
+    with_os_display = 0
+    os_display_invalid = 0
+    os_display_counts: dict[str, int] = {}
+    os_code_display_pairs: dict[tuple[str, str], int] = {}
+    unknown_fields: set[str] = set()
+
+    for item in devices:
+        if not isinstance(item, dict):
+            invalid_entries += 1
+            continue
+        valid_objects += 1
+        unknown_fields.update(
+            str(key) for key in item if str(key) not in EXPECTED_AUTHORIZED_DEVICE_FIELDS
+        )
+
+        device_id = item.get("device_id")
+        if device_id not in (None, ""):
+            with_device_id += 1
+            unique_device_ids.add(str(device_id))
+
+        if item.get("title") not in (None, ""):
+            with_title += 1
+
+        last_update = item.get("last_update")
+        if last_update not in (None, ""):
+            with_last_update += 1
+            parsed_last_update = parse_iso_datetime(last_update)
+            if parsed_last_update is not None:
+                parseable_last_update += 1
+                age_seconds = (
+                    reference_time - parsed_last_update.astimezone(timezone.utc)
+                ).total_seconds()
+                if age_seconds < 0:
+                    last_update_age_future += 1
+                elif age_seconds <= 24 * 60 * 60:
+                    last_update_age_le_24h += 1
+                elif age_seconds <= 7 * 24 * 60 * 60:
+                    last_update_age_1_7d += 1
+                elif age_seconds <= 30 * 24 * 60 * 60:
+                    last_update_age_7_30d += 1
+                elif age_seconds <= 90 * 24 * 60 * 60:
+                    last_update_age_30_90d += 1
+                else:
+                    last_update_age_gt_90d += 1
+
+        os_code: str | None = None
+        os_value = item.get("os", ...)
+        if os_value is not ...:
+            with_os += 1
+            os_code = _normalize_authorized_os_code(os_value)
+            if os_code is None:
+                os_code_invalid += 1
+            else:
+                os_code_counts[os_code] = os_code_counts.get(os_code, 0) + 1
+
+        os_display_category: str | None = None
+        os_display_value = item.get("os_display", ...)
+        if os_display_value is not ...:
+            with_os_display += 1
+            os_display_category = _normalize_authorized_os_display(os_display_value)
+            if os_display_category is None:
+                os_display_invalid += 1
+            else:
+                os_display_counts[os_display_category] = (
+                    os_display_counts.get(os_display_category, 0) + 1
+                )
+
+        if os_code is not None and os_display_category is not None:
+            pair = (os_code, os_display_category)
+            os_code_display_pairs[pair] = os_code_display_pairs.get(pair, 0) + 1
+
+        if "is_call_access" in item:
+            with_call_access += 1
+            call_access = item.get("is_call_access")
+            if call_access is True:
+                call_access_true += 1
+            elif call_access is False:
+                call_access_false += 1
+            else:
+                call_access_invalid += 1
+
+    permission = data.get("devices_num_permission", ...)
+    if permission is ...:
+        permission_state = "absent"
+    elif permission is True:
+        permission_state = "true"
+    elif permission is False:
+        permission_state = "false"
+    else:
+        permission_state = "invalid_type"
+
+    return {
+        "total": len(devices),
+        "valid_objects": valid_objects,
+        "invalid_entries": invalid_entries,
+        "with_device_id": with_device_id,
+        "unique_device_ids": len(unique_device_ids),
+        "duplicate_device_ids": max(0, with_device_id - len(unique_device_ids)),
+        "with_title": with_title,
+        "with_last_update": with_last_update,
+        "parseable_last_update": parseable_last_update,
+        "last_update_age_le_24h": last_update_age_le_24h,
+        "last_update_age_1_7d": last_update_age_1_7d,
+        "last_update_age_7_30d": last_update_age_7_30d,
+        "last_update_age_30_90d": last_update_age_30_90d,
+        "last_update_age_gt_90d": last_update_age_gt_90d,
+        "last_update_age_future": last_update_age_future,
+        "with_call_access": with_call_access,
+        "call_access_true": call_access_true,
+        "call_access_false": call_access_false,
+        "call_access_invalid": call_access_invalid,
+        "with_os": with_os,
+        "os_code_invalid": os_code_invalid,
+        "os_code_counts": tuple(
+            f"{code}={count}" for code, count in sorted(os_code_counts.items())
+        ),
+        "with_os_display": with_os_display,
+        "os_display_invalid": os_display_invalid,
+        "os_display_counts": tuple(
+            f"{category}={count}"
+            for category, count in sorted(os_display_counts.items())
+        ),
+        "os_code_display_pairs": tuple(
+            f"{code}->{category}={count}"
+            for (code, category), count in sorted(os_code_display_pairs.items())
+        ),
+        "unknown_field_count": len(unknown_fields),
+        "unknown_field_names": tuple(sorted(unknown_fields)),
+        "devices_num_permission": permission_state,
+    }
+
+
+async def audit_authorized_devices(
+    session: aiohttp.ClientSession,
+    access_token: str,
+    base_url: str,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Read and summarize active authorized-device registrations without exposing values."""
+    url = f"{base_url}/api/v4/fcm_device/authorized_devices/"
+    async with session.post(
+        url,
+        headers={
+            "Authorization": f"JWT {access_token.replace('JWT ', '')}",
+            "Accept": "application/json",
+        },
+        timeout=aiohttp.ClientTimeout(total=30),
+    ) as response:
+        text = await response.text()
+        if response.status >= 400:
+            raise RuntimeError(
+                f"authorized-devices audit failed: HTTP {response.status}"
+            )
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("Unexpected authorized-devices response") from exc
+
+    summary = summarize_authorized_devices(payload, now=now)
+    print(
+        "[OK] POST /api/v4/fcm_device/authorized_devices/: "
+        f"HTTP {response.status}"
+    )
+    print("[RESULT] authorized devices audit")
+    for key in (
+        "total",
+        "valid_objects",
+        "invalid_entries",
+        "with_device_id",
+        "unique_device_ids",
+        "duplicate_device_ids",
+        "with_title",
+        "with_last_update",
+        "parseable_last_update",
+        "last_update_age_le_24h",
+        "last_update_age_1_7d",
+        "last_update_age_7_30d",
+        "last_update_age_30_90d",
+        "last_update_age_gt_90d",
+        "last_update_age_future",
+        "with_call_access",
+        "call_access_true",
+        "call_access_false",
+        "call_access_invalid",
+        "with_os",
+        "os_code_invalid",
+        "with_os_display",
+        "os_display_invalid",
+        "unknown_field_count",
+    ):
+        print(f"  {key}: {summary[key]}")
+    for aggregate_key in (
+        "os_code_counts",
+        "os_display_counts",
+        "os_code_display_pairs",
+    ):
+        values = summary[aggregate_key]
+        print(f"  {aggregate_key}: " + (", ".join(values) if values else "(none)"))
+    unknown_names = summary["unknown_field_names"]
+    print(
+        "  unknown_field_names: "
+        + (", ".join(unknown_names) if unknown_names else "(none)")
+    )
+    print(f"  devices_num_permission: {summary['devices_num_permission']}")
+    return summary
+
+
+async def run_authorized_devices_audit(
+    args: argparse.Namespace,
+    base_url: str,
+) -> None:
+    """Run the Ufanet-only read-only authorized-device audit and exit."""
+    username = args.username or os.getenv("UFANET_USERNAME")
+    if not username:
+        username = input("Ufanet contract/login: ").strip()
+    password = os.getenv("UFANET_PASSWORD")
+    if not password:
+        password = getpass.getpass("Ufanet password: ")
+    if not username or not password:
+        raise RuntimeError("Ufanet username/password are required")
+
+    session = aiohttp.ClientSession()
+    try:
+        print("[INFO] Authenticating to Ufanet...")
+        access_token = await ufanet_login(session, username, password, base_url)
+        print("[OK] Ufanet authentication succeeded")
+        await audit_authorized_devices(session, access_token, base_url)
+        print("[OK] Read-only authorized devices audit completed")
+    finally:
+        await session.close()
+
+
 async def fetch_call_history(
     session: aiohttp.ClientSession,
     access_token: str,
@@ -451,13 +765,17 @@ async def cleanup_probe_resources(
 
 
 async def run(args: argparse.Namespace) -> int:
+    base_url = args.ufanet_base_url.rstrip("/")
+    if args.audit_authorized_devices:
+        await run_authorized_devices_audit(args, base_url)
+        return 0
+
     state_path = Path(args.state).expanduser().resolve()
     firebase_path = Path(args.firebase_config).expanduser().resolve()
     state = load_state(state_path)
     firebase = load_firebase_config(firebase_path)
     bind_state_to_firebase_config(state, state_path, firebase)
     history_delays = args.history_delays
-    base_url = args.ufanet_base_url.rstrip("/")
 
     print(
         "[INFO] Loaded local Firebase configuration: "
@@ -703,6 +1021,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Only create/listen on FCM; do not register the token with Ufanet",
     )
     parser.add_argument(
+        "--audit-authorized-devices",
+        action="store_true",
+        help=(
+            "Read-only audit of POST /api/v4/fcm_device/authorized_devices/; "
+            "does not initialize Firebase, register FCM, modify device state, or start MCS"
+        ),
+    )
+    parser.add_argument(
         "--verify-unregister",
         action="store_true",
         help=(
@@ -744,6 +1070,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    if args.audit_authorized_devices and args.skip_ufanet:
+        print(
+            "[ERROR] --audit-authorized-devices cannot be used with --skip-ufanet",
+            file=sys.stderr,
+        )
+        return 2
+    if args.audit_authorized_devices and args.verify_unregister:
+        print(
+            "[ERROR] --audit-authorized-devices cannot be combined with --verify-unregister",
+            file=sys.stderr,
+        )
+        return 2
     if args.verify_unregister and args.skip_ufanet:
         print(
             "[ERROR] --verify-unregister cannot be used with --skip-ufanet",

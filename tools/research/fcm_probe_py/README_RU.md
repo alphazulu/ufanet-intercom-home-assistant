@@ -114,6 +114,77 @@ py probe.py --firebase-config "C:\Private\firebase_config.json"
 
 Probe запросит Ufanet contract/login и password. Пароль вводится через `getpass`.
 
+### Read-only аудит активных авторизаций
+
+Для live-проверки наблюдаемого в Android-клиенте endpoint:
+
+```cmd
+py probe.py --audit-authorized-devices
+```
+
+Этот режим **не требует `firebase_config.json`**, не выполняет Firebase/GCM check-in,
+не регистрирует и не удаляет FCM device, не изменяет `fcm_state.json` и не запускает
+MCS listener. Он только авторизуется в Ufanet и делает read-only по смыслу запрос
+`POST /api/v4/fcm_device/authorized_devices/` без request body.
+
+Endpoint **live-confirmed** 2 сентября 2026 года. Probe намеренно не печатает
+`device_id`, title, точные `last_update`, response body или неизвестные значения.
+Вывод содержит только агрегаты: количество записей, наличие ожидаемых полей, число
+уникальных/дублирующихся `device_id`, распределение `is_call_access`, возрастные корзины
+`last_update` без точных дат, имена неизвестных schema-полей без их значений и
+тип/булево состояние `devices_num_permission`.
+
+Имена неизвестных полей считаются schema metadata: probe может показать сам ключ,
+например `application`, но никогда не показывает соответствующее ему значение.
+Возраст `last_update` выводится только корзинами `<=24h`, `1-7d`, `7-30d`, `30-90d`,
+`>90d`; отдельный `future`-счётчик позволяет заметить рассинхронизацию часов без
+публикации точной даты.
+
+Live-аудит 2 сентября 2026 года также подтвердил наличие полей `os` и
+`os_display`. Числовая семантика `os` пока не считается подтверждённой: probe
+выводит его только как ограниченный непрозрачный код `0..255`. `os_display`
+сводится к фиксированным категориям `android`, `ios`, `harmonyos`, `other`.
+Исходная строка `os_display` не печатается; допустимы только агрегированные
+счётчики и корреляция `код -> категория`. `devices_num_permission` также
+наблюдается live, но его точная бизнес-семантика пока не утверждается.
+
+Пример безопасного вывода:
+
+```text
+[OK] POST /api/v4/fcm_device/authorized_devices/: HTTP 200
+[RESULT] authorized devices audit
+  total: 3
+  valid_objects: 3
+  invalid_entries: 0
+  with_device_id: 3
+  unique_device_ids: 3
+  duplicate_device_ids: 0
+  with_title: 3
+  with_last_update: 3
+  parseable_last_update: 3
+  last_update_age_le_24h: 1
+  last_update_age_1_7d: 1
+  last_update_age_7_30d: 0
+  last_update_age_30_90d: 0
+  last_update_age_gt_90d: 1
+  last_update_age_future: 0
+  with_call_access: 3
+  call_access_true: 2
+  call_access_false: 1
+  call_access_invalid: 0
+  with_os: 3
+  os_code_invalid: 0
+  with_os_display: 3
+  os_display_invalid: 0
+  unknown_field_count: 0
+  os_code_counts: 0=2, 1=1
+  os_display_counts: android=2, ios=1
+  os_code_display_pairs: 0->android=2, 1->ios=1
+  unknown_field_names: (none)
+  devices_num_permission: true
+[OK] Read-only authorized devices audit completed
+```
+
 ### Безопасная проверка unregister
 
 Контракт удаления FCM-регистрации подтверждён реальным запросом. Для его повторной

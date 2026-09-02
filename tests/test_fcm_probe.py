@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -163,3 +164,188 @@ async def test_cleanup_closes_session_even_when_listener_stop_fails() -> None:
         )
 
     session.close.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_authorized_devices_audit_is_read_only_and_privacy_safe(capsys) -> None:
+    session = _FakeSession()
+
+    def post_audit(url: str, **kwargs):
+        session.calls.append(("POST", url, kwargs))
+        return _FakeResponse(
+            200,
+            {
+                "data": {
+                    "device_list": [
+                        {
+                            "device_id": "private-device-1",
+                            "title": "Andrey private phone",
+                            "last_update": "2026-09-02T12:34:56+10:00",
+                            "is_call_access": True,
+                        },
+                        {
+                            "device_id": "private-device-2",
+                            "title": "Home Assistant private",
+                            "last_update": "2026-09-01T01:02:03Z",
+                            "is_call_access": False,
+                            "provider_private_extra": "secret-value",
+                        },
+                    ],
+                    "devices_num_permission": True,
+                }
+            },
+        )
+
+    session.post = post_audit
+    summary = await probe.audit_authorized_devices(
+        session,
+        "access-token",
+        "https://example.test",
+        now=datetime(2026, 9, 2, 16, 0, tzinfo=timezone.utc),
+    )
+
+    assert len(session.calls) == 1
+    method, url, kwargs = session.calls[0]
+    assert method == "POST"
+    assert url == "https://example.test/api/v4/fcm_device/authorized_devices/"
+    assert "json" not in kwargs
+    assert "data" not in kwargs
+    assert summary == {
+        "total": 2,
+        "valid_objects": 2,
+        "invalid_entries": 0,
+        "with_device_id": 2,
+        "unique_device_ids": 2,
+        "duplicate_device_ids": 0,
+        "with_title": 2,
+        "with_last_update": 2,
+        "parseable_last_update": 2,
+        "last_update_age_le_24h": 1,
+        "last_update_age_1_7d": 1,
+        "last_update_age_7_30d": 0,
+        "last_update_age_30_90d": 0,
+        "last_update_age_gt_90d": 0,
+        "last_update_age_future": 0,
+        "with_call_access": 2,
+        "call_access_true": 1,
+        "call_access_false": 1,
+        "call_access_invalid": 0,
+        "with_os": 0,
+        "os_code_invalid": 0,
+        "os_code_counts": (),
+        "with_os_display": 0,
+        "os_display_invalid": 0,
+        "os_display_counts": (),
+        "os_code_display_pairs": (),
+        "unknown_field_count": 1,
+        "unknown_field_names": ("provider_private_extra",),
+        "devices_num_permission": "true",
+    }
+    output = capsys.readouterr().out
+    for secret in (
+        "private-device-1",
+        "private-device-2",
+        "Andrey private phone",
+        "Home Assistant private",
+        "2026-09-02",
+        "2026-09-01",
+        "secret-value",
+        "access-token",
+    ):
+        assert secret not in output
+
+
+@pytest.mark.asyncio
+async def test_authorized_devices_audit_rejects_http_error_without_body_leak(capsys) -> None:
+    session = _FakeSession()
+
+    def post_error(url: str, **kwargs):
+        session.calls.append(("POST", url, kwargs))
+        return _FakeResponse(403, {"device_id": "private-device-id", "detail": "private"})
+
+    session.post = post_error
+    with pytest.raises(RuntimeError, match="HTTP 403"):
+        await probe.audit_authorized_devices(
+            session, "access-token", "https://example.test"
+        )
+
+    output = capsys.readouterr().out
+    assert "private-device-id" not in output
+    assert "private" not in output
+    assert "access-token" not in output
+
+
+def test_authorized_devices_age_buckets_do_not_expose_timestamps() -> None:
+    payload = {
+        "data": {
+            "device_list": [
+                {"last_update": "2026-09-02T15:00:00Z"},
+                {"last_update": "2026-08-30T16:00:00Z"},
+                {"last_update": "2026-08-15T16:00:00Z"},
+                {"last_update": "2026-07-01T16:00:00Z"},
+                {"last_update": "2026-01-01T00:00:00Z"},
+                {"last_update": "2026-09-03T16:00:00Z"},
+            ],
+            "devices_num_permission": False,
+        }
+    }
+    summary = probe.summarize_authorized_devices(
+        payload,
+        now=datetime(2026, 9, 2, 16, 0, tzinfo=timezone.utc),
+    )
+
+    assert summary["last_update_age_le_24h"] == 1
+    assert summary["last_update_age_1_7d"] == 1
+    assert summary["last_update_age_7_30d"] == 1
+    assert summary["last_update_age_30_90d"] == 1
+    assert summary["last_update_age_gt_90d"] == 1
+    assert summary["last_update_age_future"] == 1
+    assert summary["devices_num_permission"] == "false"
+
+
+def test_authorized_devices_os_metadata_is_bounded_and_privacy_safe() -> None:
+    secret_display = "private-provider-platform-value"
+    payload = {
+        "data": {
+            "device_list": [
+                {"os": 0, "os_display": "Android"},
+                {"os": 1, "os_display": "iOS"},
+                {"os": 0, "os_display": "Android 15"},
+                {"os": 255, "os_display": secret_display},
+                {"os": 256, "os_display": 123},
+                {"os": "0", "os_display": "secret\nvalue"},
+            ],
+            "devices_num_permission": False,
+        }
+    }
+
+    summary = probe.summarize_authorized_devices(
+        payload,
+        now=datetime(2026, 9, 2, 16, 0, tzinfo=timezone.utc),
+    )
+
+    assert summary["with_os"] == 6
+    assert summary["os_code_invalid"] == 2
+    assert summary["os_code_counts"] == ("0=2", "1=1", "255=1")
+    assert summary["with_os_display"] == 6
+    assert summary["os_display_invalid"] == 2
+    assert summary["os_display_counts"] == (
+        "android=2",
+        "ios=1",
+        "other=1",
+    )
+    assert summary["os_code_display_pairs"] == (
+        "0->android=2",
+        "1->ios=1",
+        "255->other=1",
+    )
+    assert summary["unknown_field_count"] == 0
+    assert secret_display not in repr(summary)
+    assert "secret\nvalue" not in repr(summary)
+
+
+def test_authorized_devices_summary_rejects_unknown_envelope_without_values() -> None:
+    with pytest.raises(RuntimeError, match="Unexpected authorized-devices response schema"):
+        probe.summarize_authorized_devices(
+            {"data": {"device_list": "private-device-id"}}
+        )
