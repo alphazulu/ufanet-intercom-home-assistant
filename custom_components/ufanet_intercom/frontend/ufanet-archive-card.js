@@ -285,6 +285,8 @@ class UfanetArchiveCard extends HTMLElement {
         }
       );
     } catch (_err) {
+      // Keep all existing card defaults/YAML values if the backend is older
+      // or the settings action is temporarily unavailable.
       this._integrationSettings = null;
       return;
     }
@@ -445,6 +447,7 @@ class UfanetArchiveCard extends HTMLElement {
         this._lastCallImageEntityId = lastCallImage.entity_id;
       }
     } catch (_err) {
+      // Fall back below.
     }
 
     this._liveEntityId =
@@ -681,6 +684,8 @@ class UfanetArchiveCard extends HTMLElement {
         });
       }
     } catch (_err) {
+      // Recreating the live card below is still useful if update_entity is not
+      // supported by a particular entity.
     }
 
     const host = this.shadowRoot.getElementById("live-host");
@@ -947,6 +952,8 @@ class UfanetArchiveCard extends HTMLElement {
         "ok"
       );
 
+      // Server-side verification is also performed by the HA action.
+      // Refresh once more so the UI mirrors the authoritative list.
       this._guestAccess = null;
     } catch (err) {
       this._setGuestStatus(this._errorText(err), "error");
@@ -1317,6 +1324,7 @@ class UfanetArchiveCard extends HTMLElement {
         return;
       }
     } catch (_err) {
+      // Fallback below.
     }
 
     const input = this.shadowRoot.getElementById("guest-invite-url");
@@ -1328,6 +1336,7 @@ class UfanetArchiveCard extends HTMLElement {
         this._setGuestStatus("Ссылка скопирована", "ok");
         return;
       } catch (_err) {
+        // Fall through.
       }
     }
 
@@ -1373,6 +1382,7 @@ class UfanetArchiveCard extends HTMLElement {
           });
         }
       } catch (_err) {
+        // Fall through to whenDefined below.
       }
     }
 
@@ -1633,6 +1643,8 @@ class UfanetArchiveCard extends HTMLElement {
     const target = this._currentEpoch + direction * this._step();
     let resolved = this._resolveTarget(target, direction);
 
+    // A card can stay open while new archive appears. Refresh once at the
+    // newest edge before reporting that there is no newer recording.
     if (resolved == null && direction > 0) {
       await this._refreshRanges();
       resolved = this._resolveTarget(target, direction);
@@ -1970,6 +1982,7 @@ class UfanetArchiveCard extends HTMLElement {
             }).format(new Date(item.modified_at))}`
           );
         } catch (_err) {
+          // Ignore formatting failure.
         }
       }
 
@@ -2407,6 +2420,7 @@ class UfanetArchiveCard extends HTMLElement {
         return;
       }
     } catch (_err) {
+      // Fall back to selecting the visible link below.
     }
 
     this._setStatus(
@@ -2746,6 +2760,7 @@ class UfanetArchiveCard extends HTMLElement {
       : Math.max(0, index - 1);
 
     if (nextIndex === index) {
+      // At the end of the zoom range, allow normal page scrolling.
       return;
     }
 
@@ -2768,6 +2783,8 @@ class UfanetArchiveCard extends HTMLElement {
     const newHours = levels[nextIndex];
     const newSpan = newHours * 3600;
 
+    // Keep the time under the mouse pointer approximately under the same
+    // pointer position after zooming, then clamp the window to 00:00–24:00.
     let desiredStart = focusSeconds - ratio * newSpan;
     desiredStart = Math.max(0, Math.min(86400 - newSpan, desiredStart));
     const center = desiredStart + newSpan / 2;
@@ -2818,6 +2835,7 @@ class UfanetArchiveCard extends HTMLElement {
 
     const deltaX = event.clientX - drag.startX;
 
+    // Keep small pointer jitter as an ordinary click.
     if (!drag.moved && Math.abs(deltaX) < 5) return;
 
     if (!drag.moved) {
@@ -2825,12 +2843,15 @@ class UfanetArchiveCard extends HTMLElement {
       try {
         track.setPointerCapture(event.pointerId);
       } catch (_err) {
+        // Pointer capture is an enhancement; panning still works without it.
       }
       track.dataset.dragging = "true";
     }
 
     event.preventDefault();
 
+    // DVR/map-like behavior: dragging content to the right reveals earlier time;
+    // dragging left reveals later time.
     const deltaSeconds = -(deltaX / drag.width) * drag.span;
     const nextCenter = this._clampTimelineCenter(
       drag.startCenter + deltaSeconds
@@ -2848,6 +2869,8 @@ class UfanetArchiveCard extends HTMLElement {
     const track = this.shadowRoot.getElementById("timeline-track");
 
     if (drag.moved) {
+      // Pointerup normally generates a click. Suppress that click so a finished
+      // pan never seeks the archive accidentally.
       this._timelineSuppressClickUntil = Date.now() + 350;
       if (track) {
         track.dataset.dragging = "false";
@@ -2856,6 +2879,7 @@ class UfanetArchiveCard extends HTMLElement {
             track.releasePointerCapture(drag.pointerId);
           }
         } catch (_err) {
+          // Ignore unsupported/expired capture.
         }
       }
 
@@ -3126,6 +3150,7 @@ class UfanetArchiveCard extends HTMLElement {
         }
         .panel-message.error { color: var(--error-color); }
 
+        /* LIVE */
         #live-host {
           min-height: 260px;
           background: #000;
@@ -3209,6 +3234,7 @@ class UfanetArchiveCard extends HTMLElement {
           font-size: 11px;
         }
 
+        /* ARCHIVE */
         #archive-window { padding: 10px 16px 10px; font-size: 12px; color: var(--secondary-text-color); }
         .controls {
           padding: 6px 16px 12px;
@@ -3420,6 +3446,7 @@ class UfanetArchiveCard extends HTMLElement {
           justify-content: flex-end;
         }
 
+        /* GUESTS */
         .guest-toolbar {
           padding: 14px 16px 10px;
           display: flex;
