@@ -340,7 +340,40 @@ EXPECTED_AUTHORIZED_DEVICE_FIELDS = {
     "title",
     "last_update",
     "is_call_access",
+    "os",
+    "os_display",
 }
+
+
+def _normalize_authorized_os_code(value: Any) -> str | None:
+    """Return a bounded opaque OS code without assigning platform semantics."""
+    if type(value) is not int or not 0 <= value <= 255:
+        return None
+    return str(value)
+
+
+def _normalize_authorized_os_display(value: Any) -> str | None:
+    """Reduce provider OS display text to a fixed privacy-safe category."""
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    if not stripped or len(stripped) > 64:
+        return None
+    if any(ord(char) < 32 or ord(char) == 127 for char in stripped):
+        return None
+    normalized = stripped.casefold()
+    if "android" in normalized:
+        return "android"
+    if (
+        normalized == "ios"
+        or normalized.startswith("ios ")
+        or "iphone" in normalized
+        or "ipad" in normalized
+    ):
+        return "ios"
+    if "harmony" in normalized:
+        return "harmonyos"
+    return "other"
 
 
 def summarize_authorized_devices(
@@ -380,6 +413,13 @@ def summarize_authorized_devices(
     call_access_true = 0
     call_access_false = 0
     call_access_invalid = 0
+    with_os = 0
+    os_code_invalid = 0
+    os_code_counts: dict[str, int] = {}
+    with_os_display = 0
+    os_display_invalid = 0
+    os_display_counts: dict[str, int] = {}
+    os_code_display_pairs: dict[tuple[str, str], int] = {}
     unknown_fields: set[str] = set()
 
     for item in devices:
@@ -421,6 +461,32 @@ def summarize_authorized_devices(
                 else:
                     last_update_age_gt_90d += 1
 
+        os_code: str | None = None
+        os_value = item.get("os", ...)
+        if os_value is not ...:
+            with_os += 1
+            os_code = _normalize_authorized_os_code(os_value)
+            if os_code is None:
+                os_code_invalid += 1
+            else:
+                os_code_counts[os_code] = os_code_counts.get(os_code, 0) + 1
+
+        os_display_category: str | None = None
+        os_display_value = item.get("os_display", ...)
+        if os_display_value is not ...:
+            with_os_display += 1
+            os_display_category = _normalize_authorized_os_display(os_display_value)
+            if os_display_category is None:
+                os_display_invalid += 1
+            else:
+                os_display_counts[os_display_category] = (
+                    os_display_counts.get(os_display_category, 0) + 1
+                )
+
+        if os_code is not None and os_display_category is not None:
+            pair = (os_code, os_display_category)
+            os_code_display_pairs[pair] = os_code_display_pairs.get(pair, 0) + 1
+
         if "is_call_access" in item:
             with_call_access += 1
             call_access = item.get("is_call_access")
@@ -461,6 +527,21 @@ def summarize_authorized_devices(
         "call_access_true": call_access_true,
         "call_access_false": call_access_false,
         "call_access_invalid": call_access_invalid,
+        "with_os": with_os,
+        "os_code_invalid": os_code_invalid,
+        "os_code_counts": tuple(
+            f"{code}={count}" for code, count in sorted(os_code_counts.items())
+        ),
+        "with_os_display": with_os_display,
+        "os_display_invalid": os_display_invalid,
+        "os_display_counts": tuple(
+            f"{category}={count}"
+            for category, count in sorted(os_display_counts.items())
+        ),
+        "os_code_display_pairs": tuple(
+            f"{code}->{category}={count}"
+            for (code, category), count in sorted(os_code_display_pairs.items())
+        ),
         "unknown_field_count": len(unknown_fields),
         "unknown_field_names": tuple(sorted(unknown_fields)),
         "devices_num_permission": permission_state,
@@ -520,9 +601,20 @@ async def audit_authorized_devices(
         "call_access_true",
         "call_access_false",
         "call_access_invalid",
+        "with_os",
+        "os_code_invalid",
+        "with_os_display",
+        "os_display_invalid",
         "unknown_field_count",
     ):
         print(f"  {key}: {summary[key]}")
+    for aggregate_key in (
+        "os_code_counts",
+        "os_display_counts",
+        "os_code_display_pairs",
+    ):
+        values = summary[aggregate_key]
+        print(f"  {aggregate_key}: " + (", ".join(values) if values else "(none)"))
     unknown_names = summary["unknown_field_names"]
     print(
         "  unknown_field_names: "

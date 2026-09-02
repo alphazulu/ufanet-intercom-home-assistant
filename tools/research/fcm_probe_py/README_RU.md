@@ -140,6 +140,14 @@ Endpoint **live-confirmed** 2 сентября 2026 года. Probe намере
 `>90d`; отдельный `future`-счётчик позволяет заметить рассинхронизацию часов без
 публикации точной даты.
 
+Live-аудит 2 сентября 2026 года также подтвердил наличие полей `os` и
+`os_display`. Числовая семантика `os` пока не считается подтверждённой: probe
+выводит его только как ограниченный непрозрачный код `0..255`. `os_display`
+сводится к фиксированным категориям `android`, `ios`, `harmonyos`, `other`.
+Исходная строка `os_display` не печатается; допустимы только агрегированные
+счётчики и корреляция `код -> категория`. `devices_num_permission` также
+наблюдается live, но его точная бизнес-семантика пока не утверждается.
+
 Пример безопасного вывода:
 
 ```text
@@ -164,8 +172,15 @@ Endpoint **live-confirmed** 2 сентября 2026 года. Probe намере
   call_access_true: 2
   call_access_false: 1
   call_access_invalid: 0
-  unknown_field_count: 2
-  unknown_field_names: <schema_field_1>, <schema_field_2>
+  with_os: 3
+  os_code_invalid: 0
+  with_os_display: 3
+  os_display_invalid: 0
+  unknown_field_count: 0
+  os_code_counts: 0=2, 1=1
+  os_display_counts: android=2, ios=1
+  os_code_display_pairs: 0->android=2, 1->ios=1
+  unknown_field_names: (none)
   devices_num_permission: true
 [OK] Read-only authorized devices audit completed
 ```

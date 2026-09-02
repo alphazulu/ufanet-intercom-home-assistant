@@ -230,6 +230,13 @@ async def test_authorized_devices_audit_is_read_only_and_privacy_safe(capsys) ->
         "call_access_true": 1,
         "call_access_false": 1,
         "call_access_invalid": 0,
+        "with_os": 0,
+        "os_code_invalid": 0,
+        "os_code_counts": (),
+        "with_os_display": 0,
+        "os_display_invalid": 0,
+        "os_display_counts": (),
+        "os_code_display_pairs": (),
         "unknown_field_count": 1,
         "unknown_field_names": ("provider_private_extra",),
         "devices_num_permission": "true",
@@ -294,6 +301,47 @@ def test_authorized_devices_age_buckets_do_not_expose_timestamps() -> None:
     assert summary["last_update_age_gt_90d"] == 1
     assert summary["last_update_age_future"] == 1
     assert summary["devices_num_permission"] == "false"
+
+
+def test_authorized_devices_os_metadata_is_bounded_and_privacy_safe() -> None:
+    secret_display = "private-provider-platform-value"
+    payload = {
+        "data": {
+            "device_list": [
+                {"os": 0, "os_display": "Android"},
+                {"os": 1, "os_display": "iOS"},
+                {"os": 0, "os_display": "Android 15"},
+                {"os": 255, "os_display": secret_display},
+                {"os": 256, "os_display": 123},
+                {"os": "0", "os_display": "secret\nvalue"},
+            ],
+            "devices_num_permission": False,
+        }
+    }
+
+    summary = probe.summarize_authorized_devices(
+        payload,
+        now=datetime(2026, 9, 2, 16, 0, tzinfo=timezone.utc),
+    )
+
+    assert summary["with_os"] == 6
+    assert summary["os_code_invalid"] == 2
+    assert summary["os_code_counts"] == ("0=2", "1=1", "255=1")
+    assert summary["with_os_display"] == 6
+    assert summary["os_display_invalid"] == 2
+    assert summary["os_display_counts"] == (
+        "android=2",
+        "ios=1",
+        "other=1",
+    )
+    assert summary["os_code_display_pairs"] == (
+        "0->android=2",
+        "1->ios=1",
+        "255->other=1",
+    )
+    assert summary["unknown_field_count"] == 0
+    assert secret_display not in repr(summary)
+    assert "secret\nvalue" not in repr(summary)
 
 
 def test_authorized_devices_summary_rejects_unknown_envelope_without_values() -> None:
