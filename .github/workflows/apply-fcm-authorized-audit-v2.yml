@@ -1,0 +1,89 @@
+name: Apply FCM authorized devices audit v2
+
+on:
+  push:
+    branches:
+      - codex/fcm-authorized-devices-audit
+    paths:
+      - .github/workflows/apply-fcm-authorized-audit-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/fcm-authorized-devices-audit
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Install focused test dependencies
+        run: |
+          python -m pip install -r tools/research/fcm_probe_py/requirements.txt pytest pytest-asyncio
+      - name: Apply probe, tests and docs patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          probe_path = Path('tools/research/fcm_probe_py/probe.py')
+          text = probe_path.read_text(encoding='utf-8')
+
+          anchor = '''async def fetch_call_history(\n'''
+          addition = '''EXPECTED_AUTHORIZED_DEVICE_FIELDS = {\n    "device_id",\n    "title",\n    "last_update",\n    "is_call_access",\n}\n\n\ndef summarize_authorized_devices(payload: Any) -> dict[str, Any]:\n    """Reduce authorized-device data to privacy-safe aggregate schema facts."""\n    if not isinstance(payload, dict):\n        raise RuntimeError("Unexpected authorized-devices response schema")\n    data = payload.get("data")\n    if not isinstance(data, dict):\n        raise RuntimeError("Unexpected authorized-devices response schema")\n    devices = data.get("device_list")\n    if not isinstance(devices, list):\n        raise RuntimeError("Unexpected authorized-devices response schema")\n\n    valid_objects = 0\n    invalid_entries = 0\n    with_device_id = 0\n    unique_device_ids: set[str] = set()\n    with_title = 0\n    with_last_update = 0\n    parseable_last_update = 0\n    with_call_access = 0\n    call_access_true = 0\n    call_access_false = 0\n    call_access_invalid = 0\n    unknown_fields: set[str] = set()\n\n    for item in devices:\n        if not isinstance(item, dict):\n            invalid_entries += 1\n            continue\n        valid_objects += 1\n        unknown_fields.update(\n            str(key) for key in item if str(key) not in EXPECTED_AUTHORIZED_DEVICE_FIELDS\n        )\n\n        device_id = item.get("device_id")\n        if device_id not in (None, ""):\n            with_device_id += 1\n            unique_device_ids.add(str(device_id))\n\n        if item.get("title") not in (None, ""):\n            with_title += 1\n\n        last_update = item.get("last_update")\n        if last_update not in (None, ""):\n            with_last_update += 1\n            if parse_iso_datetime(last_update) is not None:\n                parseable_last_update += 1\n\n        if "is_call_access" in item:\n            with_call_access += 1\n            call_access = item.get("is_call_access")\n            if call_access is True:\n                call_access_true += 1\n            elif call_access is False:\n                call_access_false += 1\n            else:\n                call_access_invalid += 1\n\n    permission = data.get("devices_num_permission", ...)\n    if permission is ...:\n        permission_state = "absent"\n    elif permission is True:\n        permission_state = "true"\n    elif permission is False:\n        permission_state = "false"\n    else:\n        permission_state = "invalid_type"\n\n    return {\n        "total": len(devices),\n        "valid_objects": valid_objects,\n        "invalid_entries": invalid_entries,\n        "with_device_id": with_device_id,\n        "unique_device_ids": len(unique_device_ids),\n        "duplicate_device_ids": max(0, with_device_id - len(unique_device_ids)),\n        "with_title": with_title,\n        "with_last_update": with_last_update,\n        "parseable_last_update": parseable_last_update,\n        "with_call_access": with_call_access,\n        "call_access_true": call_access_true,\n        "call_access_false": call_access_false,\n        "call_access_invalid": call_access_invalid,\n        "unknown_field_names": len(unknown_fields),\n        "devices_num_permission": permission_state,\n    }\n\n\nasync def audit_authorized_devices(\n    session: aiohttp.ClientSession,\n    access_token: str,\n    base_url: str,\n) -> dict[str, Any]:\n    """Read and summarize active authorized-device registrations without exposing values."""\n    url = f"{base_url}/api/v4/fcm_device/authorized_devices/"\n    async with session.post(\n        url,\n        headers={\n            "Authorization": f"JWT {access_token.replace('JWT ', '')}",\n            "Accept": "application/json",\n        },\n        timeout=aiohttp.ClientTimeout(total=30),\n    ) as response:\n        text = await response.text()\n        if response.status >= 400:\n            raise RuntimeError(\n                f"authorized-devices audit failed: HTTP {response.status}"\n            )\n        try:\n            payload = json.loads(text)\n        except json.JSONDecodeError as exc:\n            raise RuntimeError("Unexpected authorized-devices response") from exc\n\n    summary = summarize_authorized_devices(payload)\n    print(\n        "[OK] POST /api/v4/fcm_device/authorized_devices/: "\n        f"HTTP {response.status}"\n    )\n    print("[RESULT] authorized devices audit")\n    for key in (\n        "total",\n        "valid_objects",\n        "invalid_entries",\n        "with_device_id",\n        "unique_device_ids",\n        "duplicate_device_ids",\n        "with_title",\n        "with_last_update",\n        "parseable_last_update",\n        "with_call_access",\n        "call_access_true",\n        "call_access_false",\n        "call_access_invalid",\n        "unknown_field_names",\n        "devices_num_permission",\n    ):\n        print(f"  {key}: {summary[key]}")\n    return summary\n\n\nasync def run_authorized_devices_audit(\n    args: argparse.Namespace,\n    base_url: str,\n) -> None:\n    """Run the Ufanet-only read-only authorized-device audit and exit."""\n    username = args.username or os.getenv("UFANET_USERNAME")\n    if not username:\n        username = input("Ufanet contract/login: ").strip()\n    password = os.getenv("UFANET_PASSWORD")\n    if not password:\n        password = getpass.getpass("Ufanet password: ")\n    if not username or not password:\n        raise RuntimeError("Ufanet username/password are required")\n\n    session = aiohttp.ClientSession()\n    try:\n        print("[INFO] Authenticating to Ufanet...")\n        access_token = await ufanet_login(session, username, password, base_url)\n        print("[OK] Ufanet authentication succeeded")\n        await audit_authorized_devices(session, access_token, base_url)\n        print("[OK] Read-only authorized devices audit completed")\n    finally:\n        await session.close()\n\n\n'''
+          if text.count(anchor) != 1:
+              raise SystemExit('fetch_call_history anchor mismatch')
+          text = text.replace(anchor, addition + anchor, 1)
+
+          old_run = '''async def run(args: argparse.Namespace) -> int:\n    state_path = Path(args.state).expanduser().resolve()\n    firebase_path = Path(args.firebase_config).expanduser().resolve()\n    state = load_state(state_path)\n    firebase = load_firebase_config(firebase_path)\n    bind_state_to_firebase_config(state, state_path, firebase)\n    history_delays = args.history_delays\n    base_url = args.ufanet_base_url.rstrip("/")\n'''
+          new_run = '''async def run(args: argparse.Namespace) -> int:\n    base_url = args.ufanet_base_url.rstrip("/")\n    if args.audit_authorized_devices:\n        await run_authorized_devices_audit(args, base_url)\n        return 0\n\n    state_path = Path(args.state).expanduser().resolve()\n    firebase_path = Path(args.firebase_config).expanduser().resolve()\n    state = load_state(state_path)\n    firebase = load_firebase_config(firebase_path)\n    bind_state_to_firebase_config(state, state_path, firebase)\n    history_delays = args.history_delays\n'''
+          if text.count(old_run) != 1:
+              raise SystemExit('run anchor mismatch')
+          text = text.replace(old_run, new_run, 1)
+
+          parser_anchor = '''    parser.add_argument(\n        "--verify-unregister",\n'''
+          parser_addition = '''    parser.add_argument(\n        "--audit-authorized-devices",\n        action="store_true",\n        help=(\n            "Read-only audit of POST /api/v4/fcm_device/authorized_devices/; "\n            "does not initialize Firebase, register FCM, modify device state, or start MCS"\n        ),\n    )\n'''
+          if text.count(parser_anchor) != 1:
+              raise SystemExit('parser anchor mismatch')
+          text = text.replace(parser_anchor, parser_addition + parser_anchor, 1)
+
+          main_anchor = '''    if args.verify_unregister and args.skip_ufanet:\n'''
+          main_addition = '''    if args.audit_authorized_devices and args.skip_ufanet:\n        print(\n            "[ERROR] --audit-authorized-devices cannot be used with --skip-ufanet",\n            file=sys.stderr,\n        )\n        return 2\n    if args.audit_authorized_devices and args.verify_unregister:\n        print(\n            "[ERROR] --audit-authorized-devices cannot be combined with --verify-unregister",\n            file=sys.stderr,\n        )\n        return 2\n'''
+          if text.count(main_anchor) != 1:
+              raise SystemExit('main anchor mismatch')
+          text = text.replace(main_anchor, main_addition + main_anchor, 1)
+          probe_path.write_text(text, encoding='utf-8')
+
+          test_path = Path('tests/test_fcm_probe.py')
+          tests = test_path.read_text(encoding='utf-8')
+          tests += '''\n\n@pytest.mark.asyncio\nasync def test_authorized_devices_audit_is_read_only_and_privacy_safe(capsys) -> None:\n    session = _FakeSession()\n\n    def post_audit(url: str, **kwargs):\n        session.calls.append(("POST", url, kwargs))\n        return _FakeResponse(\n            200,\n            {\n                "data": {\n                    "device_list": [\n                        {\n                            "device_id": "private-device-1",\n                            "title": "Andrey private phone",\n                            "last_update": "2026-09-02T12:34:56+10:00",\n                            "is_call_access": True,\n                        },\n                        {\n                            "device_id": "private-device-2",\n                            "title": "Home Assistant private",\n                            "last_update": "2026-09-01T01:02:03Z",\n                            "is_call_access": False,\n                            "provider_private_extra": "secret-value",\n                        },\n                    ],\n                    "devices_num_permission": True,\n                }\n            },\n        )\n\n    session.post = post_audit\n    summary = await probe.audit_authorized_devices(\n        session, "access-token", "https://example.test"\n    )\n\n    assert len(session.calls) == 1\n    method, url, kwargs = session.calls[0]\n    assert method == "POST"\n    assert url == "https://example.test/api/v4/fcm_device/authorized_devices/"\n    assert "json" not in kwargs\n    assert "data" not in kwargs\n    assert summary == {\n        "total": 2,\n        "valid_objects": 2,\n        "invalid_entries": 0,\n        "with_device_id": 2,\n        "unique_device_ids": 2,\n        "duplicate_device_ids": 0,\n        "with_title": 2,\n        "with_last_update": 2,\n        "parseable_last_update": 2,\n        "with_call_access": 2,\n        "call_access_true": 1,\n        "call_access_false": 1,\n        "call_access_invalid": 0,\n        "unknown_field_names": 1,\n        "devices_num_permission": "true",\n    }\n    output = capsys.readouterr().out\n    for secret in (\n        "private-device-1",\n        "private-device-2",\n        "Andrey private phone",\n        "Home Assistant private",\n        "2026-09-02",\n        "2026-09-01",\n        "secret-value",\n        "provider_private_extra",\n        "access-token",\n    ):\n        assert secret not in output\n\n\n@pytest.mark.asyncio\nasync def test_authorized_devices_audit_rejects_http_error_without_body_leak(capsys) -> None:\n    session = _FakeSession()\n\n    def post_error(url: str, **kwargs):\n        session.calls.append(("POST", url, kwargs))\n        return _FakeResponse(403, {"device_id": "private-device-id", "detail": "sensitive-detail"})\n\n    session.post = post_error\n    with pytest.raises(RuntimeError, match="HTTP 403"):\n        await probe.audit_authorized_devices(\n            session, "access-token", "https://example.test"\n        )\n\n    output = capsys.readouterr().out\n    assert "private-device-id" not in output\n    assert "sensitive-detail" not in output\n    assert "access-token" not in output\n\n\ndef test_authorized_devices_summary_rejects_unknown_envelope_without_values() -> None:\n    with pytest.raises(RuntimeError, match="Unexpected authorized-devices response schema"):\n        probe.summarize_authorized_devices(\n            {"data": {"device_list": "private-device-id"}}\n        )\n'''
+          test_path.write_text(tests, encoding='utf-8')
+
+          readme_path = Path('tools/research/fcm_probe_py/README_RU.md')
+          readme = readme_path.read_text(encoding='utf-8')
+          readme_anchor = '''### Безопасная проверка unregister\n'''
+          readme_addition = '''### Read-only аудит активных авторизаций\n\nДля live-проверки наблюдаемого в Android-клиенте endpoint:\n\n```cmd\npy probe.py --audit-authorized-devices\n```\n\nЭтот режим **не требует `firebase_config.json`**, не выполняет Firebase/GCM check-in,\nне регистрирует и не удаляет FCM device, не изменяет `fcm_state.json` и не запускает\nMCS listener. Он только авторизуется в Ufanet и делает read-only по смыслу запрос\n`POST /api/v4/fcm_device/authorized_devices/` без request body.\n\nДо live-подтверждения endpoint считается **Observed only**. Probe намеренно не печатает\n`device_id`, title, точные `last_update`, response body или неизвестные значения.\nВывод содержит только агрегаты: количество записей, наличие ожидаемых полей, число\nуникальных/дублирующихся `device_id`, распределение `is_call_access`, число неизвестных\nимён полей и тип/булево состояние `devices_num_permission`.\n\nПример безопасного вывода:\n\n```text\n[OK] POST /api/v4/fcm_device/authorized_devices/: HTTP 200\n[RESULT] authorized devices audit\n  total: 3\n  valid_objects: 3\n  invalid_entries: 0\n  with_device_id: 3\n  unique_device_ids: 3\n  duplicate_device_ids: 0\n  with_title: 3\n  with_last_update: 3\n  parseable_last_update: 3\n  with_call_access: 3\n  call_access_true: 2\n  call_access_false: 1\n  call_access_invalid: 0\n  unknown_field_names: 0\n  devices_num_permission: true\n[OK] Read-only authorized devices audit completed\n```\n\n'''
+          if readme.count(readme_anchor) != 1:
+              raise SystemExit('README anchor mismatch')
+          readme = readme.replace(readme_anchor, readme_addition + readme_anchor, 1)
+          readme_path.write_text(readme, encoding='utf-8')
+
+          for workflow in (\n              '.github/workflows/apply-fcm-authorized-audit.yml',\n              '.github/workflows/apply-fcm-authorized-audit-v2.yml',\n          ):\n              Path(workflow).unlink(missing_ok=True)\n          PY
+      - name: Validate patch
+        shell: bash
+        run: |
+          python -m py_compile tools/research/fcm_probe_py/probe.py
+          python -m pytest -q tests/test_fcm_probe.py
+          git diff --check
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Add read-only FCM authorized devices audit"
+          git push origin HEAD:codex/fcm-authorized-devices-audit
