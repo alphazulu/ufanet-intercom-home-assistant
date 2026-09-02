@@ -60,34 +60,12 @@ def check_versions() -> None:
     readme_text = README.read_text(encoding="utf-8")
     readme_ru_text = README_RU.read_text(encoding="utf-8")
 
-    python_version = extract(
-        r'^INTEGRATION_VERSION\s*=\s*["\']([^"\']+)',
-        const_text,
-        "INTEGRATION_VERSION",
-    )
-    card_version = extract(
-        r'^const CARD_VERSION\s*=\s*["\']([^"\']+)',
-        js_text,
-        "CARD_VERSION",
-    )
-    cache_version = extract(
-        r'_ARCHIVE_CARD_MODULE_URL\s*=.*?\?v=([0-9A-Za-z._-]+)',
-        init_text,
-        "frontend cache-bust version",
-    )
-    documented_resource_pattern = (
-        r'/ufanet_intercom/ufanet-archive-card\.js\?v=([0-9A-Za-z._-]+)'
-    )
-    readme_version = extract(
-        documented_resource_pattern,
-        readme_text,
-        "README Lovelace resource version",
-    )
-    readme_ru_version = extract(
-        documented_resource_pattern,
-        readme_ru_text,
-        "README_RU Lovelace resource version",
-    )
+    python_version = extract(r'^INTEGRATION_VERSION\s*=\s*["\']([^"\']+)', const_text, "INTEGRATION_VERSION")
+    card_version = extract(r'^const CARD_VERSION\s*=\s*["\']([^"\']+)', js_text, "CARD_VERSION")
+    cache_version = extract(r'_ARCHIVE_CARD_MODULE_URL\s*=.*?\?v=([0-9A-Za-z._-]+)', init_text, "frontend cache-bust version")
+    resource_pattern = r'/ufanet_intercom/ufanet-archive-card\.js\?v=([0-9A-Za-z._-]+)'
+    readme_version = extract(resource_pattern, readme_text, "README Lovelace resource version")
+    readme_ru_version = extract(resource_pattern, readme_ru_text, "README_RU Lovelace resource version")
 
     versions = {
         "manifest": manifest_version,
@@ -106,22 +84,13 @@ def check_python() -> None:
     with tempfile.TemporaryDirectory(prefix="ufanet-release-check-") as tmp:
         for path in sorted(COMP.glob("*.py")):
             try:
-                py_compile.compile(
-                    str(path),
-                    cfile=str(Path(tmp) / (path.stem + ".pyc")),
-                    doraise=True,
-                )
+                py_compile.compile(str(path), cfile=str(Path(tmp) / (path.stem + ".pyc")), doraise=True)
             except Exception as exc:
                 error(f"Python compile failed for {path.name}: {exc}")
 
 
 def check_json() -> None:
-    for path in [
-        MANIFEST,
-        HACS,
-        COMP / "strings.json",
-        *sorted((COMP / "translations").glob("*.json")),
-    ]:
+    for path in [MANIFEST, HACS, COMP / "strings.json", *sorted((COMP / "translations").glob("*.json"))]:
         if path.exists():
             load_json(path)
 
@@ -129,48 +98,24 @@ def check_json() -> None:
 def check_js() -> None:
     node = shutil.which("node")
     if node:
-        result = subprocess.run(
-            [node, "--check", str(JS)], capture_output=True, text=True
-        )
+        result = subprocess.run([node, "--check", str(JS)], capture_output=True, text=True)
         if result.returncode:
-            error(
-                "node --check failed: "
-                + (result.stderr.strip() or result.stdout.strip())
-            )
+            error("node --check failed: " + (result.stderr.strip() or result.stdout.strip()))
     else:
         warning("Node.js not installed; skipped JavaScript parser check")
 
     text = JS.read_text(encoding="utf-8")
     calls = set(re.findall(r'this\.(_[A-Za-z][A-Za-z0-9_]*)\s*\(', text))
-    definitions = set(
-        re.findall(
-            r'^\s{2}(?:async\s+)?(_[A-Za-z][A-Za-z0-9_]*)\s*\(',
-            text,
-            re.MULTILINE,
-        )
-    )
+    definitions = set(re.findall(r'^\s{2}(?:async\s+)?(_[A-Za-z][A-Za-z0-9_]*)\s*\(', text, re.MULTILINE))
     missing = sorted(calls - definitions)
     if missing:
         error("custom-card method calls without declarations: " + ", ".join(missing))
 
-    service_calls = set(
-        re.findall(
-            r'_callResponseService\(\s*["\']([a-z0-9_]+)["\']', text
-        )
-    )
-    service_keys = set(
-        re.findall(
-            r'^([a-z0-9_]+):\s*$',
-            SERVICES.read_text(encoding="utf-8"),
-            re.MULTILINE,
-        )
-    )
+    service_calls = set(re.findall(r'_callResponseService\(\s*["\']([a-z0-9_]+)["\']', text))
+    service_keys = set(re.findall(r'^([a-z0-9_]+):\s*$', SERVICES.read_text(encoding="utf-8"), re.MULTILINE))
     missing_services = sorted(service_calls - service_keys)
     if missing_services:
-        error(
-            "card response services missing from services.yaml: "
-            + ", ".join(missing_services)
-        )
+        error("card response services missing from services.yaml: " + ", ".join(missing_services))
 
 
 def check_package_hygiene() -> None:
@@ -181,29 +126,15 @@ def check_package_hygiene() -> None:
     if bad:
         error("compiled cache files packaged: " + ", ".join(bad[:10]))
 
-    component_dirs = [
-        p for p in (ROOT / "custom_components").iterdir() if p.is_dir()
-    ]
+    component_dirs = [p for p in (ROOT / "custom_components").iterdir() if p.is_dir()]
     if len(component_dirs) != 1 or component_dirs[0].name != "ufanet_intercom":
-        error(
-            "HACS integration repository must contain exactly "
-            "custom_components/ufanet_intercom"
-        )
+        error("HACS integration repository must contain exactly custom_components/ufanet_intercom")
 
 
 def check_secrets() -> None:
-    candidates = [
-        p
-        for p in ROOT.rglob("*")
-        if p.is_file()
-        and p.suffix.lower() not in {".png", ".jpg", ".jpeg", ".zip"}
-    ]
-    jwt = re.compile(
-        r'eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}'
-    )
-    live_guest = re.compile(
-        r'https://domovoy\.city/[^\s"\']+\?token=[A-Za-z0-9_-]{6,}'
-    )
+    candidates = [p for p in ROOT.rglob("*") if p.is_file() and p.suffix.lower() not in {".png", ".jpg", ".jpeg", ".zip"}]
+    jwt = re.compile(r'eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}')
+    live_guest = re.compile(r'https://domovoy\.city/[^\s"\']+\?token=[A-Za-z0-9_-]{6,}')
     for path in candidates:
         try:
             text = path.read_text(encoding="utf-8")
