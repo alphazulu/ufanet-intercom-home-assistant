@@ -29,54 +29,35 @@ jobs:
                   raise SystemExit(f"{path}: expected exactly one occurrence of {old!r}, found {count}")
               file.write_text(text.replace(old, new, 1), encoding="utf-8")
 
-          replace_once(
-              "custom_components/ufanet_intercom/const.py",
-              'INTEGRATION_VERSION = "0.28.0"',
-              'INTEGRATION_VERSION = "0.29.0"',
-          )
-          replace_once(
-              "custom_components/ufanet_intercom/__init__.py",
-              '?v=0.28.0',
-              '?v=0.29.0',
-          )
-          replace_once(
-              "custom_components/ufanet_intercom/frontend/ufanet-archive-card.js",
-              'const CARD_VERSION = "0.28.0";',
-              'const CARD_VERSION = "0.29.0";',
-          )
-          replace_once(
-              "README.md",
-              'ufanet-archive-card.js?v=0.28.0',
-              'ufanet-archive-card.js?v=0.29.0',
-          )
-          replace_once(
-              "README_RU.md",
-              'ufanet-archive-card.js?v=0.28.0',
-              'ufanet-archive-card.js?v=0.29.0',
-          )
+          replace_once("custom_components/ufanet_intercom/const.py", 'INTEGRATION_VERSION = "0.28.0"', 'INTEGRATION_VERSION = "0.29.0"')
+          replace_once("custom_components/ufanet_intercom/__init__.py", '?v=0.28.0', '?v=0.29.0')
+          replace_once("custom_components/ufanet_intercom/frontend/ufanet-archive-card.js", 'const CARD_VERSION = "0.28.0";', 'const CARD_VERSION = "0.29.0";')
+          replace_once("README.md", 'ufanet-archive-card.js?v=0.28.0', 'ufanet-archive-card.js?v=0.29.0')
+          replace_once("README_RU.md", 'ufanet-archive-card.js?v=0.28.0', 'ufanet-archive-card.js?v=0.29.0')
 
           changelog = Path("CHANGELOG.md")
           text = changelog.read_text(encoding="utf-8")
           anchor = "# Changelog\n\n## 0.28.0\n"
           if text.count(anchor) != 1:
               raise SystemExit("CHANGELOG.md: expected 0.28.0 top anchor exactly once")
-          section = """# Changelog
-
-## 0.29.0
-
-- Added privacy-safe UCAMS motion-event markers to the Lovelace archive timeline for cameras that advertise the live-confirmed `motion_alarm` capability.
-- Added the authenticated `ufanet_intercom.get_motion_events` response service for one camera-local day; frontend responses contain only normalized event times and support/count metadata, never provider camera numbers, event/cursor IDs, `length`, raw history, media, screenshots or recognition data.
-- Kept production history loading on the already live-confirmed `POST /api/v0/analytics/motion_alarm/report/` contract with safe `start`/`end` window splitting; the Android-observed `/api/v0/analytics/archive_events/` endpoint remains documented as Observed only and is not used at runtime.
-- Drew analytics events as point markers at their authoritative timestamps and start archive playback approximately 18 seconds before a selected event, matching the observed Android `EVENT_TIME_OFFSET=18000` behavior without shifting the marker itself.
-- Added capability recovery for archive-marker loading after startup or a temporary analytics outage, while keeping unsupported analytics optional and non-blocking for normal archive playback.
-- Refreshed call and motion markers together, preserved timeline zoom/pan behavior, and added EN/RU documentation for the archive analytics model.
-- Added regression coverage for timestamp-only privacy reduction, service-response privacy, unsupported cameras, capability recovery, sanitized UCAMS errors and frontend marker wiring.
-- Live-tested the feature on Home Assistant: motion positions rendered on the archive timeline and visually matched the corresponding event times during verification.
-
-## 0.28.0
-"""
+          notes = [
+              "# Changelog",
+              "",
+              "## 0.29.0",
+              "",
+              "- Added privacy-safe UCAMS motion-event markers to the Lovelace archive timeline for cameras that advertise the live-confirmed `motion_alarm` capability.",
+              "- Added the authenticated `ufanet_intercom.get_motion_events` response service for one camera-local day; frontend responses contain only normalized event times and support/count metadata, never provider camera numbers, event/cursor IDs, `length`, raw history, media, screenshots or recognition data.",
+              "- Kept production history loading on the already live-confirmed `POST /api/v0/analytics/motion_alarm/report/` contract with safe `start`/`end` window splitting; the Android-observed `/api/v0/analytics/archive_events/` endpoint remains documented as Observed only and is not used at runtime.",
+              "- Drew analytics events as point markers at their authoritative timestamps and start archive playback approximately 18 seconds before a selected event, matching the observed Android `EVENT_TIME_OFFSET=18000` behavior without shifting the marker itself.",
+              "- Added capability recovery for archive-marker loading after startup or a temporary analytics outage, while keeping unsupported analytics optional and non-blocking for normal archive playback.",
+              "- Refreshed call and motion markers together, preserved timeline zoom/pan behavior, and added EN/RU documentation for the archive analytics model.",
+              "- Added regression coverage for timestamp-only privacy reduction, service-response privacy, unsupported cameras, capability recovery, sanitized UCAMS errors and frontend marker wiring.",
+              "- Live-tested the feature on Home Assistant: motion positions rendered on the archive timeline and visually matched the corresponding event times during verification.",
+              "",
+              "## 0.28.0",
+          ]
+          section = "\n".join(notes) + "\n"
           changelog.write_text(text.replace(anchor, section, 1), encoding="utf-8")
-
           Path(".github/workflows/prepare-v0290.yml").unlink()
           PY
       - name: Parse updated sources
