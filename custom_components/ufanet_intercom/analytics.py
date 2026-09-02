@@ -149,7 +149,7 @@ async def async_get_motion_events(
     if (
         not isinstance(page_all, int)
         or isinstance(page_all, bool)
-        or page_all < 1
+        or page_all < 0
     ):
         raise UfanetResponseError("Unexpected UCAMS motion analytics pagination")
 
