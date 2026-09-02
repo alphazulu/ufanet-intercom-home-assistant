@@ -1,0 +1,31 @@
+name: Apply motion timeline capability recovery patch
+
+on:
+  push:
+    branches:
+      - codex/archive-motion-timeline
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/archive-motion-timeline
+      - name: Apply strict recovery patch
+        run: python tools/apply_motion_recovery_patch.py
+      - name: Verify parsers and focused tests
+        run: |
+          python -m py_compile custom_components/ufanet_intercom/analytics.py custom_components/ufanet_intercom/services.py
+          node --check custom_components/ufanet_intercom/frontend/ufanet-archive-card.js
+      - name: Commit recovery fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Recover archive motion capabilities after startup outages"
+          git push origin HEAD:codex/archive-motion-timeline
