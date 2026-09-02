@@ -38,6 +38,38 @@ FCM_RESTART_BASE_SECONDS = 5
 FCM_RESTART_MAX_SECONDS = 300
 
 
+def _authorized_device_age_bucket(
+    value: Any,
+    *,
+    now: datetime | None = None,
+) -> str:
+    """Reduce an authorized-device timestamp to a privacy-safe age bucket."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("invalid authorized-device timestamp")
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        raise ValueError("authorized-device timestamp has no timezone")
+
+    current = now or datetime.now(timezone.utc)
+    age_seconds = (
+        current.astimezone(timezone.utc) - parsed.astimezone(timezone.utc)
+    ).total_seconds()
+    if age_seconds < 0:
+        return "future"
+    if age_seconds <= 24 * 60 * 60:
+        return "le_24h"
+    if age_seconds <= 7 * 24 * 60 * 60:
+        return "1_7d"
+    if age_seconds <= 30 * 24 * 60 * 60:
+        return "7_30d"
+    if age_seconds <= 90 * 24 * 60 * 60:
+        return "30_90d"
+    return "gt_90d"
+
+
 def _fcm_store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
     return Store(hass, STORAGE_VERSION, f"ufanet_intercom.fcm.{entry_id}")
 
@@ -224,6 +256,11 @@ class UfanetFcmManager:
         self.unregister_pending = False
         self.last_unregistration_succeeded: bool | None = None
         self.last_unregistration_error_type: str | None = None
+        self.authorized_device_check_succeeded = False
+        self.authorized_device_registered: bool | None = None
+        self.authorized_device_call_access: bool | None = None
+        self.authorized_device_last_update_age: str | None = None
+        self.authorized_device_check_error_type: str | None = None
 
     @staticmethod
     def _default_state() -> dict[str, Any]:
@@ -348,6 +385,11 @@ class UfanetFcmManager:
         self.firebase_registration_succeeded = False
         self.ufanet_registration_succeeded = False
         self.listener_started = False
+        self.authorized_device_check_succeeded = False
+        self.authorized_device_registered = None
+        self.authorized_device_call_access = None
+        self.authorized_device_last_update_age = None
+        self.authorized_device_check_error_type = None
 
         persistent_ids = self._state.get("persistent_ids")
         if not isinstance(persistent_ids, list):
@@ -380,6 +422,7 @@ class UfanetFcmManager:
                 application=self.firebase_config["package_name"],
             )
             self.ufanet_registration_succeeded = True
+            await self._async_refresh_authorized_device_status()
             self.unregister_pending = False
             self._state["unregister_pending"] = False
             self.last_unregistration_succeeded = None
@@ -558,6 +601,41 @@ class UfanetFcmManager:
         _delete_unregister_issue(self.hass, self._entry_id)
         return True
 
+    async def _async_refresh_authorized_device_status(self) -> None:
+        """Verify this manager's owned Ufanet registration without exposing its ID."""
+        self.authorized_device_check_succeeded = False
+        self.authorized_device_registered = None
+        self.authorized_device_call_access = None
+        self.authorized_device_last_update_age = None
+        self.authorized_device_check_error_type = None
+
+        device_id = _owned_device_id(self._state)
+        if device_id is None:
+            self.authorized_device_check_error_type = "InvalidOwnedDeviceId"
+            return
+
+        try:
+            status = await self.api.async_get_fcm_authorization_status(
+                device_id=device_id
+            )
+            if status is None:
+                self.authorized_device_registered = False
+                self.authorized_device_check_succeeded = True
+                return
+
+            self.authorized_device_registered = True
+            self.authorized_device_call_access = bool(status["call_access"])
+            self.authorized_device_last_update_age = _authorized_device_age_bucket(
+                status["last_update"]
+            )
+            self.authorized_device_check_succeeded = True
+        except Exception as err:  # noqa: BLE001 - verification must not block FCM
+            self.authorized_device_check_error_type = type(err).__name__
+            _LOGGER.warning(
+                "Unable to verify Ufanet FCM authorization: %s",
+                type(err).__name__,
+            )
+
     async def _safe_stop_client(self) -> None:
         client = self._client
         self._client = None
@@ -694,6 +772,17 @@ class UfanetFcmManager:
             "active": self.active,
             "firebase_registration_succeeded": (self.firebase_registration_succeeded),
             "ufanet_registration_succeeded": self.ufanet_registration_succeeded,
+            "authorized_device_check_succeeded": (
+                self.authorized_device_check_succeeded
+            ),
+            "authorized_device_registered": self.authorized_device_registered,
+            "authorized_device_call_access": self.authorized_device_call_access,
+            "authorized_device_last_update_age": (
+                self.authorized_device_last_update_age
+            ),
+            "authorized_device_check_error_type": (
+                self.authorized_device_check_error_type
+            ),
             "listener_started": self.listener_started,
             "listener_running": self.listener_running,
             "fallback_polling_active": self.fallback_polling_active,
