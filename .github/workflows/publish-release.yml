@@ -17,16 +17,22 @@ on:
         required: true
         default: false
         type: boolean
+  push:
+    branches:
+      - codex/v0280-ucams-analytics-probe
+    paths:
+      - .github/workflows/publish-release.yml
 
 permissions:
   contents: write
 
 concurrency:
-  group: publish-release-${{ inputs.version }}
+  group: publish-release-${{ inputs.version || '0.28.0' }}
   cancel-in-progress: false
 
 jobs:
   publish:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Publish v0.28.0 via one-shot release workflow' }}
     name: Validate and publish
     runs-on: ubuntu-latest
 
@@ -34,7 +40,7 @@ jobs:
       - name: Check out release target
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.target }}
+          ref: ${{ inputs.target || 'd3a0eb65699192947194eb8001ddf43d5c4f9f04' }}
           fetch-depth: 0
 
       - name: Set up Python 3.14
@@ -45,7 +51,7 @@ jobs:
       - name: Validate release inputs
         id: release
         env:
-          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_VERSION: ${{ inputs.version || '0.28.0' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -90,7 +96,7 @@ jobs:
 
       - name: Build release notes from changelog
         env:
-          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_VERSION: ${{ inputs.version || '0.28.0' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -136,7 +142,7 @@ jobs:
       - name: Create tag and GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_PRERELEASE: ${{ inputs.prerelease }}
+          RELEASE_PRERELEASE: ${{ inputs.prerelease || false }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           RELEASE_TARGET_SHA: ${{ steps.release.outputs.target_sha }}
         shell: bash
