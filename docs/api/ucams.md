@@ -54,9 +54,12 @@ Observed response data includes:
 - stream count;
 - media server domain/vendor;
 - screenshot service domain;
+- advertised `analytics` capabilities; `motion_alarm` is live-confirmed on the tested camera, while `perimeter_security` remains Observed only;
 - tariff metadata including archive depth (`dvr_hours`).
 
 The exact response nesting is intentionally not presented as a complete stable schema because it is private API behavior and may vary.
+
+Production analytics capability discovery does not need the full media metadata request above. Ufanet Intercom v0.28.0 uses a separate minimal `cameras/this/` request containing only `number` and `analytics`. See [UCAMS camera analytics](analytics.md) for the confirmed `motion_alarm` report contract and its privacy boundary.
 
 ## Live HLS
 
@@ -87,7 +90,7 @@ Observed behavior:
 | Token | Purpose |
 |---|---|
 | Ufanet access JWT | Ufanet API and UCAMS auth exchange |
-| UCAMS JWT | UCAMS control API (`Bearer`) |
+| UCAMS JWT | UCAMS control API (`Bearer`), including camera metadata and analytics reports |
 | `token_l` | live HLS and screenshot access |
 | `token_r` | archive/range access |
 
