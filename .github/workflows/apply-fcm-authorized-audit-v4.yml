@@ -1,0 +1,130 @@
+name: Apply FCM authorized devices audit v4
+
+on:
+  push:
+    branches:
+      - codex/fcm-authorized-devices-audit
+    paths:
+      - .github/workflows/apply-fcm-authorized-audit-v4.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/fcm-authorized-devices-audit
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Install probe runtime dependencies
+        run: python -m pip install -r tools/research/fcm_probe_py/requirements.txt
+      - name: Apply the reviewed patch script
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/apply-fcm-authorized-audit.yml')
+          text = workflow.read_text(encoding='utf-8')
+          marker = "          python - <<'PY'\n"
+          start = text.index(marker) + len(marker)
+          end = text.index("\n          PY\n", start)
+          script = text[start:end]
+          lines = [line[10:] if line.startswith('          ') else line for line in script.splitlines()]
+          exec(compile('\n'.join(lines) + '\n', str(workflow), 'exec'))
+          PY
+          rm -f .github/workflows/apply-fcm-authorized-audit-v2.yml
+          rm -f .github/workflows/apply-fcm-authorized-audit-v3.yml
+          rm -f .github/workflows/apply-fcm-authorized-audit-v4.yml
+      - name: Privacy-safe standalone validation
+        shell: bash
+        run: |
+          python -m py_compile tools/research/fcm_probe_py/probe.py
+          python - <<'PY'
+          import asyncio
+          import contextlib
+          import importlib.util
+          import io
+          import json
+          from pathlib import Path
+
+          path = Path('tools/research/fcm_probe_py/probe.py')
+          spec = importlib.util.spec_from_file_location('fcm_probe_audit_test', path)
+          module = importlib.util.module_from_spec(spec)
+          assert spec and spec.loader
+          spec.loader.exec_module(module)
+
+          payload = {
+              'data': {
+                  'device_list': [
+                      {
+                          'device_id': 'private-device-1',
+                          'title': 'Private phone title',
+                          'last_update': '2026-09-02T12:34:56+10:00',
+                          'is_call_access': True,
+                      },
+                      {
+                          'device_id': 'private-device-2',
+                          'title': 'Private HA title',
+                          'last_update': '2026-09-01T01:02:03Z',
+                          'is_call_access': False,
+                          'private_extra': 'secret-value',
+                      },
+                  ],
+                  'devices_num_permission': True,
+              }
+          }
+
+          class Response:
+              status = 200
+              async def __aenter__(self): return self
+              async def __aexit__(self, *args): return False
+              async def text(self): return json.dumps(payload)
+
+          class Session:
+              def __init__(self): self.kwargs = None
+              def post(self, url, **kwargs):
+                  assert url.endswith('/api/v4/fcm_device/authorized_devices/')
+                  self.kwargs = kwargs
+                  return Response()
+
+          async def check():
+              session = Session()
+              output = io.StringIO()
+              with contextlib.redirect_stdout(output):
+                  summary = await module.audit_authorized_devices(
+                      session, 'private-access-token', 'https://example.test'
+                  )
+              assert session.kwargs is not None
+              assert 'json' not in session.kwargs and 'data' not in session.kwargs
+              assert summary['total'] == 2
+              assert summary['unique_device_ids'] == 2
+              assert summary['call_access_true'] == 1
+              assert summary['call_access_false'] == 1
+              assert summary['unknown_field_names'] == 1
+              assert summary['devices_num_permission'] == 'true'
+              rendered = output.getvalue()
+              for secret in (
+                  'private-device-1', 'private-device-2', 'Private phone title',
+                  'Private HA title', '2026-09-02', '2026-09-01',
+                  'private_extra', 'secret-value', 'private-access-token',
+              ):
+                  assert secret not in rendered
+
+          asyncio.run(check())
+          print('[OK] standalone authorized-devices privacy validation passed')
+          PY
+          git diff --check
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Add read-only FCM authorized devices audit"
+          git push origin HEAD:codex/fcm-authorized-devices-audit
