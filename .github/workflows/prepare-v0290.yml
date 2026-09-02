@@ -4,22 +4,18 @@ on:
   push:
     branches:
       - codex/archive-motion-timeline
-    paths:
-      - .github/workflows/prepare-v0290.yml
 
 permissions:
   contents: write
 
 jobs:
   prepare:
-    if: github.event.head_commit.message == 'Prepare v0.29.0 release candidate workflow'
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: codex/archive-motion-timeline
-          fetch-depth: 0
-
       - name: Update release candidate surfaces
         run: |
           python - <<'PY'
@@ -81,15 +77,12 @@ jobs:
 """
           changelog.write_text(text.replace(anchor, section, 1), encoding="utf-8")
 
-          workflow = Path(".github/workflows/prepare-v0290.yml")
-          workflow.unlink()
+          Path(".github/workflows/prepare-v0290.yml").unlink()
           PY
-
       - name: Parse updated sources
         run: |
           python -m py_compile custom_components/ufanet_intercom/const.py custom_components/ufanet_intercom/__init__.py
           node --check custom_components/ufanet_intercom/frontend/ufanet-archive-card.js
-
       - name: Commit release candidate surfaces
         run: |
           git config user.name "github-actions[bot]"
