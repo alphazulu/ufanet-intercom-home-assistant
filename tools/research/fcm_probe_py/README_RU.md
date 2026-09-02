@@ -134,6 +134,12 @@ Endpoint **live-confirmed** 2 сентября 2026 года. Probe намере
 `last_update` без точных дат, имена неизвестных schema-полей без их значений и
 тип/булево состояние `devices_num_permission`.
 
+Имена неизвестных полей считаются schema metadata: probe может показать сам ключ,
+например `application`, но никогда не показывает соответствующее ему значение.
+Возраст `last_update` выводится только корзинами `<=24h`, `1-7d`, `7-30d`, `30-90d`,
+`>90d`; отдельный `future`-счётчик позволяет заметить рассинхронизацию часов без
+публикации точной даты.
+
 Пример безопасного вывода:
 
 ```text
@@ -148,11 +154,18 @@ Endpoint **live-confirmed** 2 сентября 2026 года. Probe намере
   with_title: 3
   with_last_update: 3
   parseable_last_update: 3
+  last_update_age_le_24h: 1
+  last_update_age_1_7d: 1
+  last_update_age_7_30d: 0
+  last_update_age_30_90d: 0
+  last_update_age_gt_90d: 1
+  last_update_age_future: 0
   with_call_access: 3
   call_access_true: 2
   call_access_false: 1
   call_access_invalid: 0
-  unknown_field_names: 0
+  unknown_field_count: 2
+  unknown_field_names: <schema_field_1>, <schema_field_2>
   devices_num_permission: true
 [OK] Read-only authorized devices audit completed
 ```
