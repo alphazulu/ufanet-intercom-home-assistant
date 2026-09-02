@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.28.0
+
+- Added live-confirmed, read-only UCAMS `motion_alarm` support for intercom cameras that explicitly advertise the capability.
+- Added a Motion `EventEntity`, the privacy-minimized `ufanet_intercom_motion` event and a matching visual device trigger; motion entity discovery recovers automatically after a temporary analytics outage.
+- Persisted only a private per-camera replay cursor while exposing only coarse motion time to Home Assistant; camera identifiers, UCAMS cursor IDs, media, screenshots, recognition data and raw event history remain excluded from entities, logs and diagnostics.
+- Preserved fractional event timestamps across reloads, established an empty first-poll baseline at poll time, and retained same-timestamp ID deduplication without replaying historical events.
+- Added safe handling for oversized UCAMS report pages using only the live-confirmed `start`/`end` contract; dense windows fail without cursor advancement rather than silently skipping unseen events.
+- Made multi-camera analytics polling transactional and sanitized coordinator failures so server response text cannot leak through Home Assistant logs.
+- Updated the privacy-safe UCAMS analytics research probe and EN/RU API documentation with the confirmed `date` wire field, response envelope and observed pagination behavior.
+- Added targeted regression coverage for analytics pagination, cursor persistence, error privacy, coordinator-to-bus events, Motion EventEntity recovery, diagnostics and device triggers.
+
 ## 0.27.0
 
 - Live-confirmed the read-only account-feature, key-capable intercom, physical-key list and passage-history request forms; the tested account returned one supported intercom with valid empty key/history collections.
