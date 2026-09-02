@@ -138,6 +138,21 @@ def _key_passage_summary(runtime: dict[str, Any]) -> dict[str, Any]:
     return {**_coordinator_state(coordinator), **summary}
 
 
+def _motion_analytics_summary(runtime: dict[str, Any]) -> dict[str, Any]:
+    """Return aggregate motion state without camera IDs, cursor IDs or history."""
+    coordinator = runtime.get("analytics_coordinator")
+    summary = (
+        coordinator.diagnostic_summary()
+        if coordinator is not None
+        else {
+            "supported_intercom_count": 0,
+            "new_event_batch_count": 0,
+            "stored_cursor_count": 0,
+        }
+    )
+    return {**_coordinator_state(coordinator), **summary}
+
+
 def _last_call_image_state(
     runtime: dict[str, Any],
     skud_id: int,
@@ -291,6 +306,7 @@ async def async_get_config_entry_diagnostics(
             ),
         },
         "key_passages": _key_passage_summary(runtime),
+        "motion_analytics": _motion_analytics_summary(runtime),
         "archive_controller_count": len(controllers),
         "auto_save": (
             auto_save_manager.status(include_details=False)
@@ -314,6 +330,7 @@ async def async_get_device_diagnostics(
     coordinator = runtime.get("coordinator")
     call_coordinator = runtime.get("call_coordinator")
     key_passage_coordinator = runtime.get("key_passage_coordinator")
+    analytics_coordinator = runtime.get("analytics_coordinator")
     api: UfanetApi | None = runtime.get("api")
     controllers = runtime.get("archive_controllers") or {}
     auto_save_manager = runtime.get("auto_save_manager")
@@ -374,6 +391,12 @@ async def async_get_device_diagnostics(
     ):
         key_passage_data = key_passage_coordinator.data.get(int(skud["id"]))
 
+    analytics_data = None
+    if analytics_coordinator is not None and isinstance(
+        analytics_coordinator.data, dict
+    ):
+        analytics_data = analytics_coordinator.data.get(int(skud["id"]))
+
     return {
         "loaded": True,
         "options": _safe_options(entry),
@@ -402,6 +425,14 @@ async def async_get_device_diagnostics(
             "history_present": bool(
                 isinstance(key_passage_data, dict)
                 and key_passage_data.get("last_passage_at") is not None
+            ),
+        },
+        "motion_analytics": {
+            **_coordinator_state(analytics_coordinator),
+            "supported": isinstance(analytics_data, dict),
+            "event_history_present": bool(
+                isinstance(analytics_data, dict)
+                and analytics_data.get("last_event_at") is not None
             ),
         },
         "archive_controller": controller_state,
