@@ -16,13 +16,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: codex/archive-motion-timeline
-      - name: Repair generated patch script newlines
+      - name: Repair generated patch script
         run: |
           python - <<'PY'
           from pathlib import Path
           path = Path('tools/apply_motion_timeline_patch.py')
           text = path.read_text(encoding='utf-8')
           text = text.replace("'''\\n(ROOT", "'''\n(ROOT")
+          old = '''    if found != count:\n        raise RuntimeError(f"{path}: expected {count} occurrence(s), found {found}")\n'''
+          new = '''    if found != count:\n        if not (\n            path == "custom_components/ufanet_intercom/services.py"\n            and old == "from .api import (\\n"\n            and found == 2\n            and count == 1\n        ):\n            raise RuntimeError(f"{path}: expected {count} occurrence(s), found {found}")\n'''
+          if old not in text:
+              raise SystemExit('replace() guard anchor not found')
+          text = text.replace(old, new, 1)
           path.write_text(text, encoding='utf-8')
           PY
       - name: Apply strict patch
