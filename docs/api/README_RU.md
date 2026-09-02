@@ -28,7 +28,8 @@
    - гостевой и совместный доступ.
 2. **Управляющий API UCAMS** — `https://cloud.ucams.ru`
    - обмен JWT Ufanet на bearer-токен UCAMS;
-   - получение метаданных камеры, live/archive токенов и медиасервера.
+   - получение метаданных камеры, live/archive токенов и медиасервера;
+   - объявление analytics capabilities камеры и подтверждённый read-only отчёт `motion_alarm`, используемый в v0.28.0.
 3. **Медиасерверы UCAMS** — домены, которые возвращает UCAMS API
    - live HLS;
    - диапазоны и HLS видеоархива;
@@ -45,6 +46,8 @@ Ufanet access + refresh JWT
         | POST cloud.ucams.ru/api/v0/auth/
         v
 UCAMS bearer token
+        |
+        +--> metadata камеры / analytics reports
         |
         v
 метаданные камеры -> token_l / token_r -> медиасерверы
@@ -73,8 +76,8 @@ UCAMS bearer token
 ## Проверка и примеры
 
 - [Матрица проверки API](STATUS_RU.md) — компактный список endpoint и их текущий статус подтверждения.
-- [Примеры curl](examples/curl.md) — read-only примеры для командной строки.
-- [Read-only пример на Python](examples/python.md) — минимальная цепочка авторизации, discovery и UCAMS.
+- [Примеры curl](examples/curl.md) — read-only примеры, включая capability discovery аналитики и отчёт `motion_alarm`.
+- [Read-only пример на Python](examples/python.md) — цепочка авторизации/discovery/UCAMS и рекомендации по privacy-safe обработке аналитики.
 
 Примеры операций, изменяющих состояние (открытие двери, создание/отзыв гостевого доступа), намеренно находятся только на соответствующих страницах reference, а не в каталоге copy/paste примеров.
 
@@ -93,4 +96,4 @@ UCAMS bearer token
 
 В одном изменении обновляйте и подробную страницу, и [STATUS_RU.md](STATUS_RU.md).
 
-Никогда не добавляйте в репозиторий реальные пароли, JWT, refresh tokens, гостевые токены, URL с токенами, точные частные адреса и другие секреты конкретной учётной записи.
+Никогда не добавляйте в репозиторий реальные пароли, JWT, refresh tokens, гостевые токены, URL с токенами, точные частные адреса, идентификаторы камер/событий из live-аккаунта, сырую историю событий и другие секреты конкретной учётной записи.
