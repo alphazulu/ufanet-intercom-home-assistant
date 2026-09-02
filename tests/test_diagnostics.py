@@ -180,6 +180,21 @@ async def test_config_entry_diagnostics_redacts_credentials_and_private_fields(
         "last_error_code": None,
         "last_error_type": None,
     }
+    key_passages = MagicMock()
+    key_passages.update_interval = timedelta(seconds=60)
+    key_passages.last_exception = None
+    key_passages.last_update_success = True
+    key_passages.data = {7: {"key_count": 1, "last_passage_at": 1_788_220_800}}
+    key_passages.new_passages = {
+        7: [{"key_name": "Private key name", "occurred_at": "private-time"}]
+    }
+    key_passages.diagnostic_summary.return_value = {
+        "supported_intercom_count": 1,
+        "registered_key_link_count": 1,
+        "intercom_with_history_count": 1,
+        "new_passage_batch_count": 1,
+        "stored_cursor_count": 1,
+    }
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "api": api,
@@ -188,6 +203,7 @@ async def test_config_entry_diagnostics_redacts_credentials_and_private_fields(
         "archive_controllers": {},
         "auto_save_manager": auto_save,
         "image_status_manager": image_status,
+        "key_passage_coordinator": key_passages,
         "call_update_mode": CALL_UPDATE_MODE_FCM,
         "fcm_config_error_type": "UfanetFirebaseConfigError",
     }
@@ -200,6 +216,8 @@ async def test_config_entry_diagnostics_redacts_credentials_and_private_fields(
     assert "CAMERA-SECRET-123" not in serialized
     assert "Private street" not in serialized
     assert "call-secret" not in serialized
+    assert "Private key name" not in serialized
+    assert "private-time" not in serialized
     assert "secret-firebase-config" not in serialized
     assert result["config_entry"]["options"]["fcm_config_path_set"] is True
     assert result["call_updates"]["fcm"]["configured"] is False
@@ -220,6 +238,8 @@ async def test_config_entry_diagnostics_redacts_credentials_and_private_fields(
     )
     assert result["coordinator"]["intercom_count"] == 1
     assert result["call_coordinator"]["camera_with_latest_call_count"] == 1
+    assert result["key_passages"]["registered_key_link_count"] == 1
+    assert result["key_passages"]["new_passage_batch_count"] == 1
     assert result["last_call_image"]["ffmpeg_available"] is True
     assert result["last_call_image"]["ready_count"] == 1
     image_status.summary.assert_called_once_with()
@@ -245,6 +265,12 @@ async def test_device_diagnostics_survives_camera_failure_and_hides_details(
         data={"CAMERA-SECRET-123": {"uuid": "hidden-call"}},
         new_calls=[],
         update_interval=timedelta(seconds=10),
+        last_exception=None,
+        last_update_success=True,
+    )
+    key_passage_coordinator = SimpleNamespace(
+        data={7: {"key_count": 1, "last_passage_at": 1_788_220_800}},
+        update_interval=timedelta(seconds=60),
         last_exception=None,
         last_update_success=True,
     )
@@ -278,6 +304,7 @@ async def test_device_diagnostics_survives_camera_failure_and_hides_details(
         "api": api,
         "coordinator": coordinator,
         "call_coordinator": call_coordinator,
+        "key_passage_coordinator": key_passage_coordinator,
         "archive_controllers": {7: controller},
         "auto_save_manager": auto_save,
         "image_status_manager": image_status,
@@ -293,6 +320,9 @@ async def test_device_diagnostics_survives_camera_failure_and_hides_details(
     assert result["camera_fetch_error_type"] == "RuntimeError"
     assert result["archive_controller"]["last_archive_loaded"] is True
     assert result["call_coordinator"]["latest_call_present"] is True
+    assert result["key_passages"]["supported"] is True
+    assert result["key_passages"]["registered_key_count"] == 1
+    assert result["key_passages"]["history_present"] is True
     assert result["last_call_image"]["last_error_type"] == ("UfanetPreviewFrameError")
     assert result["last_call_image"]["last_error_code"] == "decode_error"
     assert result["last_call_image"]["preview_https_upgraded"] is True

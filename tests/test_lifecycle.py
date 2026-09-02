@@ -27,6 +27,7 @@ from custom_components.ufanet_intercom.const import (
     CONF_PASSWORD,
     CONF_USERNAME,
     DOMAIN,
+    EVENT_KEY_PASSAGE,
     FCM_FALLBACK_SCAN_INTERVAL_SECONDS,
 )
 
@@ -120,6 +121,13 @@ async def test_setup_entry_builds_runtime_and_optional_archive(hass) -> None:
     call_coordinator.async_refresh = AsyncMock(return_value=None)
     call_coordinator.async_add_listener.return_value = lambda: None
 
+    key_passage_coordinator = MagicMock()
+    key_passage_coordinator.data = None
+    key_passage_coordinator.new_passages = {}
+    key_passage_coordinator.async_initialize = AsyncMock()
+    key_passage_coordinator.async_refresh = AsyncMock()
+    key_passage_coordinator.async_add_listener.return_value = lambda: None
+
     controller = MagicMock()
     controller.async_initialize = AsyncMock(return_value=None)
 
@@ -135,6 +143,10 @@ async def test_setup_entry_builds_runtime_and_optional_archive(hass) -> None:
         patch(
             "custom_components.ufanet_intercom.UfanetCallCoordinator",
             return_value=call_coordinator,
+        ),
+        patch(
+            "custom_components.ufanet_intercom.UfanetKeyPassageCoordinator",
+            return_value=key_passage_coordinator,
         ),
         patch(
             "custom_components.ufanet_intercom.UfanetArchiveController",
@@ -160,13 +172,41 @@ async def test_setup_entry_builds_runtime_and_optional_archive(hass) -> None:
     assert runtime["api"] is api
     assert runtime["coordinator"] is coordinator
     assert runtime["call_coordinator"] is call_coordinator
+    assert runtime["key_passage_coordinator"] is key_passage_coordinator
     assert runtime["archive_controllers"] == {7: controller}
     assert runtime["image_status_manager"] is image_manager
     assert call_coordinator.data == {}
+    assert key_passage_coordinator.data == {}
+    key_passage_coordinator.async_initialize.assert_awaited_once_with()
+    key_passage_coordinator.async_refresh.assert_awaited_once_with()
     controller.async_initialize.assert_awaited_once()
     archive_cls.assert_called_once()
     image_manager.async_initialize.assert_awaited_once()
     forward.assert_awaited_once()
+
+    events = []
+    hass.bus.async_listen(EVENT_KEY_PASSAGE, events.append)
+    key_passage_coordinator.new_passages = {
+        7: [
+            {
+                "key_name": "Private key name",
+                "occurred_at": "2026-09-01T00:00:00+00:00",
+                "external_id": "must-not-leak",
+            }
+        ]
+    }
+    passage_listener = key_passage_coordinator.async_add_listener.call_args.args[0]
+    passage_listener()
+    await hass.async_block_till_done()
+
+    assert len(events) == 1
+    assert events[0].data == {
+        "type": "passage",
+        "skud_id": 7,
+        "device_name": "Door",
+        "key_name": "Private key name",
+        "occurred_at": "2026-09-01T00:00:00+00:00",
+    }
 
 
 @pytest.mark.asyncio
@@ -193,6 +233,12 @@ async def test_fcm_setup_switches_polling_interval_with_transport_health(
     call_coordinator.async_refresh = AsyncMock()
     call_coordinator.async_request_refresh = AsyncMock()
     call_coordinator.async_add_listener.return_value = lambda: None
+    key_passage_coordinator = MagicMock()
+    key_passage_coordinator.data = {}
+    key_passage_coordinator.new_passages = {}
+    key_passage_coordinator.async_initialize = AsyncMock()
+    key_passage_coordinator.async_refresh = AsyncMock()
+    key_passage_coordinator.async_add_listener.return_value = lambda: None
     auto_manager = MagicMock(enabled=False)
     fcm_manager = MagicMock()
     fcm_manager.async_start = AsyncMock(return_value=False)
@@ -212,6 +258,10 @@ async def test_fcm_setup_switches_polling_interval_with_transport_health(
             "custom_components.ufanet_intercom.UfanetCallCoordinator",
             return_value=call_coordinator,
         ) as call_cls,
+        patch(
+            "custom_components.ufanet_intercom.UfanetKeyPassageCoordinator",
+            return_value=key_passage_coordinator,
+        ),
         patch(
             "custom_components.ufanet_intercom.UfanetCallAutoSaveManager",
             return_value=auto_manager,

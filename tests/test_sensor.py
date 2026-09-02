@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from custom_components.ufanet_intercom.sensor import UfanetLastCallSensor
+from custom_components.ufanet_intercom.sensor import (
+    UfanetLastCallSensor,
+    UfanetLastKeyPassageSensor,
+    UfanetPhysicalKeyCountSensor,
+)
 
 
 def _skud() -> dict:
@@ -46,3 +51,29 @@ def test_last_call_attributes_publish_capabilities_without_media_urls() -> None:
     assert "archive_url" not in attributes
     assert "PREVIEW-SECRET" not in serialized
     assert "ARCHIVE-SECRET" not in serialized
+
+
+def test_physical_key_sensors_publish_only_count_and_timestamp() -> None:
+    coordinator = SimpleNamespace(
+        last_update_success=True,
+        data={
+            7: {
+                "key_count": 2,
+                "last_passage_at": 1_788_220_800,
+            }
+        },
+    )
+
+    count = UfanetPhysicalKeyCountSensor(coordinator, _skud())
+    latest = UfanetLastKeyPassageSensor(coordinator, _skud())
+
+    assert count.available is True
+    assert count.native_value == 2
+    assert latest.native_value == datetime(
+        2026,
+        9,
+        1,
+        tzinfo=timezone.utc,
+    )
+    assert count.extra_state_attributes is None
+    assert latest.extra_state_attributes is None

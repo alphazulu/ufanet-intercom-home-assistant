@@ -13,6 +13,7 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 - Live UCAMS camera stream and snapshots.
 - Native archive browsing with recording ranges, timeline zoom/pan and call markers.
 - Intercom call history, the `ufanet_intercom_call` event, native **Incoming call** and **Last call image** entities, and a matching device trigger for the visual automation editor.
+- Read-only physical-key count, latest-passage timestamp and passage events for supported intercoms.
 - Selectable call updates: polling by default or experimental low-latency FCM with safety polling.
 - Temporary guest keys and accepted shared-access management.
 - Manual archive export to MP4 using `ffmpeg -c copy` into Home Assistant Media.
@@ -66,7 +67,7 @@ To install it as a HACS custom repository:
 Add the resource as a JavaScript module:
 
 ```text
-/ufanet_intercom/ufanet-archive-card.js?v=0.26.0
+/ufanet_intercom/ufanet-archive-card.js?v=0.27.0
 ```
 
 Minimal card:
@@ -116,6 +117,12 @@ python tools/research/fcm_probe_py/extract_firebase_config.py /path/to/decompile
 Copy the result to `/config/ufanet_intercom/firebase_config.json`, choose `fcm` in the integration options and keep the default relative path `ufanet_intercom/firebase_config.json`. The file must remain inside the Home Assistant configuration directory. The integration reads the JSON but never stores its values in ConfigEntry options or diagnostics.
 
 The extractor accepts a JADX/apktool/decompiled directory (or the relevant resources XML plus an explicit package name); the integration itself does not upload, retain or parse APK files. See [FCM API notes](docs/api/fcm.md) and the [extractor guide](tools/research/fcm_probe_py/README_RU.md).
+
+### Physical-key passages
+
+For every intercom advertising key-recording support, the integration creates **Physical key count**, **Last key passage**, and a **Physical key passage** event entity. A matching device trigger is available in the visual automation editor. The dedicated coordinator polls every 60 seconds, so passage events are not intended as an instant door-open signal.
+
+The first successful poll establishes a baseline and does not replay historical passages. A private cursor prevents duplicates after an integration reload or Home Assistant restart. An actual event contains only `key_name` and `occurred_at`; the provider's `external_id` and full passage history are never exposed. Diagnostics contain only aggregate counts and health flags. Key creation, rename, deletion and BLE access remain outside this read-only feature.
 
 ## Automatic call recording
 

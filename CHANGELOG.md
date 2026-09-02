@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.27.0
+
+- Live-confirmed the read-only account-feature, key-capable intercom, physical-key list and passage-history request forms; the tested account returned one supported intercom with valid empty key/history collections.
+- Added a dedicated 60-second physical-key coordinator, a registered-key count sensor, a latest-passage timestamp sensor, a passage `EventEntity`, the `ufanet_intercom_key_passage` event and a matching visual device trigger.
+- Persisted only a private timestamp/internal-key cursor so reloads do not replay old passages; the first successful poll establishes a baseline instead of generating historical events.
+- Kept key names transient and limited them to an actual passage event; `external_id`, full history, names and event timestamps are excluded from diagnostics.
+- Updated event and autosave device lookup to the current Home Assistant device-registry API.
+- Kept the feature read-only: key creation, rename, deletion and BLE access are not implemented.
+
 ## 0.26.0
 
 - Live-confirmed `DELETE /api/v0/fcm/` against the probe-owned virtual device and restored the same registration immediately with HTTP 200 responses.

@@ -19,6 +19,10 @@
 | Push | `data.reason = "sip"` | **Confirmed** | Реальный payload содержит `username`, `password`, `server`, `skud_id`, `transport`, `contract`, `house_id`, `flat`, `time`, `uuid`; `from=<sender-id>`, priority `normal` |
 | SKUD | `GET /api/v0/skud/shared/` | **Confirmed** | Возвращает протестированный домофон |
 | SKUD | `GET /api/v0/skud/` | **Observed** | На тестируемом аккаунте вернул `[]` |
+| Возможности | `GET /api/v4/skud/features/` | **Confirmed** | Live-ответ содержал account feature `keys` |
+| Домофоны | `POST /api/v0/intercoms/` | **Confirmed** | Фильтрованный запрос со страницей от `1` вернул `has_key_recording_support=true` |
+| Ключи | `POST /api/v4/key/list/` | **Confirmed** | Подтверждены HTTP 200 и пустой `data.keys`; поля непустой записи остаются Observed |
+| Проходы | `POST /api/v4/key/skud/<id>/key/pass_history/` | **Confirmed** | Подтверждены HTTP 200, страницы от `0` и пустой `results`; поля записи остаются Observed |
 | Дверь | `GET /api/v0/skud/shared/<id>/open/?door=1` | **Confirmed** | Физическое действие; успешный `{"result":true}` |
 | UCAMS | `POST /api/v0/cameras/this/` | **Confirmed** | Метаданные камеры/сервера/токенов |
 | Live | `.../<camera>/index.m3u8?...` | **Confirmed** | HTTP 200 |
