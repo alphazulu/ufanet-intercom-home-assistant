@@ -87,28 +87,34 @@ async def test_audit_uses_only_safe_types_and_never_prints_private_values(
             ),
             _FakeResponse(
                 200,
-                [
-                    {
-                        "id": 918273,
-                        "time": 1788220800,
-                        "type": "motion_alarm",
-                        "camera_number": "PRIVATE-CAMERA-7",
-                        "full_screenshot_url": "https://private/image.jpg?token=secret",
-                        "text": "Private event text",
-                        "length": 42,
-                        "private_server_field": "Private server value",
-                    }
-                ],
+                {
+                    "count": 60,
+                    "page": {
+                        "current": 1,
+                        "next": None,
+                        "previous": None,
+                        "all": 1,
+                        "page_size": 60,
+                    },
+                    "results": [
+                        {
+                            "id": 918273 + index,
+                            "date": f"2026-09-02T11:{index:02d}:00Z",
+                            "length": 42,
+                            "private_server_field": "Private server value",
+                        }
+                        for index in range(10)
+                    ],
+                },
             ),
             _FakeResponse(
                 200,
                 {
                     "results": [
                         {
-                            "id": 918274,
-                            "time": 1788220801,
-                            "type": "perimeter_security",
-                            "camera_number": "PRIVATE-CAMERA-7",
+                            "id": 918300,
+                            "date": "2026-09-02T11:59:00Z",
+                            "length": 1,
                         }
                     ]
                 },
@@ -172,18 +178,17 @@ async def test_audit_uses_only_safe_types_and_never_prints_private_values(
         "Private tariff",
         "Private/Zone",
         "918273",
-        "1788220800",
-        "https://private/image.jpg?token=secret",
-        "Private event text",
+        "2026-09-02T11:00:00Z",
         "private_server_field",
         "Private server value",
         "face_recognition",
     ):
         assert private_value not in output
     assert "motion_alarm=1 perimeter_security=1 other_analytics=1" in output
-    assert "motion_alarm events [1]: returned=1 valid_timestamps=1" in output
-    assert "unknown_fields=1 content_fields_present=true" in output
-    assert "perimeter_security events [1]: returned=1" in output
+    assert "motion_alarm events [1]: returned=10 processed=5 valid_timestamps=5" in output
+    assert "unknown_fields=1 content_fields_present=false" in output
+    assert "server_page_size=60 limit_honored=false" in output
+    assert "perimeter_security events [1]: returned=1 processed=1" in output
 
 
 @pytest.mark.asyncio
@@ -259,29 +264,51 @@ def test_event_envelopes_are_summarized_without_printing_keys(
 ) -> None:
     summary = probe.parse_event_summary(payload, "motion_alarm")
     assert summary.returned == 0
+    assert summary.processed == 0
     assert summary.envelope == envelope
 
 
-def test_event_summary_counts_mismatch_and_discards_sensitive_content() -> None:
+def test_event_summary_uses_live_date_and_discards_sensitive_content() -> None:
     summary = probe.parse_event_summary(
-        [
-            {
-                "id": 1,
-                "time": 100,
-                "type": "car_number",
-                "number": "PRIVATE-PLATE",
-                "plate_screenshot_url": "https://private/plate.jpg",
-            }
-        ],
+        {
+            "page": {"page_size": 60},
+            "results": [
+                {
+                    "id": 1,
+                    "date": "2026-09-02T10:00:00Z",
+                    "length": 3,
+                    "number": "PRIVATE-PLATE",
+                    "plate_screenshot_url": "https://private/plate.jpg",
+                },
+                {
+                    "id": 2,
+                    "date": "not-a-date",
+                    "length": 4,
+                },
+            ],
+        },
         "motion_alarm",
+        processing_limit=1,
     )
 
-    assert summary.returned == 1
+    assert summary.returned == 2
+    assert summary.processed == 1
     assert summary.valid_timestamps == 1
-    assert summary.unexpected_types == 1
+    assert summary.unexpected_types == 0
     assert summary.content_fields_present is True
-    assert summary.unknown_fields == 2
-    assert summary.schema_fields == ("id", "time", "type")
+    assert summary.unknown_fields == 1
+    assert summary.schema_fields == ("date", "id", "length")
+    assert summary.server_page_size == 60
+    assert summary.limit_honored is False
+
+
+def test_android_time_field_is_not_accepted_as_live_wire_timestamp() -> None:
+    summary = probe.parse_event_summary(
+        [{"id": 1, "time": 1788220800, "length": 3}],
+        "motion_alarm",
+    )
+    assert summary.valid_timestamps == 0
+    assert summary.schema_fields == ("id", "length", "time")
 
 
 @pytest.mark.parametrize(
