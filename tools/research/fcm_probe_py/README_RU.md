@@ -114,6 +114,48 @@ py probe.py --firebase-config "C:\Private\firebase_config.json"
 
 Probe запросит Ufanet contract/login и password. Пароль вводится через `getpass`.
 
+### Read-only аудит активных авторизаций
+
+Для live-проверки наблюдаемого в Android-клиенте endpoint:
+
+```cmd
+py probe.py --audit-authorized-devices
+```
+
+Этот режим **не требует `firebase_config.json`**, не выполняет Firebase/GCM check-in,
+не регистрирует и не удаляет FCM device, не изменяет `fcm_state.json` и не запускает
+MCS listener. Он только авторизуется в Ufanet и делает read-only по смыслу запрос
+`POST /api/v4/fcm_device/authorized_devices/` без request body.
+
+До live-подтверждения endpoint считается **Observed only**. Probe намеренно не печатает
+`device_id`, title, точные `last_update`, response body или неизвестные значения.
+Вывод содержит только агрегаты: количество записей, наличие ожидаемых полей, число
+уникальных/дублирующихся `device_id`, распределение `is_call_access`, число неизвестных
+имён полей и тип/булево состояние `devices_num_permission`.
+
+Пример безопасного вывода:
+
+```text
+[OK] POST /api/v4/fcm_device/authorized_devices/: HTTP 200
+[RESULT] authorized devices audit
+  total: 3
+  valid_objects: 3
+  invalid_entries: 0
+  with_device_id: 3
+  unique_device_ids: 3
+  duplicate_device_ids: 0
+  with_title: 3
+  with_last_update: 3
+  parseable_last_update: 3
+  with_call_access: 3
+  call_access_true: 2
+  call_access_false: 1
+  call_access_invalid: 0
+  unknown_field_names: 0
+  devices_num_permission: true
+[OK] Read-only authorized devices audit completed
+```
+
 ### Безопасная проверка unregister
 
 Контракт удаления FCM-регистрации подтверждён реальным запросом. Для его повторной

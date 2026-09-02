@@ -335,6 +335,177 @@ async def verify_unregister_with_ufanet(
     print("[OK] FCM unregister contract verified and probe registration restored")
 
 
+EXPECTED_AUTHORIZED_DEVICE_FIELDS = {
+    "device_id",
+    "title",
+    "last_update",
+    "is_call_access",
+}
+
+
+def summarize_authorized_devices(payload: Any) -> dict[str, Any]:
+    """Reduce authorized-device data to privacy-safe aggregate schema facts."""
+    if not isinstance(payload, dict):
+        raise RuntimeError("Unexpected authorized-devices response schema")
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise RuntimeError("Unexpected authorized-devices response schema")
+    devices = data.get("device_list")
+    if not isinstance(devices, list):
+        raise RuntimeError("Unexpected authorized-devices response schema")
+
+    valid_objects = 0
+    invalid_entries = 0
+    with_device_id = 0
+    unique_device_ids: set[str] = set()
+    with_title = 0
+    with_last_update = 0
+    parseable_last_update = 0
+    with_call_access = 0
+    call_access_true = 0
+    call_access_false = 0
+    call_access_invalid = 0
+    unknown_fields: set[str] = set()
+
+    for item in devices:
+        if not isinstance(item, dict):
+            invalid_entries += 1
+            continue
+        valid_objects += 1
+        unknown_fields.update(
+            str(key) for key in item if str(key) not in EXPECTED_AUTHORIZED_DEVICE_FIELDS
+        )
+
+        device_id = item.get("device_id")
+        if device_id not in (None, ""):
+            with_device_id += 1
+            unique_device_ids.add(str(device_id))
+
+        if item.get("title") not in (None, ""):
+            with_title += 1
+
+        last_update = item.get("last_update")
+        if last_update not in (None, ""):
+            with_last_update += 1
+            if parse_iso_datetime(last_update) is not None:
+                parseable_last_update += 1
+
+        if "is_call_access" in item:
+            with_call_access += 1
+            call_access = item.get("is_call_access")
+            if call_access is True:
+                call_access_true += 1
+            elif call_access is False:
+                call_access_false += 1
+            else:
+                call_access_invalid += 1
+
+    permission = data.get("devices_num_permission", ...)
+    if permission is ...:
+        permission_state = "absent"
+    elif permission is True:
+        permission_state = "true"
+    elif permission is False:
+        permission_state = "false"
+    else:
+        permission_state = "invalid_type"
+
+    return {
+        "total": len(devices),
+        "valid_objects": valid_objects,
+        "invalid_entries": invalid_entries,
+        "with_device_id": with_device_id,
+        "unique_device_ids": len(unique_device_ids),
+        "duplicate_device_ids": max(0, with_device_id - len(unique_device_ids)),
+        "with_title": with_title,
+        "with_last_update": with_last_update,
+        "parseable_last_update": parseable_last_update,
+        "with_call_access": with_call_access,
+        "call_access_true": call_access_true,
+        "call_access_false": call_access_false,
+        "call_access_invalid": call_access_invalid,
+        "unknown_field_names": len(unknown_fields),
+        "devices_num_permission": permission_state,
+    }
+
+
+async def audit_authorized_devices(
+    session: aiohttp.ClientSession,
+    access_token: str,
+    base_url: str,
+) -> dict[str, Any]:
+    """Read and summarize active authorized-device registrations without exposing values."""
+    url = f"{base_url}/api/v4/fcm_device/authorized_devices/"
+    async with session.post(
+        url,
+        headers={
+            "Authorization": f"JWT {access_token.replace('JWT ', '')}",
+            "Accept": "application/json",
+        },
+        timeout=aiohttp.ClientTimeout(total=30),
+    ) as response:
+        text = await response.text()
+        if response.status >= 400:
+            raise RuntimeError(
+                f"authorized-devices audit failed: HTTP {response.status}"
+            )
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("Unexpected authorized-devices response") from exc
+
+    summary = summarize_authorized_devices(payload)
+    print(
+        "[OK] POST /api/v4/fcm_device/authorized_devices/: "
+        f"HTTP {response.status}"
+    )
+    print("[RESULT] authorized devices audit")
+    for key in (
+        "total",
+        "valid_objects",
+        "invalid_entries",
+        "with_device_id",
+        "unique_device_ids",
+        "duplicate_device_ids",
+        "with_title",
+        "with_last_update",
+        "parseable_last_update",
+        "with_call_access",
+        "call_access_true",
+        "call_access_false",
+        "call_access_invalid",
+        "unknown_field_names",
+        "devices_num_permission",
+    ):
+        print(f"  {key}: {summary[key]}")
+    return summary
+
+
+async def run_authorized_devices_audit(
+    args: argparse.Namespace,
+    base_url: str,
+) -> None:
+    """Run the Ufanet-only read-only authorized-device audit and exit."""
+    username = args.username or os.getenv("UFANET_USERNAME")
+    if not username:
+        username = input("Ufanet contract/login: ").strip()
+    password = os.getenv("UFANET_PASSWORD")
+    if not password:
+        password = getpass.getpass("Ufanet password: ")
+    if not username or not password:
+        raise RuntimeError("Ufanet username/password are required")
+
+    session = aiohttp.ClientSession()
+    try:
+        print("[INFO] Authenticating to Ufanet...")
+        access_token = await ufanet_login(session, username, password, base_url)
+        print("[OK] Ufanet authentication succeeded")
+        await audit_authorized_devices(session, access_token, base_url)
+        print("[OK] Read-only authorized devices audit completed")
+    finally:
+        await session.close()
+
+
 async def fetch_call_history(
     session: aiohttp.ClientSession,
     access_token: str,
@@ -451,13 +622,17 @@ async def cleanup_probe_resources(
 
 
 async def run(args: argparse.Namespace) -> int:
+    base_url = args.ufanet_base_url.rstrip("/")
+    if args.audit_authorized_devices:
+        await run_authorized_devices_audit(args, base_url)
+        return 0
+
     state_path = Path(args.state).expanduser().resolve()
     firebase_path = Path(args.firebase_config).expanduser().resolve()
     state = load_state(state_path)
     firebase = load_firebase_config(firebase_path)
     bind_state_to_firebase_config(state, state_path, firebase)
     history_delays = args.history_delays
-    base_url = args.ufanet_base_url.rstrip("/")
 
     print(
         "[INFO] Loaded local Firebase configuration: "
@@ -703,6 +878,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Only create/listen on FCM; do not register the token with Ufanet",
     )
     parser.add_argument(
+        "--audit-authorized-devices",
+        action="store_true",
+        help=(
+            "Read-only audit of POST /api/v4/fcm_device/authorized_devices/; "
+            "does not initialize Firebase, register FCM, modify device state, or start MCS"
+        ),
+    )
+    parser.add_argument(
         "--verify-unregister",
         action="store_true",
         help=(
@@ -744,6 +927,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    if args.audit_authorized_devices and args.skip_ufanet:
+        print(
+            "[ERROR] --audit-authorized-devices cannot be used with --skip-ufanet",
+            file=sys.stderr,
+        )
+        return 2
+    if args.audit_authorized_devices and args.verify_unregister:
+        print(
+            "[ERROR] --audit-authorized-devices cannot be combined with --verify-unregister",
+            file=sys.stderr,
+        )
+        return 2
     if args.verify_unregister and args.skip_ufanet:
         print(
             "[ERROR] --verify-unregister cannot be used with --skip-ufanet",
