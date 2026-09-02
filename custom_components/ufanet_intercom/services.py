@@ -21,7 +21,10 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.util import dt as dt_util
 
-from .analytics import async_get_motion_timeline_events
+from .analytics import (
+    async_get_motion_capabilities,
+    async_get_motion_timeline_events,
+)
 from .api import (
     UfanetApi,
     UfanetApiError,
@@ -594,11 +597,28 @@ def async_setup_services(
         runtime, skud = _resolve_device_runtime(hass, call.data[ATTR_DEVICE_ID])
         api: UfanetApi = runtime["api"]
         skud_id = int(skud["id"])
+        camera_number = _camera_number(skud)
         requested_date: date = call.data["date"]
 
         analytics_coordinator = runtime.get("analytics_coordinator")
         analytics_data = getattr(analytics_coordinator, "data", None)
-        supported = isinstance(analytics_data, dict) and skud_id in analytics_data
+        analytics_snapshot_ready = (
+            analytics_coordinator is not None
+            and bool(getattr(analytics_coordinator, "last_update_success", False))
+            and isinstance(analytics_data, dict)
+        )
+        try:
+            if analytics_snapshot_ready:
+                supported = skud_id in analytics_data
+            else:
+                supported = camera_number in await async_get_motion_capabilities(
+                    api,
+                    [camera_number],
+                )
+        except UfanetApiError:
+            raise HomeAssistantError(
+                "Unable to load motion timeline capabilities"
+            ) from None
 
         controllers = runtime.get("archive_controllers") or {}
         controller = controllers.get(skud_id)
@@ -623,7 +643,6 @@ def async_setup_services(
         if not supported:
             return {**base_response, "count": 0, "events": []}
 
-        camera_number = _camera_number(skud)
         day_start = datetime.combine(requested_date, time.min, tzinfo=zone)
         day_end = day_start + timedelta(days=1)
         try:

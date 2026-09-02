@@ -34,7 +34,10 @@ def _install_runtime(hass):
     coordinator = SimpleNamespace(
         data={7: {"id": 7, "cctv_number": "PRIVATE-CAMERA"}},
     )
-    analytics = SimpleNamespace(data={7: {"supported": True}})
+    analytics = SimpleNamespace(
+        data={7: {"supported": True}},
+        last_update_success=True,
+    )
     controller = SimpleNamespace(timezone_name="UTC")
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "api": api,
@@ -77,14 +80,52 @@ async def test_motion_timeline_service_returns_only_normalized_times(hass) -> No
 
 
 @pytest.mark.asyncio
+async def test_motion_timeline_service_recovers_capability_when_snapshot_unavailable(hass) -> None:
+    device, analytics = _install_runtime(hass)
+    analytics.data = None
+    analytics.last_update_success = False
+    event_time = datetime(2026, 9, 2, 10, 0, tzinfo=timezone.utc)
+
+    with (
+        patch(
+            "custom_components.ufanet_intercom.services.async_get_motion_capabilities",
+            AsyncMock(return_value={"PRIVATE-CAMERA"}),
+        ) as capabilities,
+        patch(
+            "custom_components.ufanet_intercom.services.async_get_motion_timeline_events",
+            AsyncMock(return_value=[event_time]),
+        ) as loader,
+    ):
+        response = await hass.services.async_call(
+            DOMAIN,
+            SERVICE_GET_MOTION_EVENTS,
+            {"device_id": device.id, "date": "2026-09-02"},
+            blocking=True,
+            return_response=True,
+        )
+
+    capabilities.assert_awaited_once()
+    loader.assert_awaited_once()
+    assert response["supported"] is True
+    assert response["count"] == 1
+
+
+@pytest.mark.asyncio
 async def test_motion_timeline_service_skips_unsupported_camera(hass) -> None:
     device, analytics = _install_runtime(hass)
     analytics.data = {}
+    analytics.last_update_success = True
 
-    with patch(
-        "custom_components.ufanet_intercom.services.async_get_motion_timeline_events",
-        AsyncMock(),
-    ) as loader:
+    with (
+        patch(
+            "custom_components.ufanet_intercom.services.async_get_motion_capabilities",
+            AsyncMock(),
+        ) as capabilities,
+        patch(
+            "custom_components.ufanet_intercom.services.async_get_motion_timeline_events",
+            AsyncMock(),
+        ) as loader,
+    ):
         response = await hass.services.async_call(
             DOMAIN,
             SERVICE_GET_MOTION_EVENTS,
@@ -95,6 +136,7 @@ async def test_motion_timeline_service_skips_unsupported_camera(hass) -> None:
 
     assert response["supported"] is False
     assert response["events"] == []
+    capabilities.assert_not_awaited()
     loader.assert_not_awaited()
 
 
