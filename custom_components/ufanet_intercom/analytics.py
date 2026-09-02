@@ -231,6 +231,27 @@ async def _async_collect_motion_events(
     return _merge_motion_events(older, newer)
 
 
+async def async_get_motion_timeline_events(
+    api: UfanetApi,
+    camera_number: str,
+    *,
+    start: datetime,
+    end: datetime,
+) -> list[datetime]:
+    """Return only distinct event timestamps for an explicit archive window.
+
+    Provider event IDs remain inside the analytics boundary and are discarded
+    before an authenticated Home Assistant response service sees the data.
+    """
+    events = await _async_collect_motion_events(
+        api,
+        camera_number,
+        start=start,
+        end=end,
+    )
+    return sorted({event["occurred_at"] for event in events})
+
+
 class UfanetMotionAnalyticsCoordinator(
     DataUpdateCoordinator[dict[int, dict[str, Any]]]
 ):

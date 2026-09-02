@@ -28,6 +28,7 @@
 | Аналитика | `analytics` в metadata камеры: `motion_alarm` | **Confirmed** | Проверенная live-камера объявляет аналитику движения; используется production v0.28.0 |
 | Аналитика | `analytics` в metadata камеры: `perimeter_security` | **Observed** | Capability есть в Android-клиенте, но проверенный тариф её не объявляет; production runtime её не использует |
 | Аналитика | `POST /api/v0/analytics/motion_alarm/report/` | **Confirmed** | HTTP 200; envelope `count/page/results`; поля события `id/date/length`; `date` авторитетен, `id` используется только как приватный opaque cursor |
+| Аналитика | `POST /api/v0/analytics/archive_events/` | **Observed** | Декомпилированный Android archive player умеет запрашивать все analytics за архивный интервал; live-подтверждения нет, production runtime endpoint не использует |
 | Аналитика | пагинация motion report | **Confirmed** | `page` содержит `current/next/previous/all/page_size`; сервер вернул page size 60 при меньшем `limit`. Request-поле пагинации пока не live-подтверждено, поэтому v0.28.0 разрешает неполный report только делением подтверждённого окна `start`/`end` и не продвигает cursor за неразрешённый промежуток |
 | Live | `.../<camera>/index.m3u8?...` | **Confirmed** | HTTP 200 |
 | Snapshot | `/api/v0/screenshots/<camera>.jpg?...` | **Confirmed** | Снимок работает |

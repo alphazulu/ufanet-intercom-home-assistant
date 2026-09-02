@@ -19,6 +19,7 @@ from custom_components.ufanet_intercom.analytics import (
     UfanetMotionAnalyticsCoordinator,
     async_get_motion_capabilities,
     async_get_motion_events,
+    async_get_motion_timeline_events,
 )
 from custom_components.ufanet_intercom.api import UfanetResponseError
 
@@ -296,6 +297,36 @@ def test_fractional_cursor_does_not_replay_after_storage_roundtrip() -> None:
 
     assert unseen == []
     assert next_cursor == original
+
+
+@pytest.mark.asyncio
+async def test_motion_timeline_events_drop_provider_ids_and_deduplicate_timestamp(
+    monkeypatch,
+) -> None:
+    first = datetime(2026, 9, 2, 10, 0, 34, 793780, tzinfo=timezone.utc)
+    second = datetime(2026, 9, 2, 10, 1, tzinfo=timezone.utc)
+
+    async def fake_collect(_api, _camera, **_kwargs):
+        return [
+            {"cursor_id": 1001, "occurred_at": first},
+            {"cursor_id": 1002, "occurred_at": first},
+            {"cursor_id": 1003, "occurred_at": second},
+        ]
+
+    monkeypatch.setattr(
+        "custom_components.ufanet_intercom.analytics._async_collect_motion_events",
+        fake_collect,
+    )
+
+    result = await async_get_motion_timeline_events(
+        AsyncMock(),
+        "PRIVATE-CAMERA",
+        start=first - timedelta(minutes=1),
+        end=second + timedelta(minutes=1),
+    )
+
+    assert result == [first, second]
+    assert all(isinstance(item, datetime) for item in result)
 
 
 @pytest.mark.asyncio

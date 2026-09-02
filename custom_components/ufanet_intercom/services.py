@@ -21,6 +21,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.util import dt as dt_util
 
+from .analytics import async_get_motion_timeline_events
 from .api import (
     UfanetApi,
     UfanetApiError,
@@ -59,6 +60,7 @@ from .const import (
     SERVICE_DELETE_ARCHIVE_EXPORT,
     SERVICE_CLEANUP_ARCHIVE_EXPORTS,
     SERVICE_GET_CALL_EVENTS,
+    SERVICE_GET_MOTION_EVENTS,
     SERVICE_GET_LAST_CALL_PREVIEW_URL,
     SERVICE_GET_GUEST_ACCESS,
     SERVICE_CREATE_GUEST_INVITE,
@@ -158,6 +160,13 @@ CLEANUP_ARCHIVE_EXPORTS_SCHEMA = vol.Schema(
 )
 
 GET_CALL_EVENTS_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_DEVICE_ID): cv.string,
+        vol.Required("date"): cv.date,
+    }
+)
+
+GET_MOTION_EVENTS_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
         vol.Required("date"): cv.date,
@@ -576,6 +585,83 @@ def async_setup_services(
             "camera_number": camera_number,
             "timezone": timezone_name,
             "date": requested_date.isoformat(),
+            "count": len(matching),
+            "events": matching,
+        }
+
+    async def async_get_motion_events(call: ServiceCall) -> ServiceResponse:
+        """Return privacy-minimized motion points for one archive-local day."""
+        runtime, skud = _resolve_device_runtime(hass, call.data[ATTR_DEVICE_ID])
+        api: UfanetApi = runtime["api"]
+        skud_id = int(skud["id"])
+        requested_date: date = call.data["date"]
+
+        analytics_coordinator = runtime.get("analytics_coordinator")
+        analytics_data = getattr(analytics_coordinator, "data", None)
+        supported = isinstance(analytics_data, dict) and skud_id in analytics_data
+
+        controllers = runtime.get("archive_controllers") or {}
+        controller = controllers.get(skud_id)
+        timezone_name = str(
+            getattr(controller, "timezone_name", None)
+            or hass.config.time_zone
+            or "UTC"
+        )
+        try:
+            zone = ZoneInfo(timezone_name)
+        except ZoneInfoNotFoundError:
+            zone = dt_util.get_default_time_zone()
+            timezone_name = str(getattr(zone, "key", None) or "UTC")
+
+        base_response: dict[str, Any] = {
+            "device_id": call.data[ATTR_DEVICE_ID],
+            "skud_id": skud_id,
+            "timezone": timezone_name,
+            "date": requested_date.isoformat(),
+            "supported": supported,
+        }
+        if not supported:
+            return {**base_response, "count": 0, "events": []}
+
+        camera_number = _camera_number(skud)
+        day_start = datetime.combine(requested_date, time.min, tzinfo=zone)
+        day_end = day_start + timedelta(days=1)
+        try:
+            event_times = await async_get_motion_timeline_events(
+                api,
+                camera_number,
+                start=day_start.astimezone(timezone.utc),
+                end=day_end.astimezone(timezone.utc),
+            )
+        except UfanetApiError:
+            raise HomeAssistantError(
+                "Unable to load motion timeline events"
+            ) from None
+
+        matching: list[dict[str, Any]] = []
+        for timestamp in event_times:
+            local = timestamp.astimezone(zone)
+            if local.date() != requested_date:
+                continue
+            second_of_day = (
+                local.hour * 3600
+                + local.minute * 60
+                + local.second
+                + local.microsecond / 1_000_000
+            )
+            local_time = local.strftime("%H:%M:%S.%f").rstrip("0").rstrip(".")
+            matching.append(
+                {
+                    "timestamp": timestamp.timestamp(),
+                    "local_datetime": local.isoformat(),
+                    "local_time": local_time,
+                    "second_of_day": second_of_day,
+                }
+            )
+
+        matching.sort(key=lambda item: float(item["timestamp"]))
+        return {
+            **base_response,
             "count": len(matching),
             "events": matching,
         }
@@ -1425,6 +1511,13 @@ def async_setup_services(
         SERVICE_GET_CALL_EVENTS,
         async_get_call_events,
         schema=GET_CALL_EVENTS_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_MOTION_EVENTS,
+        async_get_motion_events,
+        schema=GET_MOTION_EVENTS_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
     hass.services.async_register(

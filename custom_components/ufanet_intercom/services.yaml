@@ -196,6 +196,24 @@ get_call_events:
       selector:
         date:
 
+get_motion_events:
+  name: Get motion events
+  description: Return privacy-minimized UCAMS motion event times for one camera-local calendar day. Read-only; provider camera/event identifiers are not returned.
+  fields:
+    device_id:
+      name: Intercom
+      description: Ufanet Intercom device.
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    date:
+      name: Date
+      description: Calendar date in the camera time zone.
+      required: true
+      selector:
+        date:
+
 get_last_call_preview_url:
   name: Get last call preview URL
   description: Return a fresh temporary HTTPS-only Ufanet preview URL after an explicit authenticated request. Provider-issued HTTP URLs are upgraded locally; no HTTP fallback is allowed. Do not persist or log the response.

@@ -136,6 +136,18 @@ entity without reloading the ConfigEntry.
 The analytics coordinator normally polls at low frequency (60 seconds). It is an
 event source for automation, not an instantaneous security-alarm transport.
 
+## Archive timeline model observed in the Android client
+
+**Status: Observed**
+
+The decompiled Android client maintains a separate point-event list for its archive timebar. Each `EventDataExistTimeSegment` stores an event timestamp, color, and type; the timebar draws that timestamp as a narrow overlay on the recorded-data bar. The player requests analytics for the currently available archive interval and keeps event timestamps separate from recording ranges.
+
+The same client also contains `POST /api/v0/analytics/archive_events/` for an all-analytics archive query. That endpoint is **Observed only**: it has not been live-confirmed by this project and production Home Assistant code does not call it. Archive motion markers instead reuse the already Confirmed `POST /api/v0/analytics/motion_alarm/report/` endpoint with bounded `start`/`end` windows.
+
+The official client uses an 18-second playback-before-event offset when opening an analytics event. The event timestamp itself is not shifted. The Home Assistant archive timeline follows that UI behavior: the point marker stays at the authoritative `date`, while clicking it seeks to approximately 18 seconds before the event when recording is available.
+
+The authenticated `get_motion_events` Home Assistant response service returns only the selected camera-local date, support flag, count, and normalized event times needed by the Lovelace timeline. UCAMS camera numbers, provider event IDs, `length`, raw results, media, screenshots, and recognition data are not returned.
+
 ## Errors, diagnostics, and privacy boundary
 
 Production support is intentionally limited to `motion_alarm`. The project does

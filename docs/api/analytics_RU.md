@@ -138,6 +138,18 @@ Analytics coordinator работает с низкой частотой опро
 секунд. Это источник событий для автоматизаций, а не мгновенный security-alarm
 transport.
 
+## Модель событий таймлайна в Android-клиенте
+
+**Статус: Observed**
+
+В декомпилированном Android-клиенте для архивного timebar ведётся отдельный список точечных событий. Каждый `EventDataExistTimeSegment` хранит timestamp события, цвет и тип; timebar рисует timestamp узкой меткой поверх полосы наличия записи. Player запрашивает аналитику для доступного архивного интервала и не смешивает timestamps событий с диапазонами записи.
+
+В клиенте также присутствует `POST /api/v0/analytics/archive_events/` для общего запроса архивной аналитики. Этот endpoint имеет статус только **Observed**: проект не подтверждал его live-запросом, поэтому production-код Home Assistant его не вызывает. Метки движения в архиве повторно используют уже Confirmed endpoint `POST /api/v0/analytics/motion_alarm/report/` с ограниченными окнами `start`/`end`.
+
+При открытии analytics event официальный клиент использует playback offset примерно 18 секунд до события. Timestamp самого события не изменяется. Таймлайн Home Assistant повторяет эту UI-семантику: точечная метка остаётся на авторитетном `date`, а клик запускает запись примерно за 18 секунд до события, если этот участок архива доступен.
+
+Авторизованный response-service Home Assistant `get_motion_events` возвращает только выбранную camera-local дату, признак поддержки, количество и нормализованные времена событий, необходимые Lovelace timeline. Номера камер UCAMS, provider event IDs, `length`, raw results, media, screenshots и recognition data не возвращаются.
+
 ## Ошибки, диагностика и граница приватности
 
 Production-поддержка намеренно ограничена `motion_alarm`. Проект не запрашивает
