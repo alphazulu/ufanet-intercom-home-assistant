@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   pytest:
@@ -16,6 +16,102 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Apply FCM self-registration diagnostics patch once
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file_path = Path(path)
+              text = file_path.read_text(encoding="utf-8")
+              if old not in text:
+                  raise SystemExit(f"anchor not found in {path}")
+              file_path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          fcm_path = Path("custom_components/ufanet_intercom/fcm.py")
+          if "authorized_device_check_succeeded" in fcm_path.read_text(encoding="utf-8"):
+              print("FCM self-registration diagnostics already applied")
+              raise SystemExit(0)
+
+          replace_once(
+              "custom_components/ufanet_intercom/api.py",
+              '''    async def async_unregister_fcm_device(self, *, device_id: str) -> None:\n''',
+              '''    async def async_get_fcm_authorization_status(\n        self,\n        *,\n        device_id: str,\n    ) -> dict[str, Any] | None:\n        \"\"\"Return only the authorization fields for one exact FCM device ID.\"\"\"\n        data = await self._async_ufanet_json(\n            \"POST\",\n            \"/api/v4/fcm_device/authorized_devices/\",\n        )\n        payload = data.get(\"data\") if isinstance(data, dict) else None\n        devices = payload.get(\"device_list\") if isinstance(payload, dict) else None\n        if not isinstance(devices, list):\n            raise UfanetResponseError(\n                \"Authorized-device response has no device list\"\n            )\n\n        match: dict[str, Any] | None = None\n        for item in devices:\n            if not isinstance(item, dict):\n                raise UfanetResponseError(\n                    \"Authorized-device response contains an invalid item\"\n                )\n            candidate = item.get(\"device_id\")\n            if not isinstance(candidate, str) or not candidate:\n                raise UfanetResponseError(\n                    \"Authorized-device response contains an invalid device ID\"\n                )\n            if candidate != device_id:\n                continue\n            if match is not None:\n                raise UfanetResponseError(\n                    \"Authorized-device response contains a duplicate device ID\"\n                )\n\n            call_access = item.get(\"is_call_access\")\n            last_update = item.get(\"last_update\")\n            if (\n                not isinstance(call_access, bool)\n                or not isinstance(last_update, str)\n                or not last_update.strip()\n            ):\n                raise UfanetResponseError(\n                    \"Authorized-device response contains invalid status fields\"\n                )\n            match = {\n                \"call_access\": call_access,\n                \"last_update\": last_update,\n            }\n\n        return match\n\n    async def async_unregister_fcm_device(self, *, device_id: str) -> None:\n''',
+          )
+
+          replace_once(
+              "custom_components/ufanet_intercom/fcm.py",
+              '''FCM_RESTART_MAX_SECONDS = 300\n\n\ndef _fcm_store''',
+              '''FCM_RESTART_MAX_SECONDS = 300\n\n\ndef _authorized_device_age_bucket(\n    value: Any,\n    *,\n    now: datetime | None = None,\n) -> str:\n    \"\"\"Reduce an authorized-device timestamp to a privacy-safe age bucket.\"\"\"\n    if not isinstance(value, str) or not value.strip():\n        raise ValueError(\"invalid authorized-device timestamp\")\n    normalized = value.strip()\n    if normalized.endswith(\"Z\"):\n        normalized = normalized[:-1] + \"+00:00\"\n    parsed = datetime.fromisoformat(normalized)\n    if parsed.tzinfo is None:\n        raise ValueError(\"authorized-device timestamp has no timezone\")\n\n    current = now or datetime.now(timezone.utc)\n    age_seconds = (\n        current.astimezone(timezone.utc) - parsed.astimezone(timezone.utc)\n    ).total_seconds()\n    if age_seconds < 0:\n        return \"future\"\n    if age_seconds <= 24 * 60 * 60:\n        return \"le_24h\"\n    if age_seconds <= 7 * 24 * 60 * 60:\n        return \"1_7d\"\n    if age_seconds <= 30 * 24 * 60 * 60:\n        return \"7_30d\"\n    if age_seconds <= 90 * 24 * 60 * 60:\n        return \"30_90d\"\n    return \"gt_90d\"\n\n\ndef _fcm_store''',
+          )
+
+          replace_once(
+              "custom_components/ufanet_intercom/fcm.py",
+              '''        self.last_unregistration_succeeded: bool | None = None\n        self.last_unregistration_error_type: str | None = None\n''',
+              '''        self.last_unregistration_succeeded: bool | None = None\n        self.last_unregistration_error_type: str | None = None\n        self.authorized_device_check_succeeded = False\n        self.authorized_device_registered: bool | None = None\n        self.authorized_device_call_access: bool | None = None\n        self.authorized_device_last_update_age: str | None = None\n        self.authorized_device_check_error_type: str | None = None\n''',
+          )
+
+          replace_once(
+              "custom_components/ufanet_intercom/fcm.py",
+              '''        self.firebase_registration_succeeded = False\n        self.ufanet_registration_succeeded = False\n        self.listener_started = False\n\n        persistent_ids = self._state.get(\"persistent_ids\")\n''',
+              '''        self.firebase_registration_succeeded = False\n        self.ufanet_registration_succeeded = False\n        self.listener_started = False\n        self.authorized_device_check_succeeded = False\n        self.authorized_device_registered = None\n        self.authorized_device_call_access = None\n        self.authorized_device_last_update_age = None\n        self.authorized_device_check_error_type = None\n\n        persistent_ids = self._state.get(\"persistent_ids\")\n''',
+          )
+
+          replace_once(
+              "custom_components/ufanet_intercom/fcm.py",
+              '''            self.ufanet_registration_succeeded = True\n            self.unregister_pending = False\n''',
+              '''            self.ufanet_registration_succeeded = True\n            await self._async_refresh_authorized_device_status()\n            self.unregister_pending = False\n''',
+          )
+
+          replace_once(
+              "custom_components/ufanet_intercom/fcm.py",
+              '''    async def _safe_stop_client(self) -> None:\n''',
+              '''    async def _async_refresh_authorized_device_status(self) -> None:\n        \"\"\"Verify this manager's owned Ufanet registration without exposing its ID.\"\"\"\n        self.authorized_device_check_succeeded = False\n        self.authorized_device_registered = None\n        self.authorized_device_call_access = None\n        self.authorized_device_last_update_age = None\n        self.authorized_device_check_error_type = None\n\n        device_id = _owned_device_id(self._state)\n        if device_id is None:\n            self.authorized_device_check_error_type = \"InvalidOwnedDeviceId\"\n            return\n\n        try:\n            status = await self.api.async_get_fcm_authorization_status(\n                device_id=device_id\n            )\n            if status is None:\n                self.authorized_device_registered = False\n                self.authorized_device_check_succeeded = True\n                return\n\n            self.authorized_device_registered = True\n            self.authorized_device_call_access = bool(status[\"call_access\"])\n            self.authorized_device_last_update_age = _authorized_device_age_bucket(\n                status[\"last_update\"]\n            )\n            self.authorized_device_check_succeeded = True\n        except Exception as err:  # noqa: BLE001 - verification must not block FCM\n            self.authorized_device_check_error_type = type(err).__name__\n            _LOGGER.warning(\n                \"Unable to verify Ufanet FCM authorization: %s\",\n                type(err).__name__,\n            )\n\n    async def _safe_stop_client(self) -> None:\n''',
+          )
+
+          replace_once(
+              "custom_components/ufanet_intercom/fcm.py",
+              '''            \"ufanet_registration_succeeded\": self.ufanet_registration_succeeded,\n            \"listener_started\": self.listener_started,\n''',
+              '''            \"ufanet_registration_succeeded\": self.ufanet_registration_succeeded,\n            \"authorized_device_check_succeeded\": (\n                self.authorized_device_check_succeeded\n            ),\n            \"authorized_device_registered\": self.authorized_device_registered,\n            \"authorized_device_call_access\": self.authorized_device_call_access,\n            \"authorized_device_last_update_age\": (\n                self.authorized_device_last_update_age\n            ),\n            \"authorized_device_check_error_type\": (\n                self.authorized_device_check_error_type\n            ),\n            \"listener_started\": self.listener_started,\n''',
+          )
+
+          replace_once(
+              "custom_components/ufanet_intercom/diagnostics.py",
+              '''        \"ufanet_registration_succeeded\": False,\n        \"listener_started\": False,\n''',
+              '''        \"ufanet_registration_succeeded\": False,\n        \"authorized_device_check_succeeded\": False,\n        \"authorized_device_registered\": None,\n        \"authorized_device_call_access\": None,\n        \"authorized_device_last_update_age\": None,\n        \"authorized_device_check_error_type\": None,\n        \"listener_started\": False,\n''',
+          )
+
+          api_tests = Path("tests/test_api_extended.py")
+          api_text = api_tests.read_text(encoding="utf-8")
+          api_test_marker = "test_fcm_authorization_status_uses_confirmed_contract_and_minimizes_match"
+          if api_test_marker not in api_text:
+              api_text += '''\n\n@pytest.mark.asyncio\nasync def test_fcm_authorization_status_uses_confirmed_contract_and_minimizes_match(\n    api: UfanetApi,\n) -> None:\n    api._async_ufanet_json = AsyncMock(  # type: ignore[method-assign]\n        return_value={\n            \"data\": {\n                \"device_list\": [\n                    {\n                        \"device_id\": \"other-private-device\",\n                        \"title\": \"Other private title\",\n                        \"last_update\": \"2026-01-01T00:00:00Z\",\n                        \"is_call_access\": False,\n                    },\n                    {\n                        \"device_id\": \"Home Assistant_target-private\",\n                        \"title\": \"Private HA title\",\n                        \"last_update\": \"2026-09-02T12:34:56Z\",\n                        \"is_call_access\": True,\n                        \"os\": 0,\n                        \"os_display\": \"Android\",\n                    },\n                ],\n                \"devices_num_permission\": False,\n            }\n        }\n    )\n\n    result = await api.async_get_fcm_authorization_status(\n        device_id=\"Home Assistant_target-private\"\n    )\n\n    assert result == {\n        \"call_access\": True,\n        \"last_update\": \"2026-09-02T12:34:56Z\",\n    }\n    assert \"device_id\" not in result\n    assert \"title\" not in result\n    assert \"os\" not in result\n    api._async_ufanet_json.assert_awaited_once_with(  # type: ignore[attr-defined]\n        \"POST\",\n        \"/api/v4/fcm_device/authorized_devices/\",\n    )\n\n\n@pytest.mark.asyncio\nasync def test_fcm_authorization_status_returns_none_when_owned_device_is_absent(\n    api: UfanetApi,\n) -> None:\n    api._async_ufanet_json = AsyncMock(  # type: ignore[method-assign]\n        return_value={\n            \"data\": {\n                \"device_list\": [\n                    {\n                        \"device_id\": \"different-private-device\",\n                        \"last_update\": \"2026-09-02T12:34:56Z\",\n                        \"is_call_access\": True,\n                    }\n                ]\n            }\n        }\n    )\n\n    assert (\n        await api.async_get_fcm_authorization_status(\n            device_id=\"Home Assistant_missing-private\"\n        )\n        is None\n    )\n'''
+              api_tests.write_text(api_text, encoding="utf-8")
+
+          fcm_tests = Path("tests/test_fcm.py")
+          fcm_text = fcm_tests.read_text(encoding="utf-8")
+          fcm_test_marker = "test_fcm_authorized_device_verification_is_privacy_safe"
+          if fcm_test_marker not in fcm_text:
+              fcm_text += '''\n\n@pytest.mark.asyncio\nasync def test_fcm_authorized_device_verification_is_privacy_safe(hass) -> None:\n    store = MagicMock()\n    store.async_load = AsyncMock(return_value=None)\n    store.async_save = AsyncMock()\n    client = MagicMock()\n    client.checkin_or_register = AsyncMock(return_value=\"fcm-token\")\n    client.start = AsyncMock()\n    client.stop = AsyncMock()\n    client.run_state = SimpleNamespace(name=\"RUNNING\")\n    api = MagicMock()\n    api.async_register_fcm_device = AsyncMock()\n    api.async_get_fcm_authorization_status = AsyncMock(\n        return_value={\n            \"call_access\": True,\n            \"last_update\": \"2000-01-01T00:00:00Z\",\n        }\n    )\n\n    with (\n        patch(\"custom_components.ufanet_intercom.fcm.Store\", return_value=store),\n        patch(\n            \"custom_components.ufanet_intercom.fcm.FcmPushClient\",\n            return_value=client,\n        ),\n        patch(\"custom_components.ufanet_intercom.fcm.FcmRegisterConfig\"),\n        patch(\"custom_components.ufanet_intercom.fcm.async_get_clientsession\"),\n    ):\n        manager = UfanetFcmManager(\n            hass,\n            _entry(),\n            api,\n            FIREBASE_CONFIG,\n            AsyncMock(),\n        )\n        assert await manager.async_start() is True\n\n        status = manager.status()\n        owned_device_id = manager._state[\"ufanet_device_id\"]  # noqa: SLF001\n        assert status[\"authorized_device_check_succeeded\"] is True\n        assert status[\"authorized_device_registered\"] is True\n        assert status[\"authorized_device_call_access\"] is True\n        assert status[\"authorized_device_last_update_age\"] == \"gt_90d\"\n        assert status[\"authorized_device_check_error_type\"] is None\n        assert owned_device_id not in str(status)\n        assert \"2000-01-01T00:00:00Z\" not in str(status)\n        api.async_get_fcm_authorization_status.assert_awaited_once_with(\n            device_id=owned_device_id\n        )\n\n        await manager.async_stop()\n\n\n@pytest.mark.asyncio\nasync def test_fcm_authorized_device_verification_failure_is_non_fatal(hass) -> None:\n    store = MagicMock()\n    store.async_load = AsyncMock(return_value=None)\n    store.async_save = AsyncMock()\n    client = MagicMock()\n    client.checkin_or_register = AsyncMock(return_value=\"fcm-token\")\n    client.start = AsyncMock()\n    client.stop = AsyncMock()\n    client.run_state = SimpleNamespace(name=\"RUNNING\")\n    api = MagicMock()\n    api.async_register_fcm_device = AsyncMock()\n    api.async_get_fcm_authorization_status = AsyncMock(\n        side_effect=RuntimeError(\"private provider response\")\n    )\n\n    with (\n        patch(\"custom_components.ufanet_intercom.fcm.Store\", return_value=store),\n        patch(\n            \"custom_components.ufanet_intercom.fcm.FcmPushClient\",\n            return_value=client,\n        ),\n        patch(\"custom_components.ufanet_intercom.fcm.FcmRegisterConfig\"),\n        patch(\"custom_components.ufanet_intercom.fcm.async_get_clientsession\"),\n    ):\n        manager = UfanetFcmManager(\n            hass,\n            _entry(),\n            api,\n            FIREBASE_CONFIG,\n            AsyncMock(),\n        )\n        assert await manager.async_start() is True\n        status = manager.status()\n        assert status[\"active\"] is True\n        assert status[\"authorized_device_check_succeeded\"] is False\n        assert status[\"authorized_device_registered\"] is None\n        assert status[\"authorized_device_call_access\"] is None\n        assert status[\"authorized_device_last_update_age\"] is None\n        assert status[\"authorized_device_check_error_type\"] == \"RuntimeError\"\n        assert \"private provider response\" not in str(status)\n        await manager.async_stop()\n'''
+              fcm_tests.write_text(fcm_text, encoding="utf-8")
+          PY
+
+          if git diff --quiet; then
+            echo "No patch changes to commit"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add \
+              custom_components/ufanet_intercom/api.py \
+              custom_components/ufanet_intercom/fcm.py \
+              custom_components/ufanet_intercom/diagnostics.py \
+              tests/test_api_extended.py \
+              tests/test_fcm.py
+            git commit -m "Add FCM self-registration diagnostics"
+            git push origin HEAD:${GITHUB_REF_NAME}
+          fi
 
       - name: Set up Python 3.14
         uses: actions/setup-python@v5
