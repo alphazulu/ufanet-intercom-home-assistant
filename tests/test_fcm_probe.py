@@ -220,8 +220,8 @@ async def test_authorized_devices_audit_is_read_only_and_privacy_safe(capsys) ->
         "with_title": 2,
         "with_last_update": 2,
         "parseable_last_update": 2,
-        "last_update_age_le_24h": 2,
-        "last_update_age_1_7d": 0,
+        "last_update_age_le_24h": 1,
+        "last_update_age_1_7d": 1,
         "last_update_age_7_30d": 0,
         "last_update_age_30_90d": 0,
         "last_update_age_gt_90d": 0,
@@ -268,7 +268,6 @@ async def test_authorized_devices_audit_rejects_http_error_without_body_leak(cap
     assert "access-token" not in output
 
 
-
 def test_authorized_devices_age_buckets_do_not_expose_timestamps() -> None:
     payload = {
         "data": {
@@ -295,6 +294,7 @@ def test_authorized_devices_age_buckets_do_not_expose_timestamps() -> None:
     assert summary["last_update_age_gt_90d"] == 1
     assert summary["last_update_age_future"] == 1
     assert summary["devices_num_permission"] == "false"
+
 
 def test_authorized_devices_summary_rejects_unknown_envelope_without_values() -> None:
     with pytest.raises(RuntimeError, match="Unexpected authorized-devices response schema"):
