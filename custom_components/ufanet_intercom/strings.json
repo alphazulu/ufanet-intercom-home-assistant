@@ -3,7 +3,8 @@
   "device_automation": {
     "trigger_type": {
       "incoming_call": "Incoming call",
-      "key_passage": "Physical key passage"
+      "key_passage": "Physical key passage",
+      "motion_detected": "Motion detected"
     }
   },
   "issues": {
@@ -92,6 +93,9 @@
     "event": {
       "key_passage": {
         "name": "Physical key passage"
+      },
+      "motion_analytics": {
+        "name": "Motion detected"
       }
     },
     "sensor": {

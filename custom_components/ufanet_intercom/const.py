@@ -1,7 +1,7 @@
 """Constants for the Ufanet Intercom integration."""
 
 DOMAIN = "ufanet_intercom"
-INTEGRATION_VERSION = "0.27.0"
+INTEGRATION_VERSION = "0.28.0"
 
 UFANET_BASE_URL = "https://dom.ufanet.ru"
 UCAMS_BASE_URL = "https://cloud.ucams.ru"
@@ -28,6 +28,7 @@ CONF_EXPORT_AUTO_CLEANUP = "export_auto_cleanup"
 DEFAULT_SCAN_INTERVAL_SECONDS = 300
 CALL_SCAN_INTERVAL_SECONDS = 10
 MEDIA_REFRESH_SECONDS = 1800
+ANALYTICS_SCAN_INTERVAL_SECONDS = 60
 
 CALL_UPDATE_MODE_POLLING = "polling"
 CALL_UPDATE_MODE_FCM = "fcm"
@@ -37,8 +38,10 @@ FCM_FALLBACK_SCAN_INTERVAL_SECONDS = 300
 
 EVENT_INTERCOM_CALL = "ufanet_intercom_call"
 EVENT_KEY_PASSAGE = "ufanet_intercom_key_passage"
+EVENT_MOTION_ANALYTICS = "ufanet_intercom_motion"
 TRIGGER_INCOMING_CALL = "incoming_call"
 TRIGGER_KEY_PASSAGE = "key_passage"
+TRIGGER_MOTION_ANALYTICS = "motion_detected"
 INCOMING_CALL_STATE_SECONDS = 30
 KEY_PASSAGE_SCAN_INTERVAL_SECONDS = 60
 

@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import sys
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -18,4 +19,27 @@ if str(_REPO_ROOT) not in sys.path:
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations):
     """Allow Home Assistant to load integrations from custom_components."""
+    yield
+
+
+@pytest.fixture(autouse=True)
+def isolate_optional_motion_coordinator_in_legacy_lifecycle_tests(
+    request,
+    monkeypatch,
+):
+    """Keep legacy lifecycle tests focused on lifecycle wiring, not cloud polling."""
+    if request.node.path.name != "test_lifecycle.py":
+        yield
+        return
+
+    coordinator = MagicMock()
+    coordinator.data = {}
+    coordinator.new_events = {}
+    coordinator.async_initialize = AsyncMock()
+    coordinator.async_refresh = AsyncMock()
+    coordinator.async_add_listener.return_value = lambda: None
+    monkeypatch.setattr(
+        "custom_components.ufanet_intercom.UfanetMotionAnalyticsCoordinator",
+        MagicMock(return_value=coordinator),
+    )
     yield

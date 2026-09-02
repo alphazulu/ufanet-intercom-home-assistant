@@ -25,6 +25,10 @@
 | Проходы | `POST /api/v4/key/skud/<id>/key/pass_history/` | **Confirmed** | Подтверждены HTTP 200, страницы от `0` и пустой `results`; поля записи остаются Observed |
 | Дверь | `GET /api/v0/skud/shared/<id>/open/?door=1` | **Confirmed** | Физическое действие; успешный `{"result":true}` |
 | UCAMS | `POST /api/v0/cameras/this/` | **Confirmed** | Метаданные камеры/сервера/токенов |
+| Аналитика | `analytics` в metadata камеры: `motion_alarm` | **Confirmed** | Проверенная live-камера объявляет аналитику движения |
+| Аналитика | `analytics` в metadata камеры: `perimeter_security` | **Observed** | Capability есть в Android-клиенте, но проверенный тариф её не объявляет |
+| Аналитика | `POST /api/v0/analytics/motion_alarm/report/` | **Confirmed** | HTTP 200; envelope `count/page/results`; поля события `id/date/length`; `id` используется только как приватный opaque cursor |
+| Аналитика | пагинация motion report | **Confirmed** | `page` содержит `current/next/previous/all/page_size`; сервер вернул page size 60 при меньшем `limit`, поэтому клиент обязан ограничивать обработку локально |
 | Live | `.../<camera>/index.m3u8?...` | **Confirmed** | HTTP 200 |
 | Snapshot | `/api/v0/screenshots/<camera>.jpg?...` | **Confirmed** | Снимок работает |
 | Архив | `recording_status.json?...request=ranges...` | **Confirmed** | Диапазоны `{from,duration}` |

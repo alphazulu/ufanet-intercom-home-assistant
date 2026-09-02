@@ -18,11 +18,17 @@ from .const import (
     DOMAIN,
     EVENT_INTERCOM_CALL,
     EVENT_KEY_PASSAGE,
+    EVENT_MOTION_ANALYTICS,
     TRIGGER_INCOMING_CALL,
     TRIGGER_KEY_PASSAGE,
+    TRIGGER_MOTION_ANALYTICS,
 )
 
-TRIGGER_TYPES = {TRIGGER_INCOMING_CALL, TRIGGER_KEY_PASSAGE}
+TRIGGER_TYPES = {
+    TRIGGER_INCOMING_CALL,
+    TRIGGER_KEY_PASSAGE,
+    TRIGGER_MOTION_ANALYTICS,
+}
 
 TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
     {
@@ -57,15 +63,28 @@ async def async_get_triggers(
         if domain == DOMAIN and str(identifier).isdigit()
     }
     passage_supported = False
+    motion_supported = False
     for entry_id in device.config_entries:
         runtime = hass.data.get(DOMAIN, {}).get(entry_id)
         if not isinstance(runtime, dict):
             continue
-        coordinator = runtime.get("key_passage_coordinator")
-        data = coordinator.data if coordinator is not None else None
-        if isinstance(data, dict) and any(skud_id in data for skud_id in skud_ids):
+        passage_coordinator = runtime.get("key_passage_coordinator")
+        passage_data = (
+            passage_coordinator.data if passage_coordinator is not None else None
+        )
+        if isinstance(passage_data, dict) and any(
+            skud_id in passage_data for skud_id in skud_ids
+        ):
             passage_supported = True
-            break
+
+        analytics_coordinator = runtime.get("analytics_coordinator")
+        analytics_data = (
+            analytics_coordinator.data if analytics_coordinator is not None else None
+        )
+        if isinstance(analytics_data, dict) and any(
+            skud_id in analytics_data for skud_id in skud_ids
+        ):
+            motion_supported = True
 
     if passage_supported:
         triggers.append(
@@ -74,6 +93,15 @@ async def async_get_triggers(
                 CONF_DOMAIN: DOMAIN,
                 CONF_DEVICE_ID: device_id,
                 CONF_TYPE: TRIGGER_KEY_PASSAGE,
+            }
+        )
+    if motion_supported:
+        triggers.append(
+            {
+                CONF_PLATFORM: "device",
+                CONF_DOMAIN: DOMAIN,
+                CONF_DEVICE_ID: device_id,
+                CONF_TYPE: TRIGGER_MOTION_ANALYTICS,
             }
         )
     return triggers
@@ -85,12 +113,14 @@ async def async_attach_trigger(
     action: TriggerActionType,
     trigger_info: TriggerInfo,
 ) -> CALLBACK_TYPE:
-    """Attach an incoming-call trigger to the confirmed call event."""
-    event_type = (
-        EVENT_KEY_PASSAGE
-        if config[CONF_TYPE] == TRIGGER_KEY_PASSAGE
-        else EVENT_INTERCOM_CALL
-    )
+    """Attach a device trigger to the corresponding sanitized event."""
+    trigger_type = config[CONF_TYPE]
+    if trigger_type == TRIGGER_KEY_PASSAGE:
+        event_type = EVENT_KEY_PASSAGE
+    elif trigger_type == TRIGGER_MOTION_ANALYTICS:
+        event_type = EVENT_MOTION_ANALYTICS
+    else:
+        event_type = EVENT_INTERCOM_CALL
     event_config = event_trigger.TRIGGER_SCHEMA(
         {
             event_trigger.CONF_PLATFORM: "event",

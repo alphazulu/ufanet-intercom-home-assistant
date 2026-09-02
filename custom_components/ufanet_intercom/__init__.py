@@ -18,6 +18,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
 
+from .analytics import UfanetMotionAnalyticsCoordinator
 from .api import UfanetApi, UfanetAuthError, UfanetConnectionError, UfanetResponseError
 from .archive import UfanetArchiveController
 from .auto_export import UfanetCallAutoSaveManager
@@ -35,6 +36,7 @@ from .const import (
     DOMAIN,
     EVENT_INTERCOM_CALL,
     EVENT_KEY_PASSAGE,
+    EVENT_MOTION_ANALYTICS,
     FCM_FALLBACK_SCAN_INTERVAL_SECONDS,
 )
 from .coordinator import (
@@ -59,7 +61,7 @@ _LOGGER = logging.getLogger(__name__)
 _FRONTEND_DIR = Path(__file__).parent / "frontend"
 _ARCHIVE_CARD_PATH = _FRONTEND_DIR / "ufanet-archive-card.js"
 _ARCHIVE_CARD_URL = "/ufanet_intercom/ufanet-archive-card.js"
-_ARCHIVE_CARD_MODULE_URL = f"{_ARCHIVE_CARD_URL}?v=0.27.0"
+_ARCHIVE_CARD_MODULE_URL = f"{_ARCHIVE_CARD_URL}?v=0.28.0"
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -185,6 +187,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if key_passage_coordinator.data is None:
         key_passage_coordinator.data = {}
 
+    camera_by_skud = {
+        int(skud["id"]): str(skud["cctv_number"])
+        for skud in coordinator.data.values()
+        if skud.get("cctv_number")
+    }
+    analytics_coordinator = UfanetMotionAnalyticsCoordinator(
+        hass,
+        api,
+        entry.entry_id,
+        camera_by_skud,
+    )
+    await analytics_coordinator.async_initialize()
+    # Motion analytics is read-only and optional. A temporary analytics outage
+    # must never block door, camera, calls or archive setup.
+    await analytics_coordinator.async_refresh()
+    if analytics_coordinator.data is None:
+        analytics_coordinator.data = {}
+
     archive_controllers = {
         int(skud["id"]): UfanetArchiveController(
             api,
@@ -216,6 +236,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "coordinator": coordinator,
         "call_coordinator": call_coordinator,
         "key_passage_coordinator": key_passage_coordinator,
+        "analytics_coordinator": analytics_coordinator,
         "archive_controllers": archive_controllers,
         "entry": entry,
         "options": options,
@@ -277,6 +298,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     event_data["device_id"] = device.id
                 hass.bus.async_fire(EVENT_KEY_PASSAGE, event_data)
 
+    def _handle_motion_analytics_update() -> None:
+        """Publish coarse motion events without camera or cursor identifiers."""
+        for skud_id, events in analytics_coordinator.new_events.items():
+            skud = coordinator.data.get(skud_id)
+            if skud is None:
+                continue
+            device = device_registry.async_get_device(
+                identifiers={(DOMAIN, str(skud_id))},
+            )
+            for motion in events:
+                event_data: dict[str, Any] = {
+                    "type": "motion",
+                    "skud_id": skud_id,
+                    "device_name": device_name(skud),
+                    "occurred_at": motion["occurred_at"],
+                }
+                if device is not None:
+                    event_data["device_id"] = device.id
+                hass.bus.async_fire(EVENT_MOTION_ANALYTICS, event_data)
+
     if firebase_config is not None:
 
         def _handle_fcm_health_change(healthy: bool) -> None:
@@ -297,12 +338,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN][entry.entry_id]["fcm_manager"] = fcm_manager
         await fcm_manager.async_start()
 
-    # This listener also keeps the call coordinator polling even if the user
-    # disables the Last call sensor entity. It is registered after FCM setup so
-    # the FCM health callback has selected the appropriate polling interval.
+    # These listeners keep optional coordinators polling even when their entity
+    # is disabled. They are registered after runtime setup so only new batches
+    # produced after the private baseline/cursor state can reach the event bus.
     entry.async_on_unload(call_coordinator.async_add_listener(_handle_call_update))
     entry.async_on_unload(
         key_passage_coordinator.async_add_listener(_handle_key_passage_update)
+    )
+    entry.async_on_unload(
+        analytics_coordinator.async_add_listener(_handle_motion_analytics_update)
     )
     entry.async_on_unload(auto_save_manager.cancel_all)
 

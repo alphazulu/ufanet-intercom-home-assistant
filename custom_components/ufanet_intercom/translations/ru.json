@@ -3,7 +3,8 @@
   "device_automation": {
     "trigger_type": {
       "incoming_call": "Входящий звонок",
-      "key_passage": "Проход по физическому ключу"
+      "key_passage": "Проход по физическому ключу",
+      "motion_detected": "Обнаружено движение"
     }
   },
   "issues": {
@@ -92,6 +93,9 @@
     "event": {
       "key_passage": {
         "name": "Проход по ключу"
+      },
+      "motion_analytics": {
+        "name": "Обнаружено движение"
       }
     },
     "sensor": {
