@@ -25,8 +25,10 @@ This table is a compact index of what has actually been tested by the project. T
 | Passages | `POST /api/v4/key/skud/<id>/key/pass_history/` | **Confirmed** | HTTP 200, zero-based pagination and empty `results` confirmed; item fields remain Observed |
 | Door | `GET /api/v0/skud/shared/<id>/open/?door=1` | **Confirmed** | Physical side effect; successful `{"result":true}` |
 | UCAMS | `POST /api/v0/cameras/this/` | **Confirmed** | Camera/server/token metadata |
-| Analytics | `analytics` in camera metadata | **Observed** | Android client treats it as a list of supported analytics type strings |
-| Analytics | `POST /api/v0/analytics/<type>/report/` | **Observed** | Read-only type-filtered event query; live validation is required before runtime use |
+| Analytics | `analytics` in camera metadata: `motion_alarm` | **Confirmed** | Live-tested camera advertises motion analytics |
+| Analytics | `analytics` in camera metadata: `perimeter_security` | **Observed** | Android capability exists; not advertised by the tested tariff |
+| Analytics | `POST /api/v0/analytics/motion_alarm/report/` | **Confirmed** | HTTP 200; envelope `count/page/results`; result fields `id/date/length`; `id` is private opaque cursor |
+| Analytics | motion report pagination | **Confirmed** | `page` has `current/next/previous/all/page_size`; server returned page size 60 despite a smaller requested `limit`, so clients must cap locally |
 | Live | `.../<camera>/index.m3u8?...` | **Confirmed** | HTTP 200 |
 | Snapshot | `/api/v0/screenshots/<camera>.jpg?...` | **Confirmed** | Working snapshot |
 | Archive | `recording_status.json?...request=ranges...` | **Confirmed** | `{from,duration}` ranges |
