@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -197,7 +198,10 @@ async def test_authorized_devices_audit_is_read_only_and_privacy_safe(capsys) ->
 
     session.post = post_audit
     summary = await probe.audit_authorized_devices(
-        session, "access-token", "https://example.test"
+        session,
+        "access-token",
+        "https://example.test",
+        now=datetime(2026, 9, 2, 16, 0, tzinfo=timezone.utc),
     )
 
     assert len(session.calls) == 1
@@ -216,11 +220,18 @@ async def test_authorized_devices_audit_is_read_only_and_privacy_safe(capsys) ->
         "with_title": 2,
         "with_last_update": 2,
         "parseable_last_update": 2,
+        "last_update_age_le_24h": 2,
+        "last_update_age_1_7d": 0,
+        "last_update_age_7_30d": 0,
+        "last_update_age_30_90d": 0,
+        "last_update_age_gt_90d": 0,
+        "last_update_age_future": 0,
         "with_call_access": 2,
         "call_access_true": 1,
         "call_access_false": 1,
         "call_access_invalid": 0,
-        "unknown_field_names": 1,
+        "unknown_field_count": 1,
+        "unknown_field_names": ("provider_private_extra",),
         "devices_num_permission": "true",
     }
     output = capsys.readouterr().out
@@ -232,7 +243,6 @@ async def test_authorized_devices_audit_is_read_only_and_privacy_safe(capsys) ->
         "2026-09-02",
         "2026-09-01",
         "secret-value",
-        "provider_private_extra",
         "access-token",
     ):
         assert secret not in output
@@ -257,6 +267,34 @@ async def test_authorized_devices_audit_rejects_http_error_without_body_leak(cap
     assert "private" not in output
     assert "access-token" not in output
 
+
+
+def test_authorized_devices_age_buckets_do_not_expose_timestamps() -> None:
+    payload = {
+        "data": {
+            "device_list": [
+                {"last_update": "2026-09-02T15:00:00Z"},
+                {"last_update": "2026-08-30T16:00:00Z"},
+                {"last_update": "2026-08-15T16:00:00Z"},
+                {"last_update": "2026-07-01T16:00:00Z"},
+                {"last_update": "2026-01-01T00:00:00Z"},
+                {"last_update": "2026-09-03T16:00:00Z"},
+            ],
+            "devices_num_permission": False,
+        }
+    }
+    summary = probe.summarize_authorized_devices(
+        payload,
+        now=datetime(2026, 9, 2, 16, 0, tzinfo=timezone.utc),
+    )
+
+    assert summary["last_update_age_le_24h"] == 1
+    assert summary["last_update_age_1_7d"] == 1
+    assert summary["last_update_age_7_30d"] == 1
+    assert summary["last_update_age_30_90d"] == 1
+    assert summary["last_update_age_gt_90d"] == 1
+    assert summary["last_update_age_future"] == 1
+    assert summary["devices_num_permission"] == "false"
 
 def test_authorized_devices_summary_rejects_unknown_envelope_without_values() -> None:
     with pytest.raises(RuntimeError, match="Unexpected authorized-devices response schema"):

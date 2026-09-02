@@ -11,7 +11,7 @@ import statistics
 import sys
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -343,7 +343,11 @@ EXPECTED_AUTHORIZED_DEVICE_FIELDS = {
 }
 
 
-def summarize_authorized_devices(payload: Any) -> dict[str, Any]:
+def summarize_authorized_devices(
+    payload: Any,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
     """Reduce authorized-device data to privacy-safe aggregate schema facts."""
     if not isinstance(payload, dict):
         raise RuntimeError("Unexpected authorized-devices response schema")
@@ -354,6 +358,11 @@ def summarize_authorized_devices(payload: Any) -> dict[str, Any]:
     if not isinstance(devices, list):
         raise RuntimeError("Unexpected authorized-devices response schema")
 
+    reference_time = now or datetime.now(timezone.utc)
+    if reference_time.tzinfo is None:
+        raise RuntimeError("Authorized-devices audit reference time must be timezone-aware")
+    reference_time = reference_time.astimezone(timezone.utc)
+
     valid_objects = 0
     invalid_entries = 0
     with_device_id = 0
@@ -361,6 +370,12 @@ def summarize_authorized_devices(payload: Any) -> dict[str, Any]:
     with_title = 0
     with_last_update = 0
     parseable_last_update = 0
+    last_update_age_le_24h = 0
+    last_update_age_1_7d = 0
+    last_update_age_7_30d = 0
+    last_update_age_30_90d = 0
+    last_update_age_gt_90d = 0
+    last_update_age_future = 0
     with_call_access = 0
     call_access_true = 0
     call_access_false = 0
@@ -387,8 +402,24 @@ def summarize_authorized_devices(payload: Any) -> dict[str, Any]:
         last_update = item.get("last_update")
         if last_update not in (None, ""):
             with_last_update += 1
-            if parse_iso_datetime(last_update) is not None:
+            parsed_last_update = parse_iso_datetime(last_update)
+            if parsed_last_update is not None:
                 parseable_last_update += 1
+                age_seconds = (
+                    reference_time - parsed_last_update.astimezone(timezone.utc)
+                ).total_seconds()
+                if age_seconds < 0:
+                    last_update_age_future += 1
+                elif age_seconds <= 24 * 60 * 60:
+                    last_update_age_le_24h += 1
+                elif age_seconds <= 7 * 24 * 60 * 60:
+                    last_update_age_1_7d += 1
+                elif age_seconds <= 30 * 24 * 60 * 60:
+                    last_update_age_7_30d += 1
+                elif age_seconds <= 90 * 24 * 60 * 60:
+                    last_update_age_30_90d += 1
+                else:
+                    last_update_age_gt_90d += 1
 
         if "is_call_access" in item:
             with_call_access += 1
@@ -420,11 +451,18 @@ def summarize_authorized_devices(payload: Any) -> dict[str, Any]:
         "with_title": with_title,
         "with_last_update": with_last_update,
         "parseable_last_update": parseable_last_update,
+        "last_update_age_le_24h": last_update_age_le_24h,
+        "last_update_age_1_7d": last_update_age_1_7d,
+        "last_update_age_7_30d": last_update_age_7_30d,
+        "last_update_age_30_90d": last_update_age_30_90d,
+        "last_update_age_gt_90d": last_update_age_gt_90d,
+        "last_update_age_future": last_update_age_future,
         "with_call_access": with_call_access,
         "call_access_true": call_access_true,
         "call_access_false": call_access_false,
         "call_access_invalid": call_access_invalid,
-        "unknown_field_names": len(unknown_fields),
+        "unknown_field_count": len(unknown_fields),
+        "unknown_field_names": tuple(sorted(unknown_fields)),
         "devices_num_permission": permission_state,
     }
 
@@ -433,6 +471,8 @@ async def audit_authorized_devices(
     session: aiohttp.ClientSession,
     access_token: str,
     base_url: str,
+    *,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     """Read and summarize active authorized-device registrations without exposing values."""
     url = f"{base_url}/api/v4/fcm_device/authorized_devices/"
@@ -454,7 +494,7 @@ async def audit_authorized_devices(
         except json.JSONDecodeError as exc:
             raise RuntimeError("Unexpected authorized-devices response") from exc
 
-    summary = summarize_authorized_devices(payload)
+    summary = summarize_authorized_devices(payload, now=now)
     print(
         "[OK] POST /api/v4/fcm_device/authorized_devices/: "
         f"HTTP {response.status}"
@@ -470,14 +510,25 @@ async def audit_authorized_devices(
         "with_title",
         "with_last_update",
         "parseable_last_update",
+        "last_update_age_le_24h",
+        "last_update_age_1_7d",
+        "last_update_age_7_30d",
+        "last_update_age_30_90d",
+        "last_update_age_gt_90d",
+        "last_update_age_future",
         "with_call_access",
         "call_access_true",
         "call_access_false",
         "call_access_invalid",
-        "unknown_field_names",
-        "devices_num_permission",
+        "unknown_field_count",
     ):
         print(f"  {key}: {summary[key]}")
+    unknown_names = summary["unknown_field_names"]
+    print(
+        "  unknown_field_names: "
+        + (", ".join(unknown_names) if unknown_names else "(none)")
+    )
+    print(f"  devices_num_permission: {summary['devices_num_permission']}")
     return summary
 
 

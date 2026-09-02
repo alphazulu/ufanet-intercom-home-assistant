@@ -127,11 +127,12 @@ py probe.py --audit-authorized-devices
 MCS listener. Он только авторизуется в Ufanet и делает read-only по смыслу запрос
 `POST /api/v4/fcm_device/authorized_devices/` без request body.
 
-До live-подтверждения endpoint считается **Observed only**. Probe намеренно не печатает
+Endpoint **live-confirmed** 2 сентября 2026 года. Probe намеренно не печатает
 `device_id`, title, точные `last_update`, response body или неизвестные значения.
 Вывод содержит только агрегаты: количество записей, наличие ожидаемых полей, число
-уникальных/дублирующихся `device_id`, распределение `is_call_access`, число неизвестных
-имён полей и тип/булево состояние `devices_num_permission`.
+уникальных/дублирующихся `device_id`, распределение `is_call_access`, возрастные корзины
+`last_update` без точных дат, имена неизвестных schema-полей без их значений и
+тип/булево состояние `devices_num_permission`.
 
 Пример безопасного вывода:
 
