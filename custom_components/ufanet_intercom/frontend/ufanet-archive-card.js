@@ -50,6 +50,8 @@ class UfanetArchiveCard extends HTMLElement {
     this._guestAccess = null;
     this._guestLoading = false;
     this._guestInviteUrl = null;
+    this._fcmSessions = null;
+    this._fcmSessionsLoading = false;
     this._runtimeStatus = null;
     this._runtimeStatusLoading = false;
   }
@@ -87,6 +89,7 @@ class UfanetArchiveCard extends HTMLElement {
                 { value: "live", label: "Live" },
                 { value: "archive", label: "Архив" },
                 { value: "guests", label: "Гости" },
+                { value: "sessions", label: "Устройства" },
                 { value: "diagnostics", label: "Диагностика" },
               ],
             },
@@ -169,7 +172,7 @@ class UfanetArchiveCard extends HTMLElement {
       ...config,
     };
 
-    this._activeTab = ["live", "archive", "guests", "diagnostics"].includes(this._config.default_tab)
+    this._activeTab = ["live", "archive", "guests", "sessions", "diagnostics"].includes(this._config.default_tab)
       ? this._config.default_tab
       : "archive";
     this._liveEntityId = this._config.live_entity || null;
@@ -373,6 +376,7 @@ class UfanetArchiveCard extends HTMLElement {
     }
 
     this._renderArchiveExports();
+    this._renderFcmSessions();
     this._renderRuntimeStatus();
   }
 
@@ -709,12 +713,12 @@ class UfanetArchiveCard extends HTMLElement {
   }
 
   _setActiveTab(tab, updateStatus = true) {
-    const normalized = ["live", "archive", "guests", "diagnostics"].includes(tab)
+    const normalized = ["live", "archive", "guests", "sessions", "diagnostics"].includes(tab)
       ? tab
       : "archive";
     this._activeTab = normalized;
 
-    for (const name of ["live", "archive", "guests", "diagnostics"]) {
+    for (const name of ["live", "archive", "guests", "sessions", "diagnostics"]) {
       const panel = this.shadowRoot.getElementById(`panel-${name}`);
       const button = this.shadowRoot.getElementById(`tab-${name}`);
       if (panel) {
@@ -736,6 +740,8 @@ class UfanetArchiveCard extends HTMLElement {
       }
     } else if (normalized === "guests") {
       void this._refreshGuestAccess(false);
+    } else if (normalized === "sessions") {
+      void this._refreshFcmSessions(false);
     } else if (normalized === "diagnostics") {
       void this._refreshRuntimeStatus(false);
     }
@@ -745,6 +751,7 @@ class UfanetArchiveCard extends HTMLElement {
         live: "LIVE",
         archive: "Архив",
         guests: "Гости",
+        sessions: "Устройства",
         diagnostics: "Диагностика",
       };
       this._setStatus(`Раздел: ${names[normalized]}`, "info");
@@ -2198,6 +2205,267 @@ class UfanetArchiveCard extends HTMLElement {
     }
   }
 
+
+  _formatFcmSessionTime(value) {
+    const epochMs = Date.parse(String(value || ""));
+    if (!Number.isFinite(epochMs)) return "время неизвестно";
+    try {
+      const exact = new Intl.DateTimeFormat("ru-RU", {
+        dateStyle: "short",
+        timeStyle: "medium",
+      }).format(new Date(epochMs));
+      return `${exact} • ${this._formatRelativeEpoch(epochMs / 1000)}`;
+    } catch (_err) {
+      return String(value || "время неизвестно");
+    }
+  }
+
+  _fcmPlatformLabel(value) {
+    const labels = {
+      android: "Android",
+      ios: "iOS",
+      harmonyos: "HarmonyOS",
+      other: "Другая платформа",
+      unknown: "Платформа неизвестна",
+    };
+    return labels[String(value || "unknown")] || "Платформа неизвестна";
+  }
+
+  _setFcmSessionStatus(message, type = "info") {
+    const status = this.shadowRoot.getElementById("fcm-session-status");
+    if (!status) return;
+    status.textContent = message || "";
+    status.dataset.type = type;
+  }
+
+  _setFcmSessionButtonsDisabled(disabled) {
+    const refresh = this.shadowRoot.getElementById("refresh-fcm-sessions");
+    const revokeAll = this.shadowRoot.getElementById("revoke-other-fcm-sessions");
+    if (refresh) refresh.disabled = disabled;
+    if (revokeAll) {
+      const count = Number(this._fcmSessions?.revocable_count || 0);
+      revokeAll.disabled = disabled || count < 1;
+    }
+    for (const button of this.shadowRoot.querySelectorAll(".fcm-session-action")) {
+      button.disabled = disabled;
+    }
+  }
+
+  async _refreshFcmSessions(force = false) {
+    if (!this._deviceId || !this._hass || this._fcmSessionsLoading) return;
+    if (this._fcmSessions && !force) {
+      this._renderFcmSessions();
+      return;
+    }
+
+    this._fcmSessionsLoading = true;
+    this._setFcmSessionButtonsDisabled(true);
+    this._setFcmSessionStatus("Загрузка авторизованных устройств…", "info");
+
+    try {
+      const response = await this._callResponseService("list_fcm_sessions", {
+        device_id: this._deviceId,
+      });
+      if (!response || !Array.isArray(response.sessions)) {
+        throw new Error("Сервис не вернул список авторизованных устройств");
+      }
+      this._fcmSessions = response;
+      this._renderFcmSessions();
+      this._setFcmSessionStatus("Список авторизованных устройств обновлён", "ok");
+    } catch (err) {
+      this._setFcmSessionStatus(this._errorText(err), "error");
+    } finally {
+      this._fcmSessionsLoading = false;
+      this._setFcmSessionButtonsDisabled(false);
+    }
+  }
+
+  _renderFcmSessions() {
+    const host = this.shadowRoot.getElementById("fcm-session-list");
+    const summary = this.shadowRoot.getElementById("fcm-session-summary");
+    const revokeAll = this.shadowRoot.getElementById("revoke-other-fcm-sessions");
+    if (!host) return;
+
+    host.textContent = "";
+    const snapshot = this._fcmSessions;
+    const sessions = Array.isArray(snapshot?.sessions) ? snapshot.sessions : [];
+
+    if (summary) {
+      if (!snapshot) {
+        summary.textContent = "Список ещё не загружен";
+      } else {
+        summary.textContent =
+          `Всего: ${Number(snapshot.count || sessions.length)} • ` +
+          `защищено: ${Number(snapshot.protected_count || 0)} • ` +
+          `можно отозвать: ${Number(snapshot.revocable_count || 0)}`;
+      }
+    }
+
+    if (revokeAll) {
+      revokeAll.disabled =
+        this._fcmSessionsLoading || Number(snapshot?.revocable_count || 0) < 1;
+    }
+
+    if (!snapshot) {
+      const empty = document.createElement("div");
+      empty.className = "fcm-session-empty";
+      empty.textContent = "Нажмите «Обновить», чтобы получить список устройств.";
+      host.appendChild(empty);
+      return;
+    }
+
+    if (!sessions.length) {
+      const empty = document.createElement("div");
+      empty.className = "fcm-session-empty";
+      empty.textContent = "Авторизованных устройств не найдено.";
+      host.appendChild(empty);
+      return;
+    }
+
+    for (const session of sessions) {
+      const row = document.createElement("div");
+      row.className = "fcm-session-row";
+      row.dataset.protected = session.protected === true ? "true" : "false";
+
+      const icon = document.createElement("div");
+      icon.className = "fcm-session-icon";
+      icon.textContent = session.protected === true ? "🛡️" : "📱";
+
+      const main = document.createElement("div");
+      main.className = "fcm-session-main";
+
+      const titleLine = document.createElement("div");
+      titleLine.className = "fcm-session-title-line";
+      const title = document.createElement("span");
+      title.className = "fcm-session-title";
+      title.textContent = String(session.title || "Неизвестное устройство");
+      titleLine.appendChild(title);
+
+      if (session.protected === true) {
+        const badge = document.createElement("span");
+        badge.className = "fcm-session-badge";
+        badge.textContent = "Home Assistant • защищено";
+        titleLine.appendChild(badge);
+      }
+
+      const meta = document.createElement("div");
+      meta.className = "fcm-session-meta";
+      const details = [
+        this._fcmPlatformLabel(session.platform),
+        this._formatFcmSessionTime(session.last_update),
+        session.is_call_access === true ? "звонки разрешены" : "без доступа к звонкам",
+      ];
+      meta.textContent = details.join(" • ");
+
+      main.append(titleLine, meta);
+
+      const actions = document.createElement("div");
+      actions.className = "fcm-session-actions";
+      if (session.protected === true) {
+        const protectedText = document.createElement("span");
+        protectedText.className = "fcm-session-protected-note";
+        protectedText.textContent = "Текущая HA-регистрация не может быть отозвана здесь";
+        actions.appendChild(protectedText);
+      } else {
+        const revoke = document.createElement("button");
+        revoke.type = "button";
+        revoke.className = "small-button danger-button fcm-session-action";
+        revoke.textContent = "Отозвать";
+        revoke.title = "Завершить эту авторизованную сессию Ufanet";
+        revoke.addEventListener("click", () => void this._revokeFcmSession(session));
+        actions.appendChild(revoke);
+      }
+
+      row.append(icon, main, actions);
+      host.appendChild(row);
+    }
+  }
+
+  async _revokeFcmSession(session) {
+    if (!session || session.protected === true || !this._deviceId || this._fcmSessionsLoading) {
+      return;
+    }
+
+    const title = String(session.title || "Неизвестное устройство");
+    const activity = this._formatFcmSessionTime(session.last_update);
+    const confirmed = window.confirm(
+      `Завершить авторизованную сессию «${title}»?\n\n` +
+      `${this._fcmPlatformLabel(session.platform)}\n${activity}\n\n` +
+      "Устройство будет разлогинено в Ufanet. Для повторного доступа потребуется новая авторизация."
+    );
+    if (!confirmed) return;
+
+    this._fcmSessionsLoading = true;
+    this._setFcmSessionButtonsDisabled(true);
+    this._setFcmSessionStatus(`Отзываю сессию «${title}»…`, "warning");
+
+    try {
+      await this._callResponseService("revoke_fcm_session", {
+        device_id: this._deviceId,
+        session_ref: session.session_ref,
+        confirm: true,
+      });
+      this._fcmSessions = null;
+      this._setFcmSessionStatus(`Сессия «${title}» отозвана. Обновляю список…`, "ok");
+    } catch (err) {
+      this._setFcmSessionStatus(this._errorText(err), "error");
+      this._fcmSessionsLoading = false;
+      this._setFcmSessionButtonsDisabled(false);
+      return;
+    }
+
+    this._fcmSessionsLoading = false;
+    this._setFcmSessionButtonsDisabled(false);
+    await this._refreshFcmSessions(true);
+  }
+
+  async _revokeOtherFcmSessions() {
+    if (!this._deviceId || this._fcmSessionsLoading || !this._fcmSessions) return;
+    const count = Number(this._fcmSessions.revocable_count || 0);
+    if (!Number.isInteger(count) || count < 1) {
+      this._setFcmSessionStatus("Нет сессий, доступных для массового отзыва", "info");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Завершить ВСЕ остальные авторизованные сессии (${count})?\n\n` +
+      "Защищённые регистрации Home Assistant останутся активными. Остальные телефоны, эмуляторы и старые сессии будут разлогинены."
+    );
+    if (!confirmed) return;
+
+    const confirmedAgain = window.confirm(
+      `Последнее подтверждение: отозвать именно ${count} незащищённых сессий?\n\n` +
+      "Если список изменился после его загрузки, серверная операция будет отменена без массового отзыва."
+    );
+    if (!confirmedAgain) return;
+
+    this._fcmSessionsLoading = true;
+    this._setFcmSessionButtonsDisabled(true);
+    this._setFcmSessionStatus(`Отзываю ${count} остальных сессий…`, "warning");
+
+    try {
+      const response = await this._callResponseService("revoke_other_fcm_sessions", {
+        device_id: this._deviceId,
+        expected_count: count,
+        confirm: true,
+      });
+      this._fcmSessions = null;
+      this._setFcmSessionStatus(
+        `Массовый отзыв завершён: ${Number(response?.revoked_count || count)} сессий. Обновляю список…`,
+        "ok"
+      );
+    } catch (err) {
+      this._setFcmSessionStatus(this._errorText(err), "error");
+      this._fcmSessionsLoading = false;
+      this._setFcmSessionButtonsDisabled(false);
+      return;
+    }
+
+    this._fcmSessionsLoading = false;
+    this._setFcmSessionButtonsDisabled(false);
+    await this._refreshFcmSessions(true);
+  }
+
   _formatExpiry(value) {
     const epoch = Number(value);
     if (!Number.isFinite(epoch) || epoch <= 0) return "—";
@@ -3246,7 +3514,7 @@ class UfanetArchiveCard extends HTMLElement {
 
         .tabs {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(5, minmax(0, 1fr));
           gap: 4px;
           padding: 0 12px 12px;
           border-bottom: 1px solid var(--divider-color);
@@ -3724,6 +3992,87 @@ class UfanetArchiveCard extends HTMLElement {
         #guest-status[data-type="warning"] { color: var(--warning-color, #f0a000); }
         #guest-status[data-type="ok"] { color: var(--success-color, #43a047); }
 
+        /* AUTHORIZED DEVICES */
+        .fcm-session-toolbar {
+          padding: 14px 16px 10px;
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          flex-wrap: wrap;
+          border-bottom: 1px solid var(--divider-color);
+        }
+        .fcm-session-toolbar-main { flex: 1 1 240px; min-width: 0; }
+        .fcm-session-toolbar-title { font-size: 13px; font-weight: 700; }
+        .fcm-session-summary { margin-top: 3px; color: var(--secondary-text-color); font-size: 11px; }
+        .fcm-session-warning {
+          margin: 12px 16px 8px;
+          padding: 10px 12px;
+          border-radius: 10px;
+          background: color-mix(in srgb, var(--warning-color, #f0a000) 10%, transparent);
+          border: 1px solid color-mix(in srgb, var(--warning-color, #f0a000) 28%, transparent);
+          color: var(--secondary-text-color);
+          font-size: 11px;
+          line-height: 1.45;
+        }
+        .fcm-session-list { display: grid; gap: 7px; padding: 4px 16px 12px; }
+        .fcm-session-empty { color: var(--secondary-text-color); font-size: 12px; padding: 12px 0; }
+        .fcm-session-row {
+          display: grid;
+          grid-template-columns: 34px minmax(0, 1fr) auto;
+          gap: 9px;
+          align-items: center;
+          padding: 10px 11px;
+          border-radius: 10px;
+          background: var(--secondary-background-color);
+          border: 1px solid transparent;
+        }
+        .fcm-session-row[data-protected="true"] {
+          border-color: color-mix(in srgb, var(--success-color, #43a047) 35%, transparent);
+        }
+        .fcm-session-icon { font-size: 20px; text-align: center; }
+        .fcm-session-main { min-width: 0; }
+        .fcm-session-title-line { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+        .fcm-session-title {
+          font-size: 13px;
+          font-weight: 650;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          max-width: 100%;
+        }
+        .fcm-session-badge {
+          padding: 2px 6px;
+          border-radius: 999px;
+          font-size: 10px;
+          color: var(--success-color, #43a047);
+          background: color-mix(in srgb, var(--success-color, #43a047) 12%, transparent);
+          white-space: nowrap;
+        }
+        .fcm-session-meta {
+          color: var(--secondary-text-color);
+          font-size: 11px;
+          margin-top: 3px;
+          overflow-wrap: anywhere;
+        }
+        .fcm-session-actions { display: flex; align-items: center; justify-content: flex-end; }
+        .fcm-session-protected-note {
+          max-width: 170px;
+          color: var(--secondary-text-color);
+          font-size: 10px;
+          text-align: right;
+          line-height: 1.3;
+        }
+        .fcm-session-status {
+          padding: 0 16px 14px;
+          color: var(--secondary-text-color);
+          font-size: 12px;
+        }
+        #fcm-session-status[data-type="error"] { color: var(--error-color); }
+        #fcm-session-status[data-type="warning"] { color: var(--warning-color, #f0a000); }
+        #fcm-session-status[data-type="ok"] { color: var(--success-color, #43a047); }
+        #revoke-other-fcm-sessions { color: var(--error-color); }
+
+
         .footer {
           padding: 10px 16px 14px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: space-between;
           color: var(--secondary-text-color); font-size: 12px;
@@ -3734,6 +4083,7 @@ class UfanetArchiveCard extends HTMLElement {
         #effective-duration { color: var(--warning-color, #f0a000); }
 
         @media (max-width: 700px) {
+          .tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
           .controls { grid-template-columns: 1fr 1fr; }
           .guest-invite-controls { grid-template-columns: 1fr 1fr; }
           .guest-invite-controls input { grid-column: 1 / -1; }
@@ -3752,6 +4102,7 @@ class UfanetArchiveCard extends HTMLElement {
           <button id="tab-live" class="tab-button" type="button" role="tab">LIVE</button>
           <button id="tab-archive" class="tab-button" type="button" role="tab">АРХИВ</button>
           <button id="tab-guests" class="tab-button" type="button" role="tab">ГОСТИ</button>
+          <button id="tab-sessions" class="tab-button" type="button" role="tab">УСТРОЙСТВА</button>
           <button id="tab-diagnostics" class="tab-button" type="button" role="tab">ДИАГНОСТИКА</button>
         </div>
 
@@ -3968,6 +4319,33 @@ class UfanetArchiveCard extends HTMLElement {
           <div id="guest-status" class="guest-status">Готово</div>
         </section>
 
+
+
+        <section id="panel-sessions" class="panel" role="tabpanel" hidden>
+          <div class="fcm-session-toolbar">
+            <div class="fcm-session-toolbar-main">
+              <div class="fcm-session-toolbar-title">Авторизованные устройства Ufanet</div>
+              <div id="fcm-session-summary" class="fcm-session-summary">Список ещё не загружен</div>
+            </div>
+            <button id="refresh-fcm-sessions" type="button" class="small-button">Обновить</button>
+            <button id="revoke-other-fcm-sessions" type="button" class="small-button" disabled>
+              Отозвать все остальные
+            </button>
+          </div>
+
+          <div class="fcm-session-warning">
+            Здесь показаны активные авторизованные сессии аккаунта Ufanet. Регистрации,
+            которые Home Assistant может доказанно распознать как свои, помечены щитом и
+            защищены от одиночного и массового отзыва. Остальные устройства удаляются
+            только после явного подтверждения пользователя.
+          </div>
+
+          <div id="fcm-session-list" class="fcm-session-list">
+            <div class="fcm-session-empty">Нажмите «Обновить», чтобы получить список устройств.</div>
+          </div>
+          <div id="fcm-session-status" class="fcm-session-status">Готово</div>
+        </section>
+
         <section id="panel-diagnostics" class="panel" role="tabpanel" hidden>
           <div class="diagnostics-toolbar">
             <span class="diagnostics-toolbar-title">Техническое состояние Ufanet Intercom</span>
@@ -3992,6 +4370,7 @@ class UfanetArchiveCard extends HTMLElement {
     this.shadowRoot.getElementById("tab-live")?.addEventListener("click", () => this._setActiveTab("live"));
     this.shadowRoot.getElementById("tab-archive")?.addEventListener("click", () => this._setActiveTab("archive"));
     this.shadowRoot.getElementById("tab-guests")?.addEventListener("click", () => this._setActiveTab("guests"));
+    this.shadowRoot.getElementById("tab-sessions")?.addEventListener("click", () => this._setActiveTab("sessions"));
     this.shadowRoot.getElementById("tab-diagnostics")?.addEventListener("click", () => this._setActiveTab("diagnostics"));
 
     this.shadowRoot.getElementById("live-open-door")?.addEventListener(
@@ -4061,6 +4440,14 @@ class UfanetArchiveCard extends HTMLElement {
       "click",
       () => void this._cleanupStoredArchiveExports()
     );
+    this.shadowRoot.getElementById("refresh-fcm-sessions")?.addEventListener(
+      "click",
+      () => void this._refreshFcmSessions(true)
+    );
+    this.shadowRoot.getElementById("revoke-other-fcm-sessions")?.addEventListener(
+      "click",
+      () => void this._revokeOtherFcmSessions()
+    );
     this.shadowRoot.getElementById("diagnostics-refresh")?.addEventListener(
       "click",
       () => void this._refreshRuntimeStatus(true)
@@ -4084,6 +4471,7 @@ class UfanetArchiveCard extends HTMLElement {
     this._renderLiveMeta();
     this._renderArchiveDownloadReady();
     this._renderArchiveExports();
+    this._renderFcmSessions();
     this._renderRuntimeStatus();
   }
 
@@ -4104,7 +4492,7 @@ if (!window.customCards.some((card) => card.type === "ufanet-intercom-card")) {
   window.customCards.push({
     type: "ufanet-intercom-card",
     name: "Ufanet Intercom",
-    description: "LIVE, архив, звонки и гостевые доступы Ufanet",
+    description: "LIVE, архив, звонки, гостевые доступы и безопасность Ufanet",
     preview: false,
   });
 }

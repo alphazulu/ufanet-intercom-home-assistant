@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   pytest:
@@ -16,8 +16,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-        with:
-          ref: codex/fcm-session-security
 
       - name: Set up Python 3.14
         uses: actions/setup-python@v5
@@ -31,24 +29,39 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements_test.txt
 
-      - name: Fix and apply sessions UI patch
+      - name: Compile research scripts
         run: |
-          python tools/research/fix_fcm_sessions_ui_patch.py
-          python tools/research/apply_fcm_sessions_ui_patch.py
+          python -m py_compile \
+            tools/research/fcm_probe_py/probe.py \
+            tools/research/fcm_probe_py/extract_firebase_config.py \
+            tools/research/key_passage_probe_py/probe.py \
+            tools/research/ucams_analytics_probe_py/probe.py
 
-      - name: Parse frontend and run focused tests
+      - name: Run pytest with coverage
+        shell: bash
         run: |
-          node --check custom_components/ufanet_intercom/frontend/ufanet-archive-card.js
-          pytest -q tests/test_frontend_privacy.py tests/test_fcm_session_services.py tests/test_fcm_sessions.py
-          pytest -q
+          set -o pipefail
+          pytest -vv \
+            --junitxml=pytest-results.xml \
+            --cov=custom_components.ufanet_intercom.api \
+            --cov=custom_components.ufanet_intercom.config_flow \
+            --cov=custom_components.ufanet_intercom.archive \
+            --cov=custom_components.ufanet_intercom.auto_export \
+            --cov=custom_components.ufanet_intercom.coordinator \
+            --cov=custom_components.ufanet_intercom.diagnostics \
+            --cov=custom_components.ufanet_intercom.fcm \
+            --cov=custom_components.ufanet_intercom.firebase_config \
+            --cov-report=term-missing \
+            --cov-fail-under=85 \
+            2>&1 | tee pytest-output.txt
 
-      - name: Commit verified UI patch
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin main --depth=1
-          git checkout origin/main -- .github/workflows/tests.yml
-          git rm -f tools/research/apply_fcm_sessions_ui_patch.py tools/research/fix_fcm_sessions_ui_patch.py
-          git add custom_components/ufanet_intercom/frontend/ufanet-archive-card.js tests/test_frontend_privacy.py .github/workflows/tests.yml
-          git commit -m "Add authorized device security UI"
-          git push origin HEAD:codex/fcm-session-security
+      - name: Upload pytest diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-diagnostics
+          path: |
+            pytest-output.txt
+            pytest-results.xml
+          if-no-files-found: warn
+          retention-days: 14
