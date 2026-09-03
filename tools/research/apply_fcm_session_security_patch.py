@@ -1,0 +1,919 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+
+def insert_once(text: str, anchor: str, insert: str, label: str) -> str:
+    if insert in text:
+        return text
+    if anchor not in text:
+        raise SystemExit(f"{label} anchor not found")
+    return text.replace(anchor, insert + anchor, 1)
+
+
+def main() -> None:
+    Path("custom_components/ufanet_intercom/fcm_sessions.py").write_text(
+        '''"""Privacy-safe authorized FCM session inventory and ownership protection."""
+
+from __future__ import annotations
+
+import hashlib
+from datetime import datetime, timezone
+from typing import Any
+
+from homeassistant.core import HomeAssistant
+
+from .const import CONF_USERNAME, DOMAIN
+from .fcm import _fcm_store, _owned_device_id
+
+SESSION_REF_LENGTH = 24
+MAX_SESSION_TITLE_LENGTH = 128
+MAX_OS_DISPLAY_LENGTH = 64
+
+
+class FcmSessionProtectionError(RuntimeError):
+    """Raised when Home Assistant-owned FCM registrations cannot be protected."""
+
+
+def _normalized_username(value: Any) -> str:
+    return str(value or "").strip().upper()
+
+
+def authorized_session_ref(entry_id: str, device_id: str) -> str:
+    """Return a stable opaque reference without exposing the provider device ID."""
+    raw = f"{entry_id}\\0{device_id}".encode("utf-8", errors="strict")
+    return hashlib.sha256(raw).hexdigest()[:SESSION_REF_LENGTH]
+
+
+def _safe_title(value: Any) -> str:
+    if not isinstance(value, str):
+        return "Unknown device"
+    title = value.strip()
+    if (
+        not title
+        or len(title) > MAX_SESSION_TITLE_LENGTH
+        or any(ord(char) < 32 or ord(char) == 127 for char in title)
+    ):
+        return "Unknown device"
+    return title
+
+
+def _normalized_last_update(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("invalid authorized-device timestamp")
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        raise ValueError("authorized-device timestamp has no timezone")
+    return parsed.astimezone(timezone.utc).isoformat()
+
+
+def _platform_category(value: Any) -> str:
+    if not isinstance(value, str):
+        return "unknown"
+    display = value.strip()
+    if (
+        not display
+        or len(display) > MAX_OS_DISPLAY_LENGTH
+        or any(ord(char) < 32 or ord(char) == 127 for char in display)
+    ):
+        return "unknown"
+    normalized = display.casefold()
+    if "android" in normalized:
+        return "android"
+    if (
+        normalized == "ios"
+        or normalized.startswith("ios ")
+        or "iphone" in normalized
+        or "ipad" in normalized
+    ):
+        return "ios"
+    if "harmony" in normalized:
+        return "harmonyos"
+    return "other"
+
+
+def build_authorized_session_inventory(
+    entry_id: str,
+    devices: list[dict[str, Any]],
+    protected_device_ids: set[str],
+) -> list[dict[str, Any]]:
+    """Build private inventory rows containing a public-safe view plus raw ID."""
+    inventory: list[dict[str, Any]] = []
+    seen_device_ids: set[str] = set()
+    seen_refs: set[str] = set()
+
+    for item in devices:
+        if not isinstance(item, dict):
+            raise ValueError("authorized-device list contains invalid item")
+        device_id = item.get("device_id")
+        if not isinstance(device_id, str) or not device_id:
+            raise ValueError("authorized-device list contains invalid device ID")
+        if device_id in seen_device_ids:
+            raise ValueError("authorized-device list contains duplicate device ID")
+        seen_device_ids.add(device_id)
+
+        call_access = item.get("is_call_access")
+        if not isinstance(call_access, bool):
+            raise ValueError("authorized-device list contains invalid call-access field")
+
+        ref = authorized_session_ref(entry_id, device_id)
+        if ref in seen_refs:
+            raise ValueError("authorized-device session reference collision")
+        seen_refs.add(ref)
+
+        public = {
+            "session_ref": ref,
+            "title": _safe_title(item.get("title")),
+            "last_update": _normalized_last_update(item.get("last_update")),
+            "is_call_access": call_access,
+            "platform": _platform_category(item.get("os_display")),
+            "protected": device_id in protected_device_ids,
+            "protected_reason": (
+                "home_assistant" if device_id in protected_device_ids else None
+            ),
+        }
+        inventory.append({"device_id": device_id, "public": public})
+
+    inventory.sort(key=lambda row: row["public"]["last_update"], reverse=True)
+    return inventory
+
+
+def public_authorized_sessions(
+    inventory: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Drop all provider IDs from an inventory before returning it to Home Assistant."""
+    return [dict(row["public"]) for row in inventory]
+
+
+def resolve_authorized_session(
+    inventory: list[dict[str, Any]],
+    session_ref: str,
+) -> dict[str, Any] | None:
+    matches = [row for row in inventory if row["public"]["session_ref"] == session_ref]
+    if len(matches) > 1:
+        raise ValueError("authorized-device session reference is ambiguous")
+    return matches[0] if matches else None
+
+
+async def async_owned_fcm_device_ids_for_account(
+    hass: HomeAssistant,
+    username: str,
+) -> set[str]:
+    """Return all locally provable HA-owned registrations for one Ufanet account."""
+    target = _normalized_username(username)
+    if not target:
+        raise FcmSessionProtectionError("Ufanet account identity is unavailable")
+
+    result: set[str] = set()
+    runtimes = hass.data.get(DOMAIN, {})
+
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if _normalized_username(entry.data.get(CONF_USERNAME)) != target:
+            continue
+
+        runtime = runtimes.get(entry.entry_id) if isinstance(runtimes, dict) else None
+        manager = runtime.get("fcm_manager") if isinstance(runtime, dict) else None
+        if manager is not None:
+            owned = getattr(manager, "owned_device_id", None)
+            if isinstance(owned, str) and owned:
+                result.add(owned)
+                continue
+
+        try:
+            stored = await _fcm_store(hass, entry.entry_id).async_load()
+        except Exception as err:
+            raise FcmSessionProtectionError(
+                "Unable to verify Home Assistant FCM ownership"
+            ) from err
+        owned = _owned_device_id(stored)
+        if owned is not None:
+            result.add(owned)
+
+    return result
+''',
+        encoding="utf-8",
+    )
+
+    p = Path("custom_components/ufanet_intercom/fcm.py")
+    text = p.read_text(encoding="utf-8")
+    text = insert_once(
+        text,
+        '    @staticmethod\n    def _default_state() -> dict[str, Any]:\n',
+        '    @property\n    def owned_device_id(self) -> str | None:\n        """Return only this manager\'s validated HA-owned Ufanet device ID."""\n        return _owned_device_id(self._state)\n\n',
+        "fcm.py",
+    )
+    p.write_text(text, encoding="utf-8")
+
+    p = Path("custom_components/ufanet_intercom/api.py")
+    text = p.read_text(encoding="utf-8")
+    start = text.index('    async def async_get_fcm_authorization_status(\n')
+    end = text.index('    async def async_unregister_fcm_device(', start)
+    replacement = '''    async def async_get_authorized_fcm_devices(self) -> list[dict[str, Any]]:
+        """Return the validated minimal authorized-device inventory."""
+        data = await self._async_ufanet_json(
+            "POST",
+            "/api/v4/fcm_device/authorized_devices/",
+        )
+        payload = data.get("data") if isinstance(data, dict) else None
+        devices = payload.get("device_list") if isinstance(payload, dict) else None
+        if not isinstance(devices, list):
+            raise UfanetResponseError(
+                "Authorized-device response has no device list"
+            )
+
+        result: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in devices:
+            if not isinstance(item, dict):
+                raise UfanetResponseError(
+                    "Authorized-device response contains an invalid item"
+                )
+            device_id = item.get("device_id")
+            if not isinstance(device_id, str) or not device_id:
+                raise UfanetResponseError(
+                    "Authorized-device response contains an invalid device ID"
+                )
+            if device_id in seen:
+                raise UfanetResponseError(
+                    "Authorized-device response contains a duplicate device ID"
+                )
+            seen.add(device_id)
+
+            title = item.get("title")
+            last_update = item.get("last_update")
+            call_access = item.get("is_call_access")
+            if title is not None and not isinstance(title, str):
+                raise UfanetResponseError(
+                    "Authorized-device response contains an invalid title"
+                )
+            if (
+                not isinstance(last_update, str)
+                or not last_update.strip()
+                or not isinstance(call_access, bool)
+            ):
+                raise UfanetResponseError(
+                    "Authorized-device response contains invalid status fields"
+                )
+
+            result.append(
+                {
+                    "device_id": device_id,
+                    "title": title,
+                    "last_update": last_update,
+                    "is_call_access": call_access,
+                    "os": item.get("os"),
+                    "os_display": item.get("os_display"),
+                }
+            )
+        return result
+
+    async def async_get_fcm_authorization_status(
+        self,
+        *,
+        device_id: str,
+    ) -> dict[str, Any] | None:
+        """Return only the authorization fields for one exact FCM device ID."""
+        devices = await self.async_get_authorized_fcm_devices()
+        for item in devices:
+            if item["device_id"] == device_id:
+                return {
+                    "call_access": item["is_call_access"],
+                    "last_update": item["last_update"],
+                }
+        return None
+
+    async def async_logout_fcm_device(self, *, device_id: str) -> None:
+        """Terminate one authorized device/session using the live-confirmed API."""
+        await self._async_ufanet_json(
+            "POST",
+            "/api/v4/fcm_device/logout_device/",
+            json_body={"device_id": device_id},
+        )
+
+'''
+    text = text[:start] + replacement + text[end:]
+    p.write_text(text, encoding="utf-8")
+
+    p = Path("custom_components/ufanet_intercom/const.py")
+    text = p.read_text(encoding="utf-8")
+    text = insert_once(
+        text,
+        'SERVICE_REVOKE_TEMPORARY_GUEST_LINK = "revoke_temporary_guest_link"\n',
+        'SERVICE_LIST_FCM_SESSIONS = "list_fcm_sessions"\nSERVICE_REVOKE_FCM_SESSION = "revoke_fcm_session"\nSERVICE_REVOKE_OTHER_FCM_SESSIONS = "revoke_other_fcm_sessions"\n',
+        "const.py",
+    )
+    p.write_text(text, encoding="utf-8")
+
+    p = Path("custom_components/ufanet_intercom/services.py")
+    text = p.read_text(encoding="utf-8")
+    text = insert_once(
+        text,
+        'from .guest_store import UfanetGuestInviteStore\n',
+        'from .fcm_sessions import (\n    FcmSessionProtectionError,\n    async_owned_fcm_device_ids_for_account,\n    build_authorized_session_inventory,\n    public_authorized_sessions,\n    resolve_authorized_session,\n)\n',
+        "services imports",
+    )
+    if '    CONF_USERNAME,\n' not in text:
+        text = text.replace('    CONF_CALL_UPDATE_MODE,\n', '    CONF_CALL_UPDATE_MODE,\n    CONF_USERNAME,\n', 1)
+    if '    SERVICE_LIST_FCM_SESSIONS,\n' not in text:
+        text = text.replace(
+            '    SERVICE_REVOKE_TEMPORARY_GUEST_LINK,\n',
+            '    SERVICE_REVOKE_TEMPORARY_GUEST_LINK,\n    SERVICE_LIST_FCM_SESSIONS,\n    SERVICE_REVOKE_FCM_SESSION,\n    SERVICE_REVOKE_OTHER_FCM_SESSIONS,\n',
+            1,
+        )
+
+    schema_anchor = '''GET_SETTINGS_SCHEMA = vol.Schema(
+    {vol.Required(ATTR_DEVICE_ID): cv.string}
+)
+'''
+    schemas = '''
+
+LIST_FCM_SESSIONS_SCHEMA = vol.Schema(
+    {vol.Required(ATTR_DEVICE_ID): cv.string}
+)
+REVOKE_FCM_SESSION_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_DEVICE_ID): cv.string,
+        vol.Required("session_ref"): vol.All(
+            cv.string,
+            vol.Match(r"^[0-9a-f]{24}$"),
+        ),
+        vol.Required("confirm"): vol.In([True]),
+    }
+)
+REVOKE_OTHER_FCM_SESSIONS_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_DEVICE_ID): cv.string,
+        vol.Required("expected_count"): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Required("confirm"): vol.In([True]),
+    }
+)
+'''
+    if 'LIST_FCM_SESSIONS_SCHEMA' not in text:
+        if schema_anchor not in text:
+            raise SystemExit("services schema anchor not found")
+        text = text.replace(schema_anchor, schema_anchor + schemas, 1)
+
+    handler_anchor = '    async def async_get_settings(call: ServiceCall) -> ServiceResponse:\n'
+    handlers = '''    async def _async_fcm_inventory(call: ServiceCall):
+        runtime, _skud = _resolve_device_runtime(hass, call.data[ATTR_DEVICE_ID])
+        api: UfanetApi = runtime["api"]
+        entry = runtime.get("entry")
+        if entry is None:
+            raise ServiceValidationError("Ufanet config entry is unavailable")
+        username = entry.data.get(CONF_USERNAME)
+        if not isinstance(username, str) or not username.strip():
+            raise ServiceValidationError("Ufanet account identity is unavailable")
+        try:
+            protected_ids = await async_owned_fcm_device_ids_for_account(hass, username)
+            devices = await api.async_get_authorized_fcm_devices()
+            inventory = build_authorized_session_inventory(
+                entry.entry_id,
+                devices,
+                protected_ids,
+            )
+        except FcmSessionProtectionError as err:
+            raise HomeAssistantError(
+                "Unable to verify Home Assistant-owned FCM sessions; no revoke was attempted"
+            ) from err
+        except (UfanetResponseError, ValueError) as err:
+            raise ServiceValidationError(str(err)) from err
+        return api, entry, inventory
+
+    async def async_list_fcm_sessions(call: ServiceCall) -> ServiceResponse:
+        """Return explicit user-facing session metadata without provider device IDs."""
+        _api, _entry, inventory = await _async_fcm_inventory(call)
+        sessions = public_authorized_sessions(inventory)
+        protected_count = sum(1 for row in sessions if row["protected"])
+        return {
+            "device_id": call.data[ATTR_DEVICE_ID],
+            "count": len(sessions),
+            "protected_count": protected_count,
+            "revocable_count": len(sessions) - protected_count,
+            "sessions": sessions,
+        }
+
+    async def async_revoke_fcm_session(call: ServiceCall) -> ServiceResponse:
+        """Revoke exactly one freshly resolved non-HA authorized session."""
+        api, _entry, inventory = await _async_fcm_inventory(call)
+        requested_ref = str(call.data["session_ref"])
+        try:
+            target = resolve_authorized_session(inventory, requested_ref)
+        except ValueError as err:
+            raise ServiceValidationError(str(err)) from err
+        if target is None:
+            raise ServiceValidationError(
+                "FCM session is no longer present; refresh the session list"
+            )
+        if target["public"]["protected"]:
+            raise ServiceValidationError(
+                "Home Assistant-owned FCM sessions are protected from this service"
+            )
+
+        target_device_id = target["device_id"]
+        try:
+            await api.async_logout_fcm_device(device_id=target_device_id)
+            after = await api.async_get_authorized_fcm_devices()
+        except UfanetApiError as err:
+            raise HomeAssistantError("Ufanet FCM session revoke request failed") from err
+        if any(item["device_id"] == target_device_id for item in after):
+            raise HomeAssistantError(
+                "Ufanet returned from logout_device, but the session is still present"
+            )
+        return {
+            "device_id": call.data[ATTR_DEVICE_ID],
+            "session_ref": requested_ref,
+            "revoked": True,
+        }
+
+    async def async_revoke_other_fcm_sessions(call: ServiceCall) -> ServiceResponse:
+        """Revoke a fresh snapshot of all non-HA sessions after count confirmation."""
+        api, entry, inventory = await _async_fcm_inventory(call)
+        targets = [row for row in inventory if not row["public"]["protected"]]
+        expected_count = int(call.data["expected_count"])
+        if len(targets) != expected_count:
+            raise ServiceValidationError(
+                "Revocable FCM session count changed; refresh the list and confirm again"
+            )
+
+        target_ids = {row["device_id"] for row in targets}
+        revoked_count = 0
+        try:
+            for row in targets:
+                await api.async_logout_fcm_device(device_id=row["device_id"])
+                revoked_count += 1
+            after = await api.async_get_authorized_fcm_devices()
+        except UfanetApiError as err:
+            raise HomeAssistantError(
+                f"Ufanet FCM session revoke failed after {revoked_count} successful revocations"
+            ) from err
+
+        if any(item["device_id"] in target_ids for item in after):
+            raise HomeAssistantError(
+                "Ufanet logout_device verification failed for one or more sessions"
+            )
+
+        try:
+            protected_after = await async_owned_fcm_device_ids_for_account(
+                hass,
+                str(entry.data[CONF_USERNAME]),
+            )
+            after_inventory = build_authorized_session_inventory(
+                entry.entry_id,
+                after,
+                protected_after,
+            )
+        except FcmSessionProtectionError as err:
+            raise HomeAssistantError(
+                "Sessions were revoked, but Home Assistant ownership verification failed afterward"
+            ) from err
+        except ValueError as err:
+            raise HomeAssistantError(
+                "Sessions were revoked, but the refreshed session list is invalid"
+            ) from err
+
+        remaining_unprotected = sum(
+            1 for row in after_inventory if not row["public"]["protected"]
+        )
+        return {
+            "device_id": call.data[ATTR_DEVICE_ID],
+            "revoked_count": revoked_count,
+            "remaining_unprotected_count": remaining_unprotected,
+            "protected_count": sum(
+                1 for row in after_inventory if row["public"]["protected"]
+            ),
+        }
+
+'''
+    if 'async def async_list_fcm_sessions' not in text:
+        if handler_anchor not in text:
+            raise SystemExit("services handler anchor not found")
+        text = text.replace(handler_anchor, handlers + handler_anchor, 1)
+
+    register_anchor = '''    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_SETTINGS,
+'''
+    registrations = '''    hass.services.async_register(
+        DOMAIN,
+        SERVICE_LIST_FCM_SESSIONS,
+        async_list_fcm_sessions,
+        schema=LIST_FCM_SESSIONS_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REVOKE_FCM_SESSION,
+        async_revoke_fcm_session,
+        schema=REVOKE_FCM_SESSION_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REVOKE_OTHER_FCM_SESSIONS,
+        async_revoke_other_fcm_sessions,
+        schema=REVOKE_OTHER_FCM_SESSIONS_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+'''
+    if 'SERVICE_LIST_FCM_SESSIONS,\n        async_list_fcm_sessions' not in text:
+        if register_anchor not in text:
+            raise SystemExit("services registration anchor not found")
+        text = text.replace(register_anchor, registrations + register_anchor, 1)
+    p.write_text(text, encoding="utf-8")
+
+    p = Path("custom_components/ufanet_intercom/services.yaml")
+    text = p.read_text(encoding="utf-8")
+    if '\nlist_fcm_sessions:\n' not in text:
+        text += '''
+
+list_fcm_sessions:
+  name: List authorized FCM sessions
+  description: Return authorized Ufanet device sessions for security review. Raw provider device IDs are never returned; Home Assistant-owned registrations are marked protected.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+
+revoke_fcm_session:
+  name: Revoke authorized FCM session
+  description: Permanently terminate one non-Home-Assistant authorized Ufanet session selected by session_ref from list_fcm_sessions. The server list is refreshed before revocation and disappearance is verified afterward.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    session_ref:
+      name: Session reference
+      description: Opaque session_ref returned by list_fcm_sessions. Raw Ufanet device IDs are not accepted.
+      required: true
+      selector:
+        text:
+    confirm:
+      name: Confirm revocation
+      description: Must be enabled to perform the destructive action.
+      required: true
+      selector:
+        boolean:
+
+revoke_other_fcm_sessions:
+  name: Revoke all other FCM sessions
+  description: Permanently terminate the current snapshot of all non-Home-Assistant authorized Ufanet sessions. Requires the expected revocable count from list_fcm_sessions and aborts if it changed.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    expected_count:
+      name: Expected revocable sessions
+      description: Exact revocable_count returned by the most recent list_fcm_sessions call.
+      required: true
+      selector:
+        number:
+          min: 1
+          step: 1
+          mode: box
+    confirm:
+      name: Confirm mass revocation
+      description: Must be enabled to perform the destructive action.
+      required: true
+      selector:
+        boolean:
+'''
+    p.write_text(text, encoding="utf-8")
+
+    p = Path("tests/test_api_extended.py")
+    text = p.read_text(encoding="utf-8")
+    api_test_anchor = '@pytest.mark.asyncio\nasync def test_unregister_fcm_device_uses_confirmed_contract(api: UfanetApi) -> None:\n'
+    api_tests = '''@pytest.mark.asyncio
+async def test_authorized_fcm_devices_use_confirmed_contract_and_minimize_fields(
+    api: UfanetApi,
+) -> None:
+    api._async_ufanet_json = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "data": {
+                "device_list": [
+                    {
+                        "device_id": "device-one",
+                        "title": "Phone",
+                        "last_update": "2026-09-03T01:00:00Z",
+                        "is_call_access": True,
+                        "os": 0,
+                        "os_display": "Android",
+                        "private_extra": "must-not-leak",
+                    }
+                ]
+            }
+        }
+    )
+    result = await api.async_get_authorized_fcm_devices()
+    api._async_ufanet_json.assert_awaited_once_with(  # type: ignore[attr-defined]
+        "POST",
+        "/api/v4/fcm_device/authorized_devices/",
+    )
+    assert result == [{
+        "device_id": "device-one",
+        "title": "Phone",
+        "last_update": "2026-09-03T01:00:00Z",
+        "is_call_access": True,
+        "os": 0,
+        "os_display": "Android",
+    }]
+    assert "must-not-leak" not in str(result)
+
+
+@pytest.mark.asyncio
+async def test_authorized_fcm_devices_reject_duplicate_ids(api: UfanetApi) -> None:
+    row = {
+        "device_id": "duplicate",
+        "title": None,
+        "last_update": "2026-09-03T01:00:00Z",
+        "is_call_access": True,
+    }
+    api._async_ufanet_json = AsyncMock(  # type: ignore[method-assign]
+        return_value={"data": {"device_list": [row, dict(row)]}}
+    )
+    with pytest.raises(UfanetResponseError, match="duplicate"):
+        await api.async_get_authorized_fcm_devices()
+
+
+@pytest.mark.asyncio
+async def test_logout_fcm_device_uses_live_confirmed_contract(api: UfanetApi) -> None:
+    api._async_ufanet_json = AsyncMock(return_value={"status": "ok"})  # type: ignore[method-assign]
+    await api.async_logout_fcm_device(device_id="private-device")
+    api._async_ufanet_json.assert_awaited_once_with(  # type: ignore[attr-defined]
+        "POST",
+        "/api/v4/fcm_device/logout_device/",
+        json_body={"device_id": "private-device"},
+    )
+
+
+'''
+    if 'test_logout_fcm_device_uses_live_confirmed_contract' not in text:
+        if api_test_anchor not in text:
+            raise SystemExit("api test anchor not found")
+        text = text.replace(api_test_anchor, api_tests + api_test_anchor, 1)
+    p.write_text(text, encoding="utf-8")
+
+    Path("tests/test_fcm_sessions.py").write_text(
+        '''"""Security and privacy tests for authorized FCM session inventory."""
+
+from __future__ import annotations
+
+from custom_components.ufanet_intercom.fcm_sessions import (
+    authorized_session_ref,
+    build_authorized_session_inventory,
+    public_authorized_sessions,
+    resolve_authorized_session,
+)
+
+
+def _row(device_id: str, title: object = "Phone", os_display: object = "Android"):
+    return {
+        "device_id": device_id,
+        "title": title,
+        "last_update": "2026-09-03T01:02:03Z",
+        "is_call_access": True,
+        "os_display": os_display,
+    }
+
+
+def test_session_refs_are_stable_opaque_and_entry_scoped() -> None:
+    device_id = "private-provider-device-id"
+    first = authorized_session_ref("entry-one", device_id)
+    assert first == authorized_session_ref("entry-one", device_id)
+    assert first != authorized_session_ref("entry-two", device_id)
+    assert len(first) == 24
+    assert device_id not in first
+
+
+def test_public_inventory_hides_device_ids_and_marks_ha_owned() -> None:
+    inventory = build_authorized_session_inventory(
+        "entry-one",
+        [
+            _row("ha-private", title="Home Assistant", os_display="Android 16"),
+            _row("phone-private", title="My Phone", os_display="iPhone"),
+        ],
+        {"ha-private"},
+    )
+    public = public_authorized_sessions(inventory)
+    serialized = str(public)
+    assert "ha-private" not in serialized
+    assert "phone-private" not in serialized
+    assert public[0]["last_update"].endswith("+00:00")
+    assert {row["platform"] for row in public} == {"android", "ios"}
+    protected = [row for row in public if row["protected"]]
+    assert len(protected) == 1
+    assert protected[0]["protected_reason"] == "home_assistant"
+
+
+def test_invalid_provider_titles_and_platforms_are_bounded() -> None:
+    inventory = build_authorized_session_inventory(
+        "entry",
+        [_row("one", title="bad\\nname", os_display="bad\\x00os")],
+        set(),
+    )
+    public = public_authorized_sessions(inventory)[0]
+    assert public["title"] == "Unknown device"
+    assert public["platform"] == "unknown"
+
+
+def test_resolve_uses_only_opaque_reference() -> None:
+    inventory = build_authorized_session_inventory("entry", [_row("private")], set())
+    ref = inventory[0]["public"]["session_ref"]
+    assert resolve_authorized_session(inventory, ref) is inventory[0]
+    assert resolve_authorized_session(inventory, "0" * 24) is None
+''',
+        encoding="utf-8",
+    )
+
+    Path("tests/test_fcm_session_services.py").write_text(
+        '''"""Integration-style tests for FCM authorized-session security services."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import device_registry as dr
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.ufanet_intercom.const import (
+    CONF_USERNAME,
+    DOMAIN,
+    SERVICE_LIST_FCM_SESSIONS,
+    SERVICE_REVOKE_FCM_SESSION,
+    SERVICE_REVOKE_OTHER_FCM_SESSIONS,
+)
+from custom_components.ufanet_intercom.services import async_setup_services
+
+
+def _device_row(device_id: str, title: str, when: str, platform: str = "Android"):
+    return {
+        "device_id": device_id,
+        "title": title,
+        "last_update": when,
+        "is_call_access": True,
+        "os": 0,
+        "os_display": platform,
+    }
+
+
+def _install_runtime(hass):
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="FCM security",
+        data={CONF_USERNAME: "ACCOUNT"},
+        unique_id="fcm-security",
+    )
+    entry.add_to_hass(hass)
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "7")},
+        name="Door",
+    )
+    api = MagicMock()
+    api.async_get_authorized_fcm_devices = AsyncMock()
+    api.async_logout_fcm_device = AsyncMock()
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        "api": api,
+        "entry": entry,
+        "coordinator": SimpleNamespace(data={7: {"id": 7, "cctv_number": "CAM"}}),
+        "options": {},
+    }
+    async_setup_services(hass, MagicMock())
+    return device, api
+
+
+@pytest.mark.asyncio
+async def test_list_fcm_sessions_hides_provider_ids_and_marks_ha_owned(hass) -> None:
+    device, api = _install_runtime(hass)
+    api.async_get_authorized_fcm_devices.return_value = [
+        _device_row("ha-private", "Home Assistant", "2026-09-03T01:00:00Z"),
+        _device_row("phone-private", "Unknown Phone", "2026-09-02T01:00:00Z", "iOS"),
+    ]
+    with patch(
+        "custom_components.ufanet_intercom.services.async_owned_fcm_device_ids_for_account",
+        AsyncMock(return_value={"ha-private"}),
+    ):
+        result = await hass.services.async_call(
+            DOMAIN,
+            SERVICE_LIST_FCM_SESSIONS,
+            {"device_id": device.id},
+            blocking=True,
+            return_response=True,
+        )
+    assert result["count"] == 2
+    assert result["protected_count"] == 1
+    assert result["revocable_count"] == 1
+    assert "ha-private" not in str(result)
+    assert "phone-private" not in str(result)
+
+
+@pytest.mark.asyncio
+async def test_revoke_fcm_session_rejects_protected_ha_registration(hass) -> None:
+    device, api = _install_runtime(hass)
+    api.async_get_authorized_fcm_devices.return_value = [
+        _device_row("ha-private", "Home Assistant", "2026-09-03T01:00:00Z")
+    ]
+    with patch(
+        "custom_components.ufanet_intercom.services.async_owned_fcm_device_ids_for_account",
+        AsyncMock(return_value={"ha-private"}),
+    ):
+        listed = await hass.services.async_call(
+            DOMAIN,
+            SERVICE_LIST_FCM_SESSIONS,
+            {"device_id": device.id},
+            blocking=True,
+            return_response=True,
+        )
+        with pytest.raises(ServiceValidationError, match="protected"):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_REVOKE_FCM_SESSION,
+                {
+                    "device_id": device.id,
+                    "session_ref": listed["sessions"][0]["session_ref"],
+                    "confirm": True,
+                },
+                blocking=True,
+                return_response=True,
+            )
+    api.async_logout_fcm_device.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_revoke_fcm_session_refetches_and_verifies_disappearance(hass) -> None:
+    device, api = _install_runtime(hass)
+    target = _device_row("phone-private", "Phone", "2026-09-03T01:00:00Z")
+    api.async_get_authorized_fcm_devices.return_value = [target]
+    with patch(
+        "custom_components.ufanet_intercom.services.async_owned_fcm_device_ids_for_account",
+        AsyncMock(return_value=set()),
+    ):
+        listed = await hass.services.async_call(
+            DOMAIN,
+            SERVICE_LIST_FCM_SESSIONS,
+            {"device_id": device.id},
+            blocking=True,
+            return_response=True,
+        )
+        api.async_get_authorized_fcm_devices.side_effect = [[target], []]
+        result = await hass.services.async_call(
+            DOMAIN,
+            SERVICE_REVOKE_FCM_SESSION,
+            {
+                "device_id": device.id,
+                "session_ref": listed["sessions"][0]["session_ref"],
+                "confirm": True,
+            },
+            blocking=True,
+            return_response=True,
+        )
+    assert result["revoked"] is True
+    assert "phone-private" not in str(result)
+    api.async_logout_fcm_device.assert_awaited_once_with(device_id="phone-private")
+
+
+@pytest.mark.asyncio
+async def test_bulk_revoke_aborts_when_expected_count_changed(hass) -> None:
+    device, api = _install_runtime(hass)
+    api.async_get_authorized_fcm_devices.return_value = [
+        _device_row("one", "One", "2026-09-03T01:00:00Z"),
+        _device_row("two", "Two", "2026-09-03T00:00:00Z"),
+    ]
+    with patch(
+        "custom_components.ufanet_intercom.services.async_owned_fcm_device_ids_for_account",
+        AsyncMock(return_value=set()),
+    ):
+        with pytest.raises(ServiceValidationError, match="count changed"):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_REVOKE_OTHER_FCM_SESSIONS,
+                {
+                    "device_id": device.id,
+                    "expected_count": 1,
+                    "confirm": True,
+                },
+                blocking=True,
+                return_response=True,
+            )
+    api.async_logout_fcm_device.assert_not_awaited()
+''',
+        encoding="utf-8",
+    )
+
+
+if __name__ == "__main__":
+    main()
