@@ -31,8 +31,10 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements_test.txt
 
-      - name: Apply sessions UI patch
-        run: python tools/research/apply_fcm_sessions_ui_patch.py
+      - name: Fix and apply sessions UI patch
+        run: |
+          python tools/research/fix_fcm_sessions_ui_patch.py
+          python tools/research/apply_fcm_sessions_ui_patch.py
 
       - name: Parse frontend and run focused tests
         run: |
@@ -44,8 +46,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout HEAD^ -- .github/workflows/tests.yml
-          git rm tools/research/apply_fcm_sessions_ui_patch.py
+          git fetch origin main --depth=1
+          git checkout origin/main -- .github/workflows/tests.yml
+          git rm tools/research/apply_fcm_sessions_ui_patch.py tools/research/fix_fcm_sessions_ui_patch.py
           git add custom_components/ufanet_intercom/frontend/ufanet-archive-card.js tests/test_frontend_privacy.py .github/workflows/tests.yml
           git commit -m "Add authorized device security UI"
           git push origin HEAD:codex/fcm-session-security
