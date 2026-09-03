@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.30.0
+
+- Added a live-confirmed, privacy-safe authorized-device inventory based on `POST /api/v4/fcm_device/authorized_devices/`, including non-blocking verification that the Home Assistant FCM registration is present and has call access.
+- Added coarse FCM authorization diagnostics (`registered`, `call_access`, last-update age bucket and bounded error type) without exposing provider device IDs, titles, exact timestamps, FCM tokens or raw responses.
+- Live-confirmed `POST /api/v4/fcm_device/logout_device/` end-to-end against a disposable probe-owned registration: present before logout, absent after HTTP 200, then restored and visible again.
+- Added `list_fcm_sessions`, targeted `revoke_fcm_session` and guarded `revoke_other_fcm_sessions` Home Assistant response services. Public session rows use opaque entry-scoped `session_ref` values; raw provider `device_id` values stay internal.
+- Protected every locally provable Home Assistant-owned FCM registration for the same account from both targeted and bulk revocation. Ownership verification fails closed before destructive actions.
+- Added fresh-inventory resolution and post-revoke disappearance checks for targeted revocation; bulk revocation requires `confirm=true` plus an exact `expected_count` and aborts if the revocable inventory changed. No session is removed automatically by age, title or platform.
+- Added the **УСТРОЙСТВА** card tab with authorized-session summary, HA/MDI platform icons, last activity, call-access state, protected Home Assistant rows, explicit targeted revoke, and double-confirmed bulk revoke. Raw provider identifiers are never rendered.
+- Live-tested the production targeted-revoke path in Home Assistant using only a disposable probe registration, then verified that the protected Home Assistant registration remained present. The final card layout was also visually smoke-tested on a real Home Assistant dashboard.
+- Extended the standalone FCM research probe with privacy-safe authorized-device auditing and a controlled `--verify-logout-device` lifecycle check restricted to the probe-owned registration.
+- Updated EN/RU user, API, security and research documentation for the new FCM authorization/session-security model and bumped integration/card/cache-bust documentation to v0.30.0.
+- Added regression coverage for inventory privacy, stable opaque refs, HA ownership protection, fresh targeted revoke verification, bulk count-race protection and card privacy/safety wiring.
+
 ## 0.29.0
 
 - Added privacy-safe UCAMS motion-event markers to the Lovelace archive timeline for cameras that advertise the live-confirmed `motion_alarm` capability.

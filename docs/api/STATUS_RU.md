@@ -14,8 +14,8 @@
 | FCM | `POST /api/v0/fcm/` | **Confirmed** | Тело регистрации из Android 4.0.14 успешно использовано headless Windows/Python client |
 | FCM | Headless FIS/GCM/MCS receive | **Confirmed** | Без Android/Google Play Services получен реальный Ufanet push через `mtalk.google.com:5228` |
 | FCM | `DELETE /api/v0/fcm/` | **Confirmed** | Probe удалил только собственную виртуальную регистрацию с HTTP 200 и восстановил её через POST HTTP 200 |
-| FCM | `POST /api/v4/fcm_device/authorized_devices/` | **Observed** | Android-клиент получает список устройств и metadata доступа к звонкам |
-| FCM | `POST /api/v4/fcm_device/logout_device/` | **Observed** | Android-клиент отправляет `{device_id}` для отзыва другого устройства/сессии |
+| FCM | `POST /api/v4/fcm_device/authorized_devices/` | **Confirmed** | Live-проверенный POST без body возвращает `data.device_list`; подтверждены `device_id`, `title`, `last_update`, `is_call_access` и серверные metadata `os`/`os_display`. `devices_num_permission` наблюдается live, но его точная бизнес-семантика пока не подтверждена. |
+| FCM | `POST /api/v4/fcm_device/logout_device/` | **Confirmed** | Controlled probe-owned сессия была видна до logout `{device_id}`, исчезла после HTTP 200, восстановлена через `/api/v0/fcm/` и снова появилась; targeted production revoke также live-проверен в Home Assistant. |
 | Push | `data.reason = "sip"` | **Confirmed** | Реальный payload содержит `username`, `password`, `server`, `skud_id`, `transport`, `contract`, `house_id`, `flat`, `time`, `uuid`; `from=<sender-id>`, priority `normal` |
 | SKUD | `GET /api/v0/skud/shared/` | **Confirmed** | Возвращает протестированный домофон |
 | SKUD | `GET /api/v0/skud/` | **Observed** | На тестируемом аккаунте вернул `[]` |

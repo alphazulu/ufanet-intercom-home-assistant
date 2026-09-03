@@ -16,6 +16,7 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 - Read-only physical-key count, latest-passage timestamp and passage events for supported intercoms.
 - Read-only UCAMS `motion_alarm` analytics with a **Motion detected** event entity, `ufanet_intercom_motion` event, and matching visual device trigger on supported cameras.
 - Selectable call updates: polling by default or experimental low-latency FCM with safety polling.
+- Security review of authorized Ufanet/FCM sessions, with Home Assistant-owned registrations protected from revocation and explicit controls for unknown sessions.
 - Temporary guest keys and accepted shared-access management.
 - Manual archive export to MP4 using `ffmpeg -c copy` into Home Assistant Media.
 - Persistent export media library with per-camera retention and size cleanup.
@@ -65,10 +66,10 @@ To install it as a HACS custom repository:
 
 ## Lovelace card
 
-Add the resource as a JavaScript module. For release v0.29.0 the cache-bust URL is:
+Add the resource as a JavaScript module. For release v0.30.0 the cache-bust URL is:
 
 ```text
-/ufanet_intercom/ufanet-archive-card.js?v=0.29.0
+/ufanet_intercom/ufanet-archive-card.js?v=0.30.0
 ```
 
 The `?v=` value should match the installed integration release; the repository release check verifies this documentation URL together with the integration, manifest, card, and runtime cache-bust versions.
@@ -81,12 +82,13 @@ entity: camera.YOUR_UFANET_CAMERA
 default_tab: live
 ```
 
-The card contains four tabs:
+The card contains five tabs:
 
 - **LIVE** — video, door button, latest call and jump-to-call recording.
-- **АРХИВ** — timeline, call markers, MP4 export and export media library.
+- **АРХИВ** — timeline, call and motion markers, MP4 export and export media library.
 - **ГОСТИ** — shared invitations, accepted guest access, temporary keys and revoke actions.
-- **ДИАГНОСТИКА** — token-free runtime health, polling, UCAMS/archive status and autosave state.
+- **УСТРОЙСТВА** — authorized Ufanet sessions, Home Assistant ownership protection, targeted revocation and guarded bulk revocation.
+- **ДИАГНОСТИКА** — token-free runtime health, polling, FCM authorization state, UCAMS/archive status and autosave state.
 
 ## Options
 
@@ -100,6 +102,12 @@ Important options include the call update mode, polling interval, call archive l
 - **`fcm` (experimental)** uses a local headless FCM receiver as a low-latency wake-up signal. `call-history` remains authoritative. Normal configured polling stays active until the listener confirms its MCS connection and is restored automatically on disconnect; while FCM is healthy, a 300-second safety poll remains active.
 
 The FCM watchdog distinguishes launched listener tasks from an established transport, lets the FCM library handle short reconnects, and recreates a terminal or stalled listener with exponential backoff. A Home Assistant Repair warning appears after a prolonged outage and closes automatically after recovery. Invalid or unreadable private FCM state is regenerated with a separate Repair notice; call-history polling remains active while the new listener connects. Disabling FCM or removing the ConfigEntry unregisters only the integration-owned `Home Assistant_<UUID>` virtual device; ordinary reloads and Home Assistant restarts retain it. Failed cleanup falls back to polling, opens a Repair and retries on the next setup. The diagnostics tab shows listener health, watchdog state, state-recovery and cleanup reasons, fallback polling, reconnects and connection timestamps without exposing push payloads, device IDs or credentials.
+
+### Authorized devices and FCM session security
+
+Version 0.30.0 adds a live-confirmed check of the integration's own registration through `POST /api/v4/fcm_device/authorized_devices/`. The check runs after the MCS listener starts and does not block FCM transport startup. Diagnostics expose only whether the check succeeded, whether the Home Assistant registration is present, its call-access boolean and a coarse last-update age bucket; the provider `device_id`, exact timestamp, title and raw response remain private.
+
+The **УСТРОЙСТВА** tab lists authorized Ufanet sessions by bounded title, normalized platform, last activity and call-access state. Home Assistant-owned registrations that can be proved from local private state are marked protected and have no revoke action. Other sessions can be revoked individually through an opaque `session_ref`; the integration refreshes the provider inventory before the request and verifies disappearance afterward. Bulk revocation requires two UI confirmations plus a backend `expected_count` guard against a fresh snapshot. No session is automatically revoked because of age, title or platform.
 
 ### Incoming-call automations
 
@@ -159,6 +167,7 @@ Manual and automatic MP4 exports are saved under the Home Assistant media direct
 - Tokenized call-media URLs remain internal runtime data and are not published in entity state or `ufanet_intercom_call` events. Explicit authenticated archive service responses may still contain a temporary URL required for playback.
 - Motion analytics stores provider cursor data only in Home Assistant private storage; camera/cursor identifiers and raw motion history are not published through entities, logs, or diagnostics.
 - Firebase values, FCM credentials and the local Firebase config path are never included in diagnostics. Do not commit `firebase_config.json`.
+- Authorized-session management never exposes raw provider FCM `device_id` values in the card or public session responses. Home Assistant-owned registrations are protected from targeted and bulk revocation; destructive actions require explicit confirmation, and bulk revocation additionally requires an exact fresh revocable-session count.
 
 ## Troubleshooting
 

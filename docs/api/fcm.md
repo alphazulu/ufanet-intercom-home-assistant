@@ -141,7 +141,58 @@ immediate restoring POST. The Home Assistant integration therefore unregisters o
 its strictly validated `Home Assistant_<UUID>` installation when FCM is disabled or
 the ConfigEntry is removed. Normal reloads and Home Assistant restarts keep it.
 
-The Android client also contains `/api/v4/fcm_device/` device-management endpoints; these are not yet live-confirmed by this project.
+## Authorized-device inventory
+
+**Confirmed**
+
+```http
+POST /api/v4/fcm_device/authorized_devices/
+Authorization: JWT <UFANET_ACCESS>
+```
+
+The request has no body. The live-confirmed response contains `data.device_list`. The current Android DTO consumes `device_id`, nullable `title`, `last_update`, and `is_call_access`; the server also returned `os` and `os_display`, which the current Android DTO does not declare. A sanitized structural example is:
+
+```json
+{
+  "data": {
+    "device_list": [
+      {
+        "device_id": "<opaque-device-id>",
+        "title": "<device-title>",
+        "last_update": "<offset-aware ISO-8601>",
+        "is_call_access": true,
+        "os": 0,
+        "os_display": "Android"
+      }
+    ],
+    "devices_num_permission": false
+  }
+}
+```
+
+The tested account returned unique `device_id` values and parseable timestamps. The live sample correlated opaque OS code `0` with normalized display `Android` for all returned rows, but this is only an observed correlation for that account and is not documented as a universal enum mapping. The Android response model names `devices_num_permission` as `isQuantityLimited`; the current active-devices screen does not use the flag, so its exact operational semantics remain unconfirmed.
+
+Treat this endpoint as an **authorized registration/session inventory**, not a guaranteed list of physical phones or distinct current raw FCM tokens. Re-registration/token refresh can update an existing installation-scoped `device_id`, and old authorized rows can remain for a long time.
+
+## Authorized-session logout
+
+**Confirmed**
+
+```http
+POST /api/v4/fcm_device/logout_device/
+Authorization: JWT <UFANET_ACCESS>
+Content-Type: application/json
+```
+
+```json
+{
+  "device_id": "<device-id>"
+}
+```
+
+The official Android active-device UI uses this endpoint for one selected non-current device and implements "terminate all other sessions" by calling the same endpoint for each other row. On 2026-09-03 the project live-confirmed the destructive contract only against a disposable probe-owned virtual registration: the row was present before logout, the POST returned HTTP 200, the row disappeared from `authorized_devices`, and re-registering through `/api/v0/fcm/` restored it. No existing phone or Home Assistant registration was used for that provider-contract test.
+
+Home Assistant v0.30.0 exposes this capability through privacy/safety guards rather than raw provider IDs. `list_fcm_sessions` returns bounded user-facing metadata plus an opaque entry-scoped `session_ref`; HA-owned registrations proven from private local state are marked protected. `revoke_fcm_session` re-fetches the inventory, resolves exactly one non-protected ref, performs logout and verifies disappearance. `revoke_other_fcm_sessions` requires explicit confirmation plus an exact expected revocable count from a fresh snapshot and never removes sessions automatically by age/title/platform. The custom **УСТРОЙСТВА** tab uses the same services and never renders raw provider `device_id` values.
 
 ## Headless transport
 
