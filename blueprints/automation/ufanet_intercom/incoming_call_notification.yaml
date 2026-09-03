@@ -115,10 +115,6 @@ variables:
     {{ trigger.event.data
        if is_live_call
        else dict() }}
-  call_uuid: >-
-    {{ event_data.uuid
-       | default(state_attr(last_call_sensor_entity, 'uuid'), true)
-       | default('', true) }}
   call_time: >-
     {{ event_data.called_at
        | default(states(last_call_sensor_entity), true)
@@ -139,7 +135,7 @@ variables:
       ~ (', flat ' ~ flat if flat|string|length > 0 else '')
     }}
   notification_tag: >-
-    {{ 'ufanet_intercom_' ~ (call_uuid if call_uuid else context.id) }}
+    {{ 'ufanet_intercom_' ~ context.id }}
   action_open: >-
     {{ 'UFANET_OPEN_' ~ context.id }}
   notification_body: >-
