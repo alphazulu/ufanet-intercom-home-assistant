@@ -1,9 +1,12 @@
 blueprint:
   name: Ufanet incoming call notification
   description: >-
-    Send a Home Assistant Companion notification with the privately proxied
-    last-call image after a confirmed Ufanet intercom call. Door opening is
-    intentionally not included.
+    Send an immediate Home Assistant Companion notification for a confirmed
+    Ufanet intercom call, then replace it with the privately proxied last-call
+    image when the JPEG becomes ready. An optional, time-limited Open door
+    action can target an explicitly selected Ufanet button. Manual runs are
+    safe tests: they fall back to the last-call sensor and never enable the
+    door action.
   domain: automation
   source_url: >-
     https://github.com/alphazulu/ufanet-intercom-home-assistant/blob/main/blueprints/automation/ufanet_intercom/incoming_call_notification.yaml
@@ -24,6 +27,17 @@ blueprint:
         device:
           filter:
             integration: mobile_app
+    last_call_sensor:
+      name: Last call sensor
+      description: >-
+        Optional but recommended. Select the Last call timestamp sensor from
+        the same intercom. It supplies safe fallback metadata for manual tests.
+      default: ""
+      selector:
+        entity:
+          filter:
+            domain: sensor
+            integration: ufanet_intercom
     last_call_image:
       name: Last call image
       description: Select the image entity belonging to the same intercom.
@@ -32,10 +46,24 @@ blueprint:
           filter:
             domain: image
             integration: ufanet_intercom
+    open_door_button:
+      name: Open door button
+      description: >-
+        Optional. Select the exact Ufanet relay button that may be pressed from
+        a real incoming-call notification. Manual blueprint runs never expose
+        this action.
+      default: ""
+      selector:
+        entity:
+          filter:
+            domain: button
+            integration: ufanet_intercom
     image_delay:
-      name: Image preparation delay
-      description: Wait for preview download and local JPEG extraction.
-      default: 3
+      name: Image wait timeout
+      description: >-
+        Maximum time to wait for the private JPEG extraction. The first push is
+        sent immediately and is not delayed by image generation.
+      default: 15
       selector:
         number:
           min: 0
@@ -43,6 +71,24 @@ blueprint:
           step: 1
           unit_of_measurement: seconds
           mode: slider
+    action_timeout:
+      name: Door action timeout
+      description: >-
+        How long the unique Open door notification action remains accepted.
+      default: 120
+      selector:
+        number:
+          min: 15
+          max: 600
+          step: 15
+          unit_of_measurement: seconds
+          mode: slider
+    dashboard_uri:
+      name: Home Assistant view
+      description: Relative Home Assistant path opened by the View camera action.
+      default: /lovelace/0
+      selector:
+        text:
     notification_title:
       name: Notification title
       default: Incoming intercom call
@@ -55,7 +101,53 @@ blueprint:
         text:
 
 variables:
+  last_call_sensor_entity: !input last_call_sensor
   last_call_image_entity: !input last_call_image
+  open_door_button_entity: !input open_door_button
+  dashboard_uri_value: !input dashboard_uri
+  notification_title_value: !input notification_title
+  notification_message_value: !input notification_message
+  is_live_call: >-
+    {{ trigger is defined
+       and trigger.event is defined
+       and trigger.event.data is defined }}
+  event_data: >-
+    {{ trigger.event.data
+       if is_live_call
+       else dict() }}
+  call_uuid: >-
+    {{ event_data.uuid
+       | default(state_attr(last_call_sensor_entity, 'uuid'), true)
+       | default('', true) }}
+  call_time: >-
+    {{ event_data.called_at
+       | default(states(last_call_sensor_entity), true)
+       | default('', true) }}
+  call_address: >-
+    {% set address = event_data.address
+       | default(state_attr(last_call_sensor_entity, 'address'), true)
+       | default('', true) %}
+    {% set porch = event_data.porch
+       | default(state_attr(last_call_sensor_entity, 'porch'), true)
+       | default('', true) %}
+    {% set flat = event_data.flat
+       | default(state_attr(last_call_sensor_entity, 'flat'), true)
+       | default('', true) %}
+    {{
+      address
+      ~ (', porch ' ~ porch if porch|string|length > 0 else '')
+      ~ (', flat ' ~ flat if flat|string|length > 0 else '')
+    }}
+  notification_tag: >-
+    {{ 'ufanet_intercom_' ~ (call_uuid if call_uuid else context.id) }}
+  action_open: >-
+    {{ 'UFANET_OPEN_' ~ context.id }}
+  notification_body: >-
+    {{ notification_message_value
+       ~ ('\n' ~ call_address if call_address|string|length > 0 else '')
+       ~ ('\nManual test — door action is disabled.' if not is_live_call else '') }}
+  can_open_door: >-
+    {{ is_live_call and open_door_button_entity|string|length > 0 }}
 
 triggers:
   - trigger: device
@@ -64,20 +156,129 @@ triggers:
     type: incoming_call
 
 actions:
-  - alias: Wait for the latest call image
-    delay:
-      seconds: !input image_delay
-  - alias: Notify the selected Companion app
-    domain: mobile_app
-    type: notify
-    device_id: !input notify_device
-    title: !input notification_title
-    message: !input notification_message
-    data:
-      image: >-
-        /api/image_proxy/{{ last_call_image_entity }}?token={{
-          state_attr(last_call_image_entity, 'access_token')
-        }}
+  - alias: Send the incoming-call notification immediately
+    choose:
+      - conditions: "{{ can_open_door }}"
+        sequence:
+          - domain: mobile_app
+            type: notify
+            device_id: !input notify_device
+            title: "{{ notification_title_value }}"
+            message: "{{ notification_body }}"
+            data:
+              tag: "{{ notification_tag }}"
+              group: ufanet_intercom_calls
+              ttl: 0
+              priority: high
+              channel: Ufanet Intercom
+              importance: high
+              confirmation: true
+              url: "{{ dashboard_uri_value }}"
+              clickAction: "{{ dashboard_uri_value }}"
+              actions:
+                - action: "{{ action_open }}"
+                  title: Open door
+                  authenticationRequired: true
+                  destructive: true
+                - action: URI
+                  title: View camera
+                  uri: "{{ dashboard_uri_value }}"
+    default:
+      - domain: mobile_app
+        type: notify
+        device_id: !input notify_device
+        title: "{{ notification_title_value }}"
+        message: "{{ notification_body }}"
+        data:
+          tag: "{{ notification_tag }}"
+          group: ufanet_intercom_calls
+          ttl: 0
+          priority: high
+          channel: Ufanet Intercom
+          importance: high
+          confirmation: true
+          url: "{{ dashboard_uri_value }}"
+          clickAction: "{{ dashboard_uri_value }}"
+          actions:
+            - action: URI
+              title: View camera
+              uri: "{{ dashboard_uri_value }}"
 
-mode: queued
+  - alias: Update the image and handle the door action independently
+    parallel:
+      - sequence:
+          - alias: Wait until the JPEG belongs to this call
+            wait_template: >-
+              {% set image_state = states(last_call_image_entity) %}
+              {% set image_ts = as_timestamp(image_state, 0) %}
+              {% set call_ts = as_timestamp(call_time, 0) %}
+              {{ image_ts > 0 and (call_ts == 0 or image_ts >= call_ts) }}
+            timeout:
+              seconds: !input image_delay
+            continue_on_timeout: false
+          - alias: Replace the same notification with the private HA image proxy
+            choose:
+              - conditions: "{{ can_open_door }}"
+                sequence:
+                  - domain: mobile_app
+                    type: notify
+                    device_id: !input notify_device
+                    title: "{{ notification_title_value }}"
+                    message: "{{ notification_body }}"
+                    data:
+                      tag: "{{ notification_tag }}"
+                      group: ufanet_intercom_calls
+                      alert_once: true
+                      confirmation: true
+                      url: "{{ dashboard_uri_value }}"
+                      clickAction: "{{ dashboard_uri_value }}"
+                      image: >-
+                        /api/image_proxy/{{ last_call_image_entity }}
+                      actions:
+                        - action: "{{ action_open }}"
+                          title: Open door
+                          authenticationRequired: true
+                          destructive: true
+                        - action: URI
+                          title: View camera
+                          uri: "{{ dashboard_uri_value }}"
+            default:
+              - domain: mobile_app
+                type: notify
+                device_id: !input notify_device
+                title: "{{ notification_title_value }}"
+                message: "{{ notification_body }}"
+                data:
+                  tag: "{{ notification_tag }}"
+                  group: ufanet_intercom_calls
+                  alert_once: true
+                  confirmation: true
+                  url: "{{ dashboard_uri_value }}"
+                  clickAction: "{{ dashboard_uri_value }}"
+                  image: >-
+                    /api/image_proxy/{{ last_call_image_entity }}
+                  actions:
+                    - action: URI
+                      title: View camera
+                      uri: "{{ dashboard_uri_value }}"
+
+      - sequence:
+          - alias: Door action is available only for a real call
+            condition: template
+            value_template: "{{ can_open_door }}"
+          - alias: Wait for this notification's unique action only
+            wait_for_trigger:
+              - trigger: event
+                event_type: mobile_app_notification_action
+                event_data:
+                  action: "{{ action_open }}"
+            timeout:
+              seconds: !input action_timeout
+            continue_on_timeout: false
+          - alias: Open the explicitly selected Ufanet relay
+            action: button.press
+            target:
+              entity_id: "{{ open_door_button_entity }}"
+
+mode: parallel
 max: 10
