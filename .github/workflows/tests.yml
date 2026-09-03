@@ -2,10 +2,11 @@ name: Tests
 
 on:
   push:
+  pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   pytest:
@@ -13,73 +14,8 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - name: Check out feature branch
+      - name: Check out repository
         uses: actions/checkout@v4
-        with:
-          ref: codex/fcm-session-security
-
-      - name: Apply controlled FCM logout probe patch
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          probe_path = Path("tools/research/fcm_probe_py/probe.py")
-          text = probe_path.read_text(encoding="utf-8")
-          marker = "async def logout_device_with_ufanet("
-          if marker not in text:
-              anchor = '''async def verify_unregister_with_ufanet(\n'''
-              insert = '''async def _authorized_device_is_present(\n    session: aiohttp.ClientSession,\n    access_token: str,\n    device_id: str,\n    base_url: str,\n) -> bool:\n    \"\"\"Return whether one exact private device ID is present without printing it.\"\"\"\n    url = f\"{base_url}/api/v4/fcm_device/authorized_devices/\"\n    async with session.post(\n        url,\n        headers={\n            \"Authorization\": f\"JWT {access_token.replace('JWT ', '')}\",\n            \"Accept\": \"application/json\",\n        },\n        timeout=aiohttp.ClientTimeout(total=30),\n    ) as response:\n        text = await response.text()\n        if response.status >= 400:\n            raise RuntimeError(\n                f\"authorized-devices presence check failed: HTTP {response.status}\"\n            )\n        try:\n            payload = json.loads(text)\n            devices = payload[\"data\"][\"device_list\"]\n        except (json.JSONDecodeError, KeyError, TypeError) as exc:\n            raise RuntimeError(\"Unexpected authorized-devices response\") from exc\n    if not isinstance(devices, list):\n        raise RuntimeError(\"Unexpected authorized-devices response schema\")\n    return any(\n        isinstance(item, dict) and item.get(\"device_id\") == device_id\n        for item in devices\n    )\n\n\nasync def _wait_authorized_device_presence(\n    session: aiohttp.ClientSession,\n    access_token: str,\n    device_id: str,\n    base_url: str,\n    *,\n    expected: bool,\n    delays: tuple[float, ...] = DEFAULT_HISTORY_DELAYS,\n) -> bool:\n    \"\"\"Wait for the exact probe-owned registration to reach expected presence.\"\"\"\n    for delay in delays:\n        if delay > 0:\n            await asyncio.sleep(delay)\n        if await _authorized_device_is_present(\n            session, access_token, device_id, base_url\n        ) is expected:\n            return True\n    return False\n\n\nasync def logout_device_with_ufanet(\n    session: aiohttp.ClientSession,\n    access_token: str,\n    device_id: str,\n    base_url: str,\n) -> None:\n    \"\"\"Terminate exactly one probe-owned authorized session.\"\"\"\n    url = f\"{base_url}/api/v4/fcm_device/logout_device/\"\n    async with session.post(\n        url,\n        headers={\n            \"Authorization\": f\"JWT {access_token.replace('JWT ', '')}\",\n            \"Accept\": \"application/json\",\n        },\n        json={\"device_id\": device_id},\n        timeout=aiohttp.ClientTimeout(total=30),\n    ) as response:\n        await response.text()\n        if response.status >= 400:\n            raise RuntimeError(\n                f\"Ufanet authorized-device logout failed: HTTP {response.status}\"\n            )\n        print(\n            \"[OK] POST /api/v4/fcm_device/logout_device/: \"\n            f\"HTTP {response.status}\"\n        )\n\n\nasync def verify_logout_device_with_ufanet(\n    session: aiohttp.ClientSession,\n    access_token: str,\n    fcm_token: str,\n    device_id: str,\n    title: str,\n    package_name: str,\n    base_url: str,\n    *,\n    presence_delays: tuple[float, ...] = DEFAULT_HISTORY_DELAYS,\n) -> None:\n    \"\"\"Live-check logout_device against only this probe, then restore it.\"\"\"\n    print(\n        \"[INFO] Verifying POST /api/v4/fcm_device/logout_device/ for this \"\n        \"probe's own virtual registration...\"\n    )\n    if not await _wait_authorized_device_presence(\n        session,\n        access_token,\n        device_id,\n        base_url,\n        expected=True,\n        delays=presence_delays,\n    ):\n        raise RuntimeError(\n            \"Probe-owned registration was not visible before logout_device verification\"\n        )\n    print(\"[OK] Probe-owned registration is present before logout\")\n\n    await logout_device_with_ufanet(\n        session, access_token, device_id, base_url\n    )\n    if not await _wait_authorized_device_presence(\n        session,\n        access_token,\n        device_id,\n        base_url,\n        expected=False,\n        delays=presence_delays,\n    ):\n        raise RuntimeError(\n            \"logout_device returned success, but the probe-owned registration remained visible\"\n        )\n    print(\"[OK] Probe-owned registration is absent after logout\")\n\n    print(\"[INFO] Restoring the probe FCM registration...\")\n    try:\n        await register_token_with_ufanet(\n            session,\n            access_token,\n            fcm_token,\n            device_id,\n            title,\n            package_name,\n            base_url,\n        )\n        restored = await _wait_authorized_device_presence(\n            session,\n            access_token,\n            device_id,\n            base_url,\n            expected=True,\n            delays=presence_delays,\n        )\n    except Exception as exc:\n        raise RuntimeError(\n            \"logout_device succeeded, but restoring the probe FCM registration failed. \"\n            \"Run probe.py again without --verify-logout-device to restore it.\"\n        ) from exc\n    if not restored:\n        raise RuntimeError(\n            \"Probe FCM registration was restored by POST but was not visible in \"\n            \"authorized_devices. Run probe.py again without --verify-logout-device.\"\n        )\n    print(\"[OK] logout_device contract verified and probe registration restored\")\n\n\n'''
-              if anchor not in text:
-                  raise SystemExit("probe anchor 1 not found")
-              text = text.replace(anchor, insert + anchor, 1)
-
-              anchor = '''            if args.verify_unregister:\n                await verify_unregister_with_ufanet(\n'''
-              replacement = '''            if args.verify_logout_device:\n                await verify_logout_device_with_ufanet(\n                    ufanet_session,\n                    ufanet_access,\n                    fcm_token,\n                    str(state[\"ufanet_device_id\"]),\n                    str(state[\"ufanet_device_title\"]),\n                    firebase[\"package_name\"],\n                    base_url,\n                )\n                print(\n                    \"[OK] logout_device verification completed; listener was not started\"\n                )\n                return 0\n            if args.verify_unregister:\n                await verify_unregister_with_ufanet(\n'''
-              if anchor not in text:
-                  raise SystemExit("probe anchor 2 not found")
-              text = text.replace(anchor, replacement, 1)
-
-              anchor = '''    parser.add_argument(\n        \"--verify-unregister\",\n'''
-              insert = '''    parser.add_argument(\n        \"--verify-logout-device\",\n        action=\"store_true\",\n        help=(\n            \"Live-check POST /api/v4/fcm_device/logout_device/ for this probe's \"\n            \"own virtual device, verify it disappears, restore it, then exit\"\n        ),\n    )\n'''
-              if anchor not in text:
-                  raise SystemExit("probe anchor 3 not found")
-              text = text.replace(anchor, insert + anchor, 1)
-
-              anchor = '''    if args.audit_authorized_devices and args.verify_unregister:\n'''
-              insert = '''    if args.audit_authorized_devices and args.verify_logout_device:\n        print(\n            \"[ERROR] --audit-authorized-devices cannot be combined with --verify-logout-device\",\n            file=sys.stderr,\n        )\n        return 2\n    if args.verify_logout_device and args.verify_unregister:\n        print(\n            \"[ERROR] --verify-logout-device cannot be combined with --verify-unregister\",\n            file=sys.stderr,\n        )\n        return 2\n    if args.verify_logout_device and args.skip_ufanet:\n        print(\n            \"[ERROR] --verify-logout-device cannot be used with --skip-ufanet\",\n            file=sys.stderr,\n        )\n        return 2\n'''
-              if anchor not in text:
-                  raise SystemExit("probe anchor 4 not found")
-              text = text.replace(anchor, insert + anchor, 1)
-              probe_path.write_text(text, encoding="utf-8")
-
-          test_path = Path("tests/test_fcm_probe.py")
-          tests = test_path.read_text(encoding="utf-8")
-          test_marker = "test_logout_device_contract_posts_only_owned_device"
-          if test_marker not in tests:
-              anchor = '''@pytest.mark.asyncio\nasync def test_unregister_rejects_http_error_without_echoing_device(capsys) -> None:\n'''
-              insert = '''@pytest.mark.asyncio\nasync def test_logout_device_contract_posts_only_owned_device(capsys) -> None:\n    session = _FakeSession()\n\n    await probe.logout_device_with_ufanet(\n        session,\n        \"access-token\",\n        \"private-probe-device-id\",\n        \"https://example.test\",\n    )\n\n    assert len(session.calls) == 1\n    method, url, kwargs = session.calls[0]\n    assert method == \"POST\"\n    assert url == \"https://example.test/api/v4/fcm_device/logout_device/\"\n    assert kwargs[\"json\"] == {\"device_id\": \"private-probe-device-id\"}\n    output = capsys.readouterr().out\n    assert \"private-probe-device-id\" not in output\n    assert \"access-token\" not in output\n\n\n@pytest.mark.asyncio\nasync def test_verify_logout_device_only_targets_and_restores_probe(\n    monkeypatch, capsys\n) -> None:\n    session = MagicMock()\n    presence = AsyncMock(side_effect=[True, False, True])\n    logout = AsyncMock()\n    register = AsyncMock()\n    monkeypatch.setattr(probe, \"_authorized_device_is_present\", presence)\n    monkeypatch.setattr(probe, \"logout_device_with_ufanet\", logout)\n    monkeypatch.setattr(probe, \"register_token_with_ufanet\", register)\n\n    await probe.verify_logout_device_with_ufanet(\n        session,\n        \"access-token\",\n        \"fcm-token\",\n        \"private-probe-device-id\",\n        \"Home Assistant Probe\",\n        \"private.package\",\n        \"https://example.test\",\n        presence_delays=(0.0,),\n    )\n\n    logout.assert_awaited_once_with(\n        session, \"access-token\", \"private-probe-device-id\", \"https://example.test\"\n    )\n    register.assert_awaited_once_with(\n        session,\n        \"access-token\",\n        \"fcm-token\",\n        \"private-probe-device-id\",\n        \"Home Assistant Probe\",\n        \"private.package\",\n        \"https://example.test\",\n    )\n    assert presence.await_count == 3\n    output = capsys.readouterr().out\n    for secret in (\"private-probe-device-id\", \"fcm-token\", \"access-token\"):\n        assert secret not in output\n    assert \"contract verified\" in output\n\n\n'''
-              if anchor not in tests:
-                  raise SystemExit("test anchor not found")
-              tests = tests.replace(anchor, insert + anchor, 1)
-              test_path.write_text(tests, encoding="utf-8")
-
-          readme_path = Path("tools/research/fcm_probe_py/README_RU.md")
-          readme = readme_path.read_text(encoding="utf-8")
-          readme_marker = "### Безопасная проверка logout_device"
-          if readme_marker not in readme:
-              anchor = '''## Что делает probe\n'''
-              insert = '''### Безопасная проверка logout_device\n\nОфициальный Android-клиент завершает авторизованный сеанс запросом\n`POST /api/v4/fcm_device/logout_device/` с JSON `device_id`. Для controlled live-проверки\nэтого destructive-контракта используется только собственная виртуальная регистрация probe:\n\n```cmd\npy probe.py --verify-logout-device\n```\n\nProbe сначала регистрирует свой обычный `ufanet_device_id`, проверяет, что именно он\nприсутствует в `authorized_devices`, вызывает `logout_device` только для этого ID,\nпроверяет его исчезновение и сразу восстанавливает ту же FCM-регистрацию. Existing\nтелефоны, официальные приложения и Home Assistant registrations этим режимом не\nвыбираются и не удаляются. Raw `device_id`, FCM token и response body не печатаются.\n\nЭтот флаг предназначен только для подтверждения server contract перед добавлением\nуправления чужими/неизвестными сеансами в production-интеграцию.\n\n'''
-              if anchor not in readme:
-                  raise SystemExit("readme anchor not found")
-              readme = readme.replace(anchor, insert + anchor, 1)
-              readme = readme.replace(
-                  '''5. При явном `--verify-unregister` удаляет только эту регистрацию и сразу восстанавливает её.\n6. Подключается к MCS `mtalk.google.com:5228`.\n''',
-                  '''5. При явном `--verify-unregister` удаляет только эту регистрацию и сразу восстанавливает её.\n6. При явном `--verify-logout-device` завершает только probe-owned авторизованный сеанс, проверяет исчезновение и восстанавливает его.\n7. Подключается к MCS `mtalk.google.com:5228`.\n''',
-                  1,
-              )
-              readme_path.write_text(readme, encoding="utf-8")
-          PY
 
       - name: Set up Python 3.14
         uses: actions/setup-python@v5
@@ -93,20 +29,39 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements_test.txt
 
-      - name: Validate focused research patch
+      - name: Compile research scripts
         run: |
-          python -m py_compile tools/research/fcm_probe_py/probe.py
-          pytest -q tests/test_fcm_probe.py
+          python -m py_compile \
+            tools/research/fcm_probe_py/probe.py \
+            tools/research/fcm_probe_py/extract_firebase_config.py \
+            tools/research/key_passage_probe_py/probe.py \
+            tools/research/ucams_analytics_probe_py/probe.py
 
-      - name: Commit controlled research patch
+      - name: Run pytest with coverage
         shell: bash
         run: |
-          if git diff --quiet -- tools/research/fcm_probe_py/probe.py tests/test_fcm_probe.py tools/research/fcm_probe_py/README_RU.md; then
-            echo "Research patch already applied"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add tools/research/fcm_probe_py/probe.py tests/test_fcm_probe.py tools/research/fcm_probe_py/README_RU.md
-          git commit -m "Add controlled FCM logout-device probe"
-          git push origin HEAD:codex/fcm-session-security
+          set -o pipefail
+          pytest -vv \
+            --junitxml=pytest-results.xml \
+            --cov=custom_components.ufanet_intercom.api \
+            --cov=custom_components.ufanet_intercom.config_flow \
+            --cov=custom_components.ufanet_intercom.archive \
+            --cov=custom_components.ufanet_intercom.auto_export \
+            --cov=custom_components.ufanet_intercom.coordinator \
+            --cov=custom_components.ufanet_intercom.diagnostics \
+            --cov=custom_components.ufanet_intercom.fcm \
+            --cov=custom_components.ufanet_intercom.firebase_config \
+            --cov-report=term-missing \
+            --cov-fail-under=85 \
+            2>&1 | tee pytest-output.txt
+
+      - name: Upload pytest diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-diagnostics
+          path: |
+            pytest-output.txt
+            pytest-results.xml
+          if-no-files-found: warn
+          retention-days: 14
