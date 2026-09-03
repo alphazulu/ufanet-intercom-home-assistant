@@ -1,4 +1,4 @@
-const CARD_VERSION = "0.29.0";
+const CARD_VERSION = "0.30.0";
 const MOTION_EVENT_LEAD_SECONDS = 18;
 
 class UfanetArchiveCard extends HTMLElement {
@@ -2373,12 +2373,7 @@ class UfanetArchiveCard extends HTMLElement {
 
       const actions = document.createElement("div");
       actions.className = "fcm-session-actions";
-      if (session.protected === true) {
-        const protectedText = document.createElement("span");
-        protectedText.className = "fcm-session-protected-note";
-        protectedText.textContent = "Защищено";
-        actions.appendChild(protectedText);
-      } else {
+      if (session.protected !== true) {
         const revoke = document.createElement("button");
         revoke.type = "button";
         revoke.className = "small-button danger-button fcm-session-action";
@@ -4100,13 +4095,6 @@ class UfanetArchiveCard extends HTMLElement {
           display: flex;
           align-items: center;
           justify-content: flex-end;
-        }
-        .fcm-session-protected-note {
-          color: var(--success-color, #43a047);
-          font-size: 11px;
-          font-weight: 600;
-          text-align: right;
-          white-space: nowrap;
         }
         .fcm-session-action,
         .fcm-session-bulk-action {

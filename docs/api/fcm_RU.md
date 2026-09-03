@@ -144,7 +144,58 @@ POST. Поэтому интеграция Home Assistant удаляет толь
 `Home Assistant_<UUID>` при отключении FCM либо удалении ConfigEntry. При обычном
 reload или перезапуске Home Assistant регистрация сохраняется.
 
-Также в Android-клиенте наблюдаются endpoints управления авторизованными push-устройствами семейства `/api/v4/fcm_device/`; они ещё не являются live-confirmed частью проекта.
+## Список авторизованных устройств/сессий
+
+**Confirmed**
+
+```http
+POST /api/v4/fcm_device/authorized_devices/
+Authorization: JWT <UFANET_ACCESS>
+```
+
+Request body отсутствует. Live-confirmed ответ содержит `data.device_list`. Текущий Android DTO использует `device_id`, nullable `title`, `last_update` и `is_call_access`; сервер также вернул `os` и `os_display`, которых в текущем Android DTO нет. Обезличенный структурный пример:
+
+```json
+{
+  "data": {
+    "device_list": [
+      {
+        "device_id": "<opaque-device-id>",
+        "title": "<device-title>",
+        "last_update": "<offset-aware ISO-8601>",
+        "is_call_access": true,
+        "os": 0,
+        "os_display": "Android"
+      }
+    ],
+    "devices_num_permission": false
+  }
+}
+```
+
+На проверенном аккаунте `device_id` были уникальны, а `last_update` корректно разбирались. В live-выборке непрозрачный код `os=0` коррелировал с нормализованным `Android` у всех возвращённых строк, но это только наблюдаемая корреляция на проверенном аккаунте, а не подтверждённая универсальная enum-таблица. Android response model называет `devices_num_permission` полем `isQuantityLimited`; текущий экран активных устройств этот флаг не использует, поэтому точная operational-семантика пока не подтверждена.
+
+Endpoint следует трактовать как **инвентарь авторизованных регистраций/сессий**, а не гарантированный список физических телефонов или уникальных текущих raw FCM tokens. Re-registration/token refresh может обновлять существующий installation-scoped `device_id`, а старые авторизованные строки могут сохраняться длительное время.
+
+## Завершение авторизованной сессии
+
+**Confirmed**
+
+```http
+POST /api/v4/fcm_device/logout_device/
+Authorization: JWT <UFANET_ACCESS>
+Content-Type: application/json
+```
+
+```json
+{
+  "device_id": "<device-id>"
+}
+```
+
+Официальный Android UI активных устройств вызывает этот endpoint для выбранного не-текущего устройства, а действие «завершить все остальные сессии» реализует последовательными вызовами того же endpoint для остальных строк. 3 сентября 2026 года проект live-подтвердил destructive-контракт только на disposable probe-owned виртуальной регистрации: строка была видна до logout, POST вернул HTTP 200, строка исчезла из `authorized_devices`, а повторная регистрация через `/api/v0/fcm/` восстановила её. Ни существующий телефон, ни регистрация Home Assistant для provider-contract теста не использовались.
+
+Home Assistant v0.30.0 предоставляет эту возможность через privacy/safety guards вместо raw provider IDs. `list_fcm_sessions` возвращает ограниченную пользовательскую metadata и непрозрачный entry-scoped `session_ref`; регистрации HA, принадлежность которых доказана по приватному локальному state, помечаются protected. `revoke_fcm_session` заново получает inventory, однозначно разрешает один незащищённый ref, выполняет logout и проверяет исчезновение. `revoke_other_fcm_sessions` требует явного подтверждения и точного ожидаемого количества доступных для отзыва сессий по свежему snapshot и никогда не удаляет сессии автоматически по возрасту/title/platform. Карточка **УСТРОЙСТВА** использует те же сервисы и не рендерит raw provider `device_id`.
 
 ## Headless transport
 

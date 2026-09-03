@@ -14,8 +14,8 @@ This table is a compact index of what has actually been tested by the project. T
 | FCM | `POST /api/v0/fcm/` | **Confirmed** | Android 4.0.14 registration body successfully used by headless Windows/Python client |
 | FCM | Headless FIS/GCM/MCS receive | **Confirmed** | Real Ufanet push received through `mtalk.google.com:5228` without Android/Google Play Services |
 | FCM | `DELETE /api/v0/fcm/` | **Confirmed** | Probe removed only its own virtual registration with HTTP 200, then restored it with POST HTTP 200 |
-| FCM | `POST /api/v4/fcm_device/authorized_devices/` | **Observed** | Android client consumes device list / call-access metadata |
-| FCM | `POST /api/v4/fcm_device/logout_device/` | **Observed** | Android client sends `{device_id}` to revoke another device/session |
+| FCM | `POST /api/v4/fcm_device/authorized_devices/` | **Confirmed** | Live-tested no-body POST returns `data.device_list`; confirmed fields include `device_id`, `title`, `last_update`, `is_call_access`, plus server metadata `os`/`os_display`. `devices_num_permission` is live-observed; exact business semantics remain unconfirmed. |
+| FCM | `POST /api/v4/fcm_device/logout_device/` | **Confirmed** | Controlled probe-owned session was present before `{device_id}` logout, absent after HTTP 200, restored through `/api/v0/fcm/`, and present again; targeted production revoke was also live-tested in Home Assistant. |
 | Push | `data.reason = "sip"` | **Confirmed** | Real payload carries `username`, `password`, `server`, `skud_id`, `transport`, `contract`, `house_id`, `flat`, `time`, `uuid`; `from=<sender-id>`, priority `normal` |
 | SKUD | `GET /api/v0/skud/shared/` | **Confirmed** | Returns tested intercom |
 | SKUD | `GET /api/v0/skud/` | **Observed** | Returned `[]` for tested account |

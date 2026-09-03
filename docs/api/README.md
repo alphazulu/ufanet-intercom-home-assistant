@@ -25,7 +25,8 @@ The integration currently uses three API layers:
    - contract authentication and token refresh;
    - intercom/SKUD discovery and door control;
    - call history;
-   - guest/shared-access management.
+   - guest/shared-access management;
+   - FCM registration and authorized-session security management.
 2. **UCAMS control API** — `https://cloud.ucams.ru`
    - exchanges the Ufanet JWT for a UCAMS bearer token;
    - returns camera metadata, live/archive tokens and media server information;
@@ -79,7 +80,7 @@ Important distinction:
 - [curl examples](examples/curl.md) — read-only command-line examples, including analytics capability discovery and `motion_alarm` reporting.
 - [Python read-only example](examples/python.md) — authentication/discovery/UCAMS flow with privacy-safe analytics handling guidance.
 
-State-changing examples (door opening, guest creation/revocation) are intentionally kept on the relevant reference pages rather than in the copy/paste examples collection.
+State-changing examples (door opening, guest creation/revocation, FCM session logout) are intentionally kept on the relevant reference pages rather than in the copy/paste examples collection.
 
 ## Contributing new API findings
 
