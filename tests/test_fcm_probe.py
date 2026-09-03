@@ -110,6 +110,69 @@ async def test_verify_unregister_only_deletes_and_restores_own_device(
 
 
 @pytest.mark.asyncio
+async def test_logout_device_contract_posts_only_owned_device(capsys) -> None:
+    session = _FakeSession()
+
+    await probe.logout_device_with_ufanet(
+        session,
+        "access-token",
+        "private-probe-device-id",
+        "https://example.test",
+    )
+
+    assert len(session.calls) == 1
+    method, url, kwargs = session.calls[0]
+    assert method == "POST"
+    assert url == "https://example.test/api/v4/fcm_device/logout_device/"
+    assert kwargs["json"] == {"device_id": "private-probe-device-id"}
+    output = capsys.readouterr().out
+    assert "private-probe-device-id" not in output
+    assert "access-token" not in output
+
+
+@pytest.mark.asyncio
+async def test_verify_logout_device_only_targets_and_restores_probe(
+    monkeypatch, capsys
+) -> None:
+    session = MagicMock()
+    presence = AsyncMock(side_effect=[True, False, True])
+    logout = AsyncMock()
+    register = AsyncMock()
+    monkeypatch.setattr(probe, "_authorized_device_is_present", presence)
+    monkeypatch.setattr(probe, "logout_device_with_ufanet", logout)
+    monkeypatch.setattr(probe, "register_token_with_ufanet", register)
+
+    await probe.verify_logout_device_with_ufanet(
+        session,
+        "access-token",
+        "fcm-token",
+        "private-probe-device-id",
+        "Home Assistant Probe",
+        "private.package",
+        "https://example.test",
+        presence_delays=(0.0,),
+    )
+
+    logout.assert_awaited_once_with(
+        session, "access-token", "private-probe-device-id", "https://example.test"
+    )
+    register.assert_awaited_once_with(
+        session,
+        "access-token",
+        "fcm-token",
+        "private-probe-device-id",
+        "Home Assistant Probe",
+        "private.package",
+        "https://example.test",
+    )
+    assert presence.await_count == 3
+    output = capsys.readouterr().out
+    for secret in ("private-probe-device-id", "fcm-token", "access-token"):
+        assert secret not in output
+    assert "contract verified" in output
+
+
+@pytest.mark.asyncio
 async def test_unregister_rejects_http_error_without_echoing_device(capsys) -> None:
     session = _FakeSession()
 

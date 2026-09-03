@@ -204,6 +204,25 @@ py probe.py --verify-unregister
 `Home Assistant_<UUID>` при отключении FCM или полном удалении ConfigEntry. При
 обычной перезагрузке интеграции либо Home Assistant регистрация сохраняется.
 
+### Безопасная проверка logout_device
+
+Официальный Android-клиент завершает авторизованный сеанс запросом
+`POST /api/v4/fcm_device/logout_device/` с JSON `device_id`. Для controlled live-проверки
+этого destructive-контракта используется только собственная виртуальная регистрация probe:
+
+```cmd
+py probe.py --verify-logout-device
+```
+
+Probe сначала регистрирует свой обычный `ufanet_device_id`, проверяет, что именно он
+присутствует в `authorized_devices`, вызывает `logout_device` только для этого ID,
+проверяет его исчезновение и сразу восстанавливает ту же FCM-регистрацию. Existing
+телефоны, официальные приложения и Home Assistant registrations этим режимом не
+выбираются и не удаляются. Raw `device_id`, FCM token и response body не печатаются.
+
+Этот флаг предназначен только для подтверждения server contract перед добавлением
+управления чужими/неизвестными сеансами в production-интеграцию.
+
 ## Что делает probe
 
 1. Загружает локальную Firebase client configuration.
@@ -211,7 +230,8 @@ py probe.py --verify-unregister
 3. Сохраняет sensitive runtime credentials в локальный `fcm_state.json`.
 4. Регистрирует FCM token через Ufanet `/api/v0/fcm/`.
 5. При явном `--verify-unregister` удаляет только эту регистрацию и сразу восстанавливает её.
-6. Подключается к MCS `mtalk.google.com:5228`.
+6. При явном `--verify-logout-device` завершает только probe-owned авторизованный сеанс, проверяет исчезновение и восстанавливает его.
+7. Подключается к MCS `mtalk.google.com:5228`.
 7. Получает и санитизирует push.
 8. Для `reason=sip` автоматически проверяет `/api/v1/skuds/call-history/` на offsets `0, 0.25, 0.5, 1, 2, 5` секунд.
 9. Коррелирует запись по `called_at` относительно push `time` с дополнительной проверкой house/flat context.

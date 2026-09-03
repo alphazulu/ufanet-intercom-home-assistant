@@ -32,6 +32,13 @@ from .api import (
     UfanetResponseError,
     normalize_call_preview_url,
 )
+from .fcm_sessions import (
+    FcmSessionProtectionError,
+    async_owned_fcm_device_ids_for_account,
+    build_authorized_session_inventory,
+    public_authorized_sessions,
+    resolve_authorized_session,
+)
 from .guest_store import UfanetGuestInviteStore
 from .const import (
     DEFAULT_ARCHIVE_DURATION_SECONDS,
@@ -46,6 +53,7 @@ from .const import (
     CONF_CALL_AUTOSAVE_AFTER_SECONDS,
     CONF_CALL_SCAN_INTERVAL,
     CONF_CALL_UPDATE_MODE,
+    CONF_USERNAME,
     CONF_EXPORT_AUTO_CLEANUP,
     CONF_EXPORT_DEFAULT_DURATION,
     CONF_EXPORT_MAX_TOTAL_MB,
@@ -71,6 +79,9 @@ from .const import (
     SERVICE_REVOKE_SHARED_ACCESS,
     SERVICE_CREATE_TEMPORARY_GUEST_LINK,
     SERVICE_REVOKE_TEMPORARY_GUEST_LINK,
+    SERVICE_LIST_FCM_SESSIONS,
+    SERVICE_REVOKE_FCM_SESSION,
+    SERVICE_REVOKE_OTHER_FCM_SESSIONS,
     DEFAULT_EXPORT_RETENTION_DAYS,
     DEFAULT_EXPORT_AUTO_CLEANUP,
     DEFAULT_EXPORT_DEFAULT_DURATION_SECONDS,
@@ -85,6 +96,28 @@ from .const import (
 
 GET_SETTINGS_SCHEMA = vol.Schema(
     {vol.Required(ATTR_DEVICE_ID): cv.string}
+)
+
+
+LIST_FCM_SESSIONS_SCHEMA = vol.Schema(
+    {vol.Required(ATTR_DEVICE_ID): cv.string}
+)
+REVOKE_FCM_SESSION_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_DEVICE_ID): cv.string,
+        vol.Required("session_ref"): vol.All(
+            cv.string,
+            vol.Match(r"^[0-9a-f]{24}$"),
+        ),
+        vol.Required("confirm"): vol.In([True]),
+    }
+)
+REVOKE_OTHER_FCM_SESSIONS_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_DEVICE_ID): cv.string,
+        vol.Required("expected_count"): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Required("confirm"): vol.In([True]),
+    }
 )
 
 GET_RUNTIME_STATUS_SCHEMA = vol.Schema(
@@ -222,6 +255,135 @@ def async_setup_services(
     guest_invite_store: UfanetGuestInviteStore,
 ) -> None:
     """Register Ufanet archive service actions."""
+
+    async def _async_fcm_inventory(call: ServiceCall):
+        runtime, _skud = _resolve_device_runtime(hass, call.data[ATTR_DEVICE_ID])
+        api: UfanetApi = runtime["api"]
+        entry = runtime.get("entry")
+        if entry is None:
+            raise ServiceValidationError("Ufanet config entry is unavailable")
+        username = entry.data.get(CONF_USERNAME)
+        if not isinstance(username, str) or not username.strip():
+            raise ServiceValidationError("Ufanet account identity is unavailable")
+        try:
+            protected_ids = await async_owned_fcm_device_ids_for_account(hass, username)
+            devices = await api.async_get_authorized_fcm_devices()
+            inventory = build_authorized_session_inventory(
+                entry.entry_id,
+                devices,
+                protected_ids,
+            )
+        except FcmSessionProtectionError as err:
+            raise HomeAssistantError(
+                "Unable to verify Home Assistant-owned FCM sessions; no revoke was attempted"
+            ) from err
+        except (UfanetResponseError, ValueError) as err:
+            raise ServiceValidationError(str(err)) from err
+        return api, entry, inventory
+
+    async def async_list_fcm_sessions(call: ServiceCall) -> ServiceResponse:
+        """Return explicit user-facing session metadata without provider device IDs."""
+        _api, _entry, inventory = await _async_fcm_inventory(call)
+        sessions = public_authorized_sessions(inventory)
+        protected_count = sum(1 for row in sessions if row["protected"])
+        return {
+            "device_id": call.data[ATTR_DEVICE_ID],
+            "count": len(sessions),
+            "protected_count": protected_count,
+            "revocable_count": len(sessions) - protected_count,
+            "sessions": sessions,
+        }
+
+    async def async_revoke_fcm_session(call: ServiceCall) -> ServiceResponse:
+        """Revoke exactly one freshly resolved non-HA authorized session."""
+        api, _entry, inventory = await _async_fcm_inventory(call)
+        requested_ref = str(call.data["session_ref"])
+        try:
+            target = resolve_authorized_session(inventory, requested_ref)
+        except ValueError as err:
+            raise ServiceValidationError(str(err)) from err
+        if target is None:
+            raise ServiceValidationError(
+                "FCM session is no longer present; refresh the session list"
+            )
+        if target["public"]["protected"]:
+            raise ServiceValidationError(
+                "Home Assistant-owned FCM sessions are protected from this service"
+            )
+
+        target_device_id = target["device_id"]
+        try:
+            await api.async_logout_fcm_device(device_id=target_device_id)
+            after = await api.async_get_authorized_fcm_devices()
+        except UfanetApiError as err:
+            raise HomeAssistantError("Ufanet FCM session revoke request failed") from err
+        if any(item["device_id"] == target_device_id for item in after):
+            raise HomeAssistantError(
+                "Ufanet returned from logout_device, but the session is still present"
+            )
+        return {
+            "device_id": call.data[ATTR_DEVICE_ID],
+            "session_ref": requested_ref,
+            "revoked": True,
+        }
+
+    async def async_revoke_other_fcm_sessions(call: ServiceCall) -> ServiceResponse:
+        """Revoke a fresh snapshot of all non-HA sessions after count confirmation."""
+        api, entry, inventory = await _async_fcm_inventory(call)
+        targets = [row for row in inventory if not row["public"]["protected"]]
+        expected_count = int(call.data["expected_count"])
+        if len(targets) != expected_count:
+            raise ServiceValidationError(
+                "Revocable FCM session count changed; refresh the list and confirm again"
+            )
+
+        target_ids = {row["device_id"] for row in targets}
+        revoked_count = 0
+        try:
+            for row in targets:
+                await api.async_logout_fcm_device(device_id=row["device_id"])
+                revoked_count += 1
+            after = await api.async_get_authorized_fcm_devices()
+        except UfanetApiError as err:
+            raise HomeAssistantError(
+                f"Ufanet FCM session revoke failed after {revoked_count} successful revocations"
+            ) from err
+
+        if any(item["device_id"] in target_ids for item in after):
+            raise HomeAssistantError(
+                "Ufanet logout_device verification failed for one or more sessions"
+            )
+
+        try:
+            protected_after = await async_owned_fcm_device_ids_for_account(
+                hass,
+                str(entry.data[CONF_USERNAME]),
+            )
+            after_inventory = build_authorized_session_inventory(
+                entry.entry_id,
+                after,
+                protected_after,
+            )
+        except FcmSessionProtectionError as err:
+            raise HomeAssistantError(
+                "Sessions were revoked, but Home Assistant ownership verification failed afterward"
+            ) from err
+        except ValueError as err:
+            raise HomeAssistantError(
+                "Sessions were revoked, but the refreshed session list is invalid"
+            ) from err
+
+        remaining_unprotected = sum(
+            1 for row in after_inventory if not row["public"]["protected"]
+        )
+        return {
+            "device_id": call.data[ATTR_DEVICE_ID],
+            "revoked_count": revoked_count,
+            "remaining_unprotected_count": remaining_unprotected,
+            "protected_count": sum(
+                1 for row in after_inventory if row["public"]["protected"]
+            ),
+        }
 
     async def async_get_settings(call: ServiceCall) -> ServiceResponse:
         """Return effective ConfigEntry options for the selected Ufanet device."""
@@ -1462,6 +1624,27 @@ def async_setup_services(
             ),
         }
 
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_LIST_FCM_SESSIONS,
+        async_list_fcm_sessions,
+        schema=LIST_FCM_SESSIONS_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REVOKE_FCM_SESSION,
+        async_revoke_fcm_session,
+        schema=REVOKE_FCM_SESSION_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REVOKE_OTHER_FCM_SESSIONS,
+        async_revoke_other_fcm_sessions,
+        schema=REVOKE_OTHER_FCM_SESSIONS_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
     hass.services.async_register(
         DOMAIN,
         SERVICE_GET_SETTINGS,

@@ -297,6 +297,165 @@ async def unregister_token_with_ufanet(
                 print(f"[INFO] Response body length: {len(text)}")
 
 
+async def _authorized_device_is_present(
+    session: aiohttp.ClientSession,
+    access_token: str,
+    device_id: str,
+    base_url: str,
+) -> bool:
+    """Return whether one exact private device ID is present without printing it."""
+    url = f"{base_url}/api/v4/fcm_device/authorized_devices/"
+    async with session.post(
+        url,
+        headers={
+            "Authorization": f"JWT {access_token.replace('JWT ', '')}",
+            "Accept": "application/json",
+        },
+        timeout=aiohttp.ClientTimeout(total=30),
+    ) as response:
+        text = await response.text()
+        if response.status >= 400:
+            raise RuntimeError(
+                f"authorized-devices presence check failed: HTTP {response.status}"
+            )
+        try:
+            payload = json.loads(text)
+            devices = payload["data"]["device_list"]
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            raise RuntimeError("Unexpected authorized-devices response") from exc
+    if not isinstance(devices, list):
+        raise RuntimeError("Unexpected authorized-devices response schema")
+    return any(
+        isinstance(item, dict) and item.get("device_id") == device_id
+        for item in devices
+    )
+
+
+async def _wait_authorized_device_presence(
+    session: aiohttp.ClientSession,
+    access_token: str,
+    device_id: str,
+    base_url: str,
+    *,
+    expected: bool,
+    delays: tuple[float, ...] = DEFAULT_HISTORY_DELAYS,
+) -> bool:
+    """Wait for the exact probe-owned registration to reach expected presence."""
+    for delay in delays:
+        if delay > 0:
+            await asyncio.sleep(delay)
+        if await _authorized_device_is_present(
+            session, access_token, device_id, base_url
+        ) is expected:
+            return True
+    return False
+
+
+async def logout_device_with_ufanet(
+    session: aiohttp.ClientSession,
+    access_token: str,
+    device_id: str,
+    base_url: str,
+) -> None:
+    """Terminate exactly one probe-owned authorized session."""
+    url = f"{base_url}/api/v4/fcm_device/logout_device/"
+    async with session.post(
+        url,
+        headers={
+            "Authorization": f"JWT {access_token.replace('JWT ', '')}",
+            "Accept": "application/json",
+        },
+        json={"device_id": device_id},
+        timeout=aiohttp.ClientTimeout(total=30),
+    ) as response:
+        await response.text()
+        if response.status >= 400:
+            raise RuntimeError(
+                f"Ufanet authorized-device logout failed: HTTP {response.status}"
+            )
+        print(
+            "[OK] POST /api/v4/fcm_device/logout_device/: "
+            f"HTTP {response.status}"
+        )
+
+
+async def verify_logout_device_with_ufanet(
+    session: aiohttp.ClientSession,
+    access_token: str,
+    fcm_token: str,
+    device_id: str,
+    title: str,
+    package_name: str,
+    base_url: str,
+    *,
+    presence_delays: tuple[float, ...] = DEFAULT_HISTORY_DELAYS,
+) -> None:
+    """Live-check logout_device against only this probe, then restore it."""
+    print(
+        "[INFO] Verifying POST /api/v4/fcm_device/logout_device/ for this "
+        "probe's own virtual registration..."
+    )
+    if not await _wait_authorized_device_presence(
+        session,
+        access_token,
+        device_id,
+        base_url,
+        expected=True,
+        delays=presence_delays,
+    ):
+        raise RuntimeError(
+            "Probe-owned registration was not visible before logout_device verification"
+        )
+    print("[OK] Probe-owned registration is present before logout")
+
+    await logout_device_with_ufanet(
+        session, access_token, device_id, base_url
+    )
+    if not await _wait_authorized_device_presence(
+        session,
+        access_token,
+        device_id,
+        base_url,
+        expected=False,
+        delays=presence_delays,
+    ):
+        raise RuntimeError(
+            "logout_device returned success, but the probe-owned registration remained visible"
+        )
+    print("[OK] Probe-owned registration is absent after logout")
+
+    print("[INFO] Restoring the probe FCM registration...")
+    try:
+        await register_token_with_ufanet(
+            session,
+            access_token,
+            fcm_token,
+            device_id,
+            title,
+            package_name,
+            base_url,
+        )
+        restored = await _wait_authorized_device_presence(
+            session,
+            access_token,
+            device_id,
+            base_url,
+            expected=True,
+            delays=presence_delays,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "logout_device succeeded, but restoring the probe FCM registration failed. "
+            "Run probe.py again without --verify-logout-device to restore it."
+        ) from exc
+    if not restored:
+        raise RuntimeError(
+            "Probe FCM registration was restored by POST but was not visible in "
+            "authorized_devices. Run probe.py again without --verify-logout-device."
+        )
+    print("[OK] logout_device contract verified and probe registration restored")
+
+
 async def verify_unregister_with_ufanet(
     session: aiohttp.ClientSession,
     access_token: str,
@@ -945,6 +1104,20 @@ async def run(args: argparse.Namespace) -> int:
                 firebase["package_name"],
                 base_url,
             )
+            if args.verify_logout_device:
+                await verify_logout_device_with_ufanet(
+                    ufanet_session,
+                    ufanet_access,
+                    fcm_token,
+                    str(state["ufanet_device_id"]),
+                    str(state["ufanet_device_title"]),
+                    firebase["package_name"],
+                    base_url,
+                )
+                print(
+                    "[OK] logout_device verification completed; listener was not started"
+                )
+                return 0
             if args.verify_unregister:
                 await verify_unregister_with_ufanet(
                     ufanet_session,
@@ -1029,6 +1202,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--verify-logout-device",
+        action="store_true",
+        help=(
+            "Live-check POST /api/v4/fcm_device/logout_device/ for this probe's "
+            "own virtual device, verify it disappears, restore it, then exit"
+        ),
+    )
+    parser.add_argument(
         "--verify-unregister",
         action="store_true",
         help=(
@@ -1073,6 +1254,24 @@ def main() -> int:
     if args.audit_authorized_devices and args.skip_ufanet:
         print(
             "[ERROR] --audit-authorized-devices cannot be used with --skip-ufanet",
+            file=sys.stderr,
+        )
+        return 2
+    if args.audit_authorized_devices and args.verify_logout_device:
+        print(
+            "[ERROR] --audit-authorized-devices cannot be combined with --verify-logout-device",
+            file=sys.stderr,
+        )
+        return 2
+    if args.verify_logout_device and args.verify_unregister:
+        print(
+            "[ERROR] --verify-logout-device cannot be combined with --verify-unregister",
+            file=sys.stderr,
+        )
+        return 2
+    if args.verify_logout_device and args.skip_ufanet:
+        print(
+            "[ERROR] --verify-logout-device cannot be used with --skip-ufanet",
             file=sys.stderr,
         )
         return 2

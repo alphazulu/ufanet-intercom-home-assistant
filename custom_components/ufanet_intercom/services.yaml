@@ -329,3 +329,64 @@ revoke_temporary_guest_link:
       required: true
       selector:
         text:
+
+
+list_fcm_sessions:
+  name: List authorized FCM sessions
+  description: Return authorized Ufanet device sessions for security review. Raw provider device IDs are never returned; Home Assistant-owned registrations are marked protected.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+
+revoke_fcm_session:
+  name: Revoke authorized FCM session
+  description: Permanently terminate one non-Home-Assistant authorized Ufanet session selected by session_ref from list_fcm_sessions. The server list is refreshed before revocation and disappearance is verified afterward.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    session_ref:
+      name: Session reference
+      description: Opaque session_ref returned by list_fcm_sessions. Raw Ufanet device IDs are not accepted.
+      required: true
+      selector:
+        text:
+    confirm:
+      name: Confirm revocation
+      description: Must be enabled to perform the destructive action.
+      required: true
+      selector:
+        boolean:
+
+revoke_other_fcm_sessions:
+  name: Revoke all other FCM sessions
+  description: Permanently terminate the current snapshot of all non-Home-Assistant authorized Ufanet sessions. Requires the expected revocable count from list_fcm_sessions and aborts if it changed.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    expected_count:
+      name: Expected revocable sessions
+      description: Exact revocable_count returned by the most recent list_fcm_sessions call.
+      required: true
+      selector:
+        number:
+          min: 1
+          step: 1
+          mode: box
+    confirm:
+      name: Confirm mass revocation
+      description: Must be enabled to perform the destructive action.
+      required: true
+      selector:
+        boolean:

@@ -72,6 +72,9 @@ SERVICE_CREATE_GUEST_INVITE = "create_guest_invite"
 SERVICE_FORGET_GUEST_INVITE = "forget_guest_invite"
 SERVICE_REVOKE_SHARED_ACCESS = "revoke_shared_access"
 SERVICE_CREATE_TEMPORARY_GUEST_LINK = "create_temporary_guest_link"
+SERVICE_LIST_FCM_SESSIONS = "list_fcm_sessions"
+SERVICE_REVOKE_FCM_SESSION = "revoke_fcm_session"
+SERVICE_REVOKE_OTHER_FCM_SESSIONS = "revoke_other_fcm_sessions"
 SERVICE_REVOKE_TEMPORARY_GUEST_LINK = "revoke_temporary_guest_link"
 
 DEFAULT_ARCHIVE_DURATION_SECONDS = 300
