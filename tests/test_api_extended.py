@@ -121,6 +121,69 @@ async def test_register_fcm_device_uses_confirmed_contract(api: UfanetApi) -> No
 
 
 @pytest.mark.asyncio
+async def test_authorized_fcm_devices_use_confirmed_contract_and_minimize_fields(
+    api: UfanetApi,
+) -> None:
+    api._async_ufanet_json = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "data": {
+                "device_list": [
+                    {
+                        "device_id": "device-one",
+                        "title": "Phone",
+                        "last_update": "2026-09-03T01:00:00Z",
+                        "is_call_access": True,
+                        "os": 0,
+                        "os_display": "Android",
+                        "private_extra": "must-not-leak",
+                    }
+                ]
+            }
+        }
+    )
+    result = await api.async_get_authorized_fcm_devices()
+    api._async_ufanet_json.assert_awaited_once_with(  # type: ignore[attr-defined]
+        "POST",
+        "/api/v4/fcm_device/authorized_devices/",
+    )
+    assert result == [{
+        "device_id": "device-one",
+        "title": "Phone",
+        "last_update": "2026-09-03T01:00:00Z",
+        "is_call_access": True,
+        "os": 0,
+        "os_display": "Android",
+    }]
+    assert "must-not-leak" not in str(result)
+
+
+@pytest.mark.asyncio
+async def test_authorized_fcm_devices_reject_duplicate_ids(api: UfanetApi) -> None:
+    row = {
+        "device_id": "duplicate",
+        "title": None,
+        "last_update": "2026-09-03T01:00:00Z",
+        "is_call_access": True,
+    }
+    api._async_ufanet_json = AsyncMock(  # type: ignore[method-assign]
+        return_value={"data": {"device_list": [row, dict(row)]}}
+    )
+    with pytest.raises(UfanetResponseError, match="duplicate"):
+        await api.async_get_authorized_fcm_devices()
+
+
+@pytest.mark.asyncio
+async def test_logout_fcm_device_uses_live_confirmed_contract(api: UfanetApi) -> None:
+    api._async_ufanet_json = AsyncMock(return_value={"status": "ok"})  # type: ignore[method-assign]
+    await api.async_logout_fcm_device(device_id="private-device")
+    api._async_ufanet_json.assert_awaited_once_with(  # type: ignore[attr-defined]
+        "POST",
+        "/api/v4/fcm_device/logout_device/",
+        json_body={"device_id": "private-device"},
+    )
+
+
+@pytest.mark.asyncio
 async def test_unregister_fcm_device_uses_confirmed_contract(api: UfanetApi) -> None:
     api._async_ufanet_json = AsyncMock(return_value={})  # type: ignore[method-assign]
 

@@ -543,12 +543,8 @@ class UfanetApi:
             },
         )
 
-    async def async_get_fcm_authorization_status(
-        self,
-        *,
-        device_id: str,
-    ) -> dict[str, Any] | None:
-        """Return only the authorization fields for one exact FCM device ID."""
+    async def async_get_authorized_fcm_devices(self) -> list[dict[str, Any]]:
+        """Return the validated minimal authorized-device inventory."""
         data = await self._async_ufanet_json(
             "POST",
             "/api/v4/fcm_device/authorized_devices/",
@@ -560,40 +556,74 @@ class UfanetApi:
                 "Authorized-device response has no device list"
             )
 
-        match: dict[str, Any] | None = None
+        result: list[dict[str, Any]] = []
+        seen: set[str] = set()
         for item in devices:
             if not isinstance(item, dict):
                 raise UfanetResponseError(
                     "Authorized-device response contains an invalid item"
                 )
-            candidate = item.get("device_id")
-            if not isinstance(candidate, str) or not candidate:
+            device_id = item.get("device_id")
+            if not isinstance(device_id, str) or not device_id:
                 raise UfanetResponseError(
                     "Authorized-device response contains an invalid device ID"
                 )
-            if candidate != device_id:
-                continue
-            if match is not None:
+            if device_id in seen:
                 raise UfanetResponseError(
                     "Authorized-device response contains a duplicate device ID"
                 )
+            seen.add(device_id)
 
-            call_access = item.get("is_call_access")
+            title = item.get("title")
             last_update = item.get("last_update")
+            call_access = item.get("is_call_access")
+            if title is not None and not isinstance(title, str):
+                raise UfanetResponseError(
+                    "Authorized-device response contains an invalid title"
+                )
             if (
-                not isinstance(call_access, bool)
-                or not isinstance(last_update, str)
+                not isinstance(last_update, str)
                 or not last_update.strip()
+                or not isinstance(call_access, bool)
             ):
                 raise UfanetResponseError(
                     "Authorized-device response contains invalid status fields"
                 )
-            match = {
-                "call_access": call_access,
-                "last_update": last_update,
-            }
 
-        return match
+            result.append(
+                {
+                    "device_id": device_id,
+                    "title": title,
+                    "last_update": last_update,
+                    "is_call_access": call_access,
+                    "os": item.get("os"),
+                    "os_display": item.get("os_display"),
+                }
+            )
+        return result
+
+    async def async_get_fcm_authorization_status(
+        self,
+        *,
+        device_id: str,
+    ) -> dict[str, Any] | None:
+        """Return only the authorization fields for one exact FCM device ID."""
+        devices = await self.async_get_authorized_fcm_devices()
+        for item in devices:
+            if item["device_id"] == device_id:
+                return {
+                    "call_access": item["is_call_access"],
+                    "last_update": item["last_update"],
+                }
+        return None
+
+    async def async_logout_fcm_device(self, *, device_id: str) -> None:
+        """Terminate one authorized device/session using the live-confirmed API."""
+        await self._async_ufanet_json(
+            "POST",
+            "/api/v4/fcm_device/logout_device/",
+            json_body={"device_id": device_id},
+        )
 
     async def async_unregister_fcm_device(self, *, device_id: str) -> None:
         """Remove one user-owned virtual FCM installation from Ufanet."""

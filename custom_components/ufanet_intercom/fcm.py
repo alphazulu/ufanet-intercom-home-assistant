@@ -263,6 +263,11 @@ class UfanetFcmManager:
         self.authorized_device_last_update_age: str | None = None
         self.authorized_device_check_error_type: str | None = None
 
+    @property
+    def owned_device_id(self) -> str | None:
+        """Return only this manager's validated HA-owned Ufanet device ID."""
+        return _owned_device_id(self._state)
+
     @staticmethod
     def _default_state() -> dict[str, Any]:
         return {
