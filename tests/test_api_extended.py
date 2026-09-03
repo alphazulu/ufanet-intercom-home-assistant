@@ -461,3 +461,74 @@ def test_response_message_prefers_structured_detail() -> None:
     assert _response_message(400, '{"error":"bad request"}') == "HTTP 400: bad request"
     assert _response_message(500, "line one\nline two") == "HTTP 500: line one line two"
     assert _response_message(503, "") == "HTTP 503"
+
+
+@pytest.mark.asyncio
+async def test_fcm_authorization_status_uses_confirmed_contract_and_minimizes_match(
+    api: UfanetApi,
+) -> None:
+    api._async_ufanet_json = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "data": {
+                "device_list": [
+                    {
+                        "device_id": "other-private-device",
+                        "title": "Other private title",
+                        "last_update": "2026-01-01T00:00:00Z",
+                        "is_call_access": False,
+                    },
+                    {
+                        "device_id": "Home Assistant_target-private",
+                        "title": "Private HA title",
+                        "last_update": "2026-09-02T12:34:56Z",
+                        "is_call_access": True,
+                        "os": 0,
+                        "os_display": "Android",
+                    },
+                ],
+                "devices_num_permission": False,
+            }
+        }
+    )
+
+    result = await api.async_get_fcm_authorization_status(
+        device_id="Home Assistant_target-private"
+    )
+
+    assert result == {
+        "call_access": True,
+        "last_update": "2026-09-02T12:34:56Z",
+    }
+    assert "device_id" not in result
+    assert "title" not in result
+    assert "os" not in result
+    api._async_ufanet_json.assert_awaited_once_with(  # type: ignore[attr-defined]
+        "POST",
+        "/api/v4/fcm_device/authorized_devices/",
+    )
+
+
+@pytest.mark.asyncio
+async def test_fcm_authorization_status_returns_none_when_owned_device_is_absent(
+    api: UfanetApi,
+) -> None:
+    api._async_ufanet_json = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "data": {
+                "device_list": [
+                    {
+                        "device_id": "different-private-device",
+                        "last_update": "2026-09-02T12:34:56Z",
+                        "is_call_access": True,
+                    }
+                ]
+            }
+        }
+    )
+
+    assert (
+        await api.async_get_fcm_authorization_status(
+            device_id="Home Assistant_missing-private"
+        )
+        is None
+    )

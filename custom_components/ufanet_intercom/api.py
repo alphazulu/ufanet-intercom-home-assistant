@@ -543,6 +543,58 @@ class UfanetApi:
             },
         )
 
+    async def async_get_fcm_authorization_status(
+        self,
+        *,
+        device_id: str,
+    ) -> dict[str, Any] | None:
+        """Return only the authorization fields for one exact FCM device ID."""
+        data = await self._async_ufanet_json(
+            "POST",
+            "/api/v4/fcm_device/authorized_devices/",
+        )
+        payload = data.get("data") if isinstance(data, dict) else None
+        devices = payload.get("device_list") if isinstance(payload, dict) else None
+        if not isinstance(devices, list):
+            raise UfanetResponseError(
+                "Authorized-device response has no device list"
+            )
+
+        match: dict[str, Any] | None = None
+        for item in devices:
+            if not isinstance(item, dict):
+                raise UfanetResponseError(
+                    "Authorized-device response contains an invalid item"
+                )
+            candidate = item.get("device_id")
+            if not isinstance(candidate, str) or not candidate:
+                raise UfanetResponseError(
+                    "Authorized-device response contains an invalid device ID"
+                )
+            if candidate != device_id:
+                continue
+            if match is not None:
+                raise UfanetResponseError(
+                    "Authorized-device response contains a duplicate device ID"
+                )
+
+            call_access = item.get("is_call_access")
+            last_update = item.get("last_update")
+            if (
+                not isinstance(call_access, bool)
+                or not isinstance(last_update, str)
+                or not last_update.strip()
+            ):
+                raise UfanetResponseError(
+                    "Authorized-device response contains invalid status fields"
+                )
+            match = {
+                "call_access": call_access,
+                "last_update": last_update,
+            }
+
+        return match
+
     async def async_unregister_fcm_device(self, *, device_id: str) -> None:
         """Remove one user-owned virtual FCM installation from Ufanet."""
         await self._async_ufanet_json(
