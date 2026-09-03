@@ -29,6 +29,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("tools/research/release_prep_v030.py")
+          text = path.read_text(encoding="utf-8")
+          start = text.index("# Top-level Russian README.")
+          end = text.index("# Changelog for the release being prepared.")
+          segment = text[start:end]
+          old = "- Firebase values, FCM credentials and the local Firebase config path are never included in diagnostics. Do not commit `firebase_config.json`.\\n"
+          new = "- Firebase-значения, FCM credentials и локальный путь к Firebase-конфигу не попадают в диагностику. Не коммитьте `firebase_config.json`.\\n"
+          if segment.count(old) != 2:
+              raise SystemExit(f"unexpected README_RU security-template count: {segment.count(old)}")
+          segment = segment.replace(old, new)
+          path.write_text(text[:start] + segment + text[end:], encoding="utf-8")
+          PY
           python tools/research/release_prep_v030.py
           git fetch origin main
           git checkout origin/main -- .github/workflows/tests.yml
