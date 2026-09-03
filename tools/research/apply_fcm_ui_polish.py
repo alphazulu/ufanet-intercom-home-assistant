@@ -37,12 +37,6 @@ replace_once(
 )
 
 replace_once(
-'        badge.textContent = "Home Assistant • защищено";\n',
-'        badge.textContent = "Home Assistant";\n',
-"protected badge",
-)
-
-replace_once(
 '      main.append(titleLine, meta);\n',
 '      main.append(titleLine);\n',
 "session main layout",
@@ -335,5 +329,7 @@ if 'row.append(icon, main, meta, actions);' not in text:
     raise SystemExit("four-column session row was not produced")
 if 'session_ref: session.session_ref' not in text:
     raise SystemExit("targeted revoke plumbing disappeared")
+if 'Home Assistant • защищено' not in text:
+    raise SystemExit("explicit protected badge disappeared")
 
 CARD.write_text(text, encoding="utf-8")
