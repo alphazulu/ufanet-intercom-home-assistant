@@ -91,6 +91,9 @@
       }
     },
     "event": {
+      "incoming_call_event": {
+        "name": "Incoming call"
+      },
       "key_passage": {
         "name": "Physical key passage"
       },
