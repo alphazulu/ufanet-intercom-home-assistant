@@ -1,0 +1,59 @@
+name: FCM UI polish
+
+on:
+  push:
+    branches:
+      - codex/fcm-session-security
+    paths:
+      - tools/research/apply_fcm_ui_polish.py
+      - .github/workflows/fcm-ui-polish.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fcm-ui-polish-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: codex/fcm-session-security
+          fetch-depth: 2
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements_test.txt
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements_test.txt
+
+      - name: Apply UI polish
+        run: |
+          python tools/research/apply_fcm_ui_polish.py
+          node --check custom_components/ufanet_intercom/frontend/ufanet-archive-card.js
+          git diff --check
+
+      - name: Run focused and full tests
+        run: |
+          pytest -q tests/test_frontend_privacy.py tests/test_fcm_session_services.py tests/test_fcm_sessions.py
+          pytest -q
+
+      - name: Commit verified UI polish and remove temporary tooling
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm tools/research/apply_fcm_ui_polish.py .github/workflows/fcm-ui-polish.yml
+          git add custom_components/ufanet_intercom/frontend/ufanet-archive-card.js
+          git commit -m "Polish authorized devices interface"
+          git push origin HEAD:codex/fcm-session-security
