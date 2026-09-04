@@ -179,7 +179,6 @@ actions:
                 - action: "{{ action_open }}"
                   title: Open door
                   authenticationRequired: true
-                  destructive: true
                 - action: URI
                   title: View camera
                   uri: "{{ dashboard_uri_value }}"
@@ -238,7 +237,6 @@ actions:
                         - action: "{{ action_open }}"
                           title: Open door
                           authenticationRequired: true
-                          destructive: true
                         - action: URI
                           title: View camera
                           uri: "{{ dashboard_uri_value }}"
