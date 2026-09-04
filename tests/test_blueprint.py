@@ -71,6 +71,7 @@ def test_blueprint_sends_immediately_and_uses_unique_guarded_door_action() -> No
     assert "UFANET_OPEN_' ~ run_id" in source
     assert "mobile_app_notification_action" in source
     assert "authenticationRequired: true" in source
+    assert "destructive:" not in source
     assert "action: button.press" in source
     assert "Manual test — door action is disabled." in source
     assert "ttl: 0" in source
