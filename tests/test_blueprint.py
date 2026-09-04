@@ -55,18 +55,20 @@ def test_blueprint_uses_private_image_proxy_and_no_provider_media_urls() -> None
     assert "archive_url" not in source
 
 
-def test_blueprint_notification_identifiers_are_local_run_context_only() -> None:
+def test_blueprint_notification_identifiers_use_available_run_context() -> None:
     source = BLUEPRINT_PATH.read_text(encoding="utf-8")
 
-    assert "{{ 'ufanet_intercom_' ~ context.id }}" in source
-    assert "{{ 'UFANET_OPEN_' ~ context.id }}" in source
+    assert "trigger.event.context.id" in source
+    assert "context.id" not in source.replace("trigger.event.context.id", "")
+    assert "{{ 'ufanet_intercom_' ~ run_id }}" in source
+    assert "{{ 'UFANET_OPEN_' ~ run_id }}" in source
     assert "call_uuid" not in source
 
 
 def test_blueprint_sends_immediately_and_uses_unique_guarded_door_action() -> None:
     source = BLUEPRINT_PATH.read_text(encoding="utf-8")
 
-    assert "UFANET_OPEN_' ~ context.id" in source
+    assert "UFANET_OPEN_' ~ run_id" in source
     assert "mobile_app_notification_action" in source
     assert "authenticationRequired: true" in source
     assert "action: button.press" in source
