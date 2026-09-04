@@ -115,6 +115,10 @@ variables:
     {{ trigger.event.data
        if is_live_call
        else dict() }}
+  run_id: >-
+    {{ trigger.event.context.id
+       if is_live_call
+       else now().strftime('%Y%m%d%H%M%S%f') }}
   call_time: >-
     {{ event_data.called_at
        | default(states(last_call_sensor_entity), true)
@@ -135,9 +139,9 @@ variables:
       ~ (', flat ' ~ flat if flat|string|length > 0 else '')
     }}
   notification_tag: >-
-    {{ 'ufanet_intercom_' ~ context.id }}
+    {{ 'ufanet_intercom_' ~ run_id }}
   action_open: >-
-    {{ 'UFANET_OPEN_' ~ context.id }}
+    {{ 'UFANET_OPEN_' ~ run_id }}
   notification_body: >-
     {{ notification_message_value
        ~ ('\n' ~ call_address if call_address|string|length > 0 else '')
