@@ -147,7 +147,7 @@ class _UfanetKeyPassageSensor(SensorEntity):
 
 
 class UfanetPhysicalKeyCountSensor(_UfanetKeyPassageSensor):
-    """Number of registered physical keys linked to one intercom."""
+    """Number and read-only inventory of physical keys linked to one intercom."""
 
     _attr_translation_key = "physical_key_count"
     _attr_icon = "mdi:key-chain-variant"
@@ -167,6 +167,56 @@ class UfanetPhysicalKeyCountSensor(_UfanetKeyPassageSensor):
             return None
         value = state.get("key_count")
         return int(value) if value is not None else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose key names/dates without provider key or external IDs."""
+        api = getattr(self.coordinator, "api", None)
+        inventory = getattr(api, "physical_key_inventory", ())
+        visible: list[tuple[int, int, dict[str, str | None]]] = []
+
+        for key in inventory:
+            if not isinstance(key, dict):
+                continue
+            devices = key.get("devices") or ()
+            if self.skud_id not in devices:
+                continue
+            name = key.get("name")
+            created_at = key.get("created_at")
+            key_id = key.get("key_id")
+            if not isinstance(name, str):
+                continue
+
+            created_iso: str | None = None
+            if isinstance(created_at, int) and not isinstance(created_at, bool):
+                try:
+                    created_iso = datetime.fromtimestamp(
+                        created_at,
+                        tz=timezone.utc,
+                    ).isoformat()
+                except (OSError, OverflowError, ValueError):
+                    created_iso = None
+
+            sort_key_id = (
+                key_id
+                if isinstance(key_id, int) and not isinstance(key_id, bool)
+                else 0
+            )
+            sort_created = (
+                created_at
+                if isinstance(created_at, int) and not isinstance(created_at, bool)
+                else 0
+            )
+            visible.append(
+                (
+                    sort_created,
+                    sort_key_id,
+                    {"name": name, "created_at": created_iso},
+                )
+            )
+
+        visible.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        return {"keys": [item[2] for item in visible]}
 
 
 class UfanetLastKeyPassageSensor(_UfanetKeyPassageSensor):
