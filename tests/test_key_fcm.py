@@ -52,7 +52,10 @@ def _manager(hass, entry: MockConfigEntry) -> UfanetFcmManager:
 @pytest.mark.asyncio
 async def test_key_add_success_refreshes_inventory_and_publishes_sanitized_event(hass) -> None:
     entry = _entry()
-    key_coordinator = SimpleNamespace(async_request_refresh=AsyncMock())
+    key_coordinator = SimpleNamespace(
+        async_request_refresh=AsyncMock(),
+        last_update_success=True,
+    )
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "key_passage_coordinator": key_coordinator,
     }
@@ -60,12 +63,13 @@ async def test_key_add_success_refreshes_inventory_and_publishes_sanitized_event
     unsub = hass.bus.async_listen(EVENT_KEY_ENROLLMENT, events.append)
     manager = _manager(hass, entry)
 
+    secret_key_id = "987654321987654321"
     manager._handle_push(  # noqa: SLF001
         {
             "data": {
                 "reason": "key_add",
                 "key_status": "0",
-                "key_id": "123",
+                "key_id": secret_key_id,
                 "title": "SECRET TITLE",
                 "body": "SECRET BODY",
             }
@@ -86,7 +90,14 @@ async def test_key_add_success_refreshes_inventory_and_publishes_sanitized_event
 
     event_text = str(events[0].data)
     status_text = str(manager.status())
-    for secret in ("123", "SECRET TITLE", "SECRET BODY", "key_id", "title", "body"):
+    for secret in (
+        secret_key_id,
+        "SECRET TITLE",
+        "SECRET BODY",
+        "key_id",
+        "title",
+        "body",
+    ):
         assert secret not in event_text
         assert secret not in status_text
 
@@ -110,7 +121,10 @@ async def test_key_add_success_refreshes_inventory_and_publishes_sanitized_event
 @pytest.mark.asyncio
 async def test_key_add_matches_native_error_semantics(hass, data: dict[str, str]) -> None:
     entry = _entry()
-    key_coordinator = SimpleNamespace(async_request_refresh=AsyncMock())
+    key_coordinator = SimpleNamespace(
+        async_request_refresh=AsyncMock(),
+        last_update_success=True,
+    )
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "key_passage_coordinator": key_coordinator,
     }
@@ -153,7 +167,8 @@ async def test_key_add_event_survives_missing_inventory_coordinator(hass) -> Non
 async def test_key_add_event_survives_inventory_refresh_failure(hass) -> None:
     entry = _entry()
     key_coordinator = SimpleNamespace(
-        async_request_refresh=AsyncMock(side_effect=RuntimeError("offline"))
+        async_request_refresh=AsyncMock(side_effect=RuntimeError("offline")),
+        last_update_success=False,
     )
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "key_passage_coordinator": key_coordinator,
