@@ -64,6 +64,9 @@ _FRONTEND_DIR = Path(__file__).parent / "frontend"
 _ARCHIVE_CARD_PATH = _FRONTEND_DIR / "ufanet-archive-card.js"
 _ARCHIVE_CARD_URL = "/ufanet_intercom/ufanet-archive-card.js"
 _ARCHIVE_CARD_MODULE_URL = f"{_ARCHIVE_CARD_URL}?v=0.30.0"
+_PHYSICAL_KEYS_CARD_PATH = _FRONTEND_DIR / "ufanet-physical-keys-card.js"
+_PHYSICAL_KEYS_CARD_URL = "/ufanet_intercom/ufanet-physical-keys-card.js"
+_PHYSICAL_KEYS_CARD_MODULE_URL = f"{_PHYSICAL_KEYS_CARD_URL}?v=0.30.0"
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -85,7 +88,7 @@ def _path_is_file(path: Path) -> bool:
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up integration-level service actions and archive dashboard card."""
+    """Set up integration-level services and dashboard frontend resources."""
     guest_invite_store = UfanetGuestInviteStore(hass)
     await guest_invite_store.async_load()
 
@@ -101,14 +104,25 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                     _ARCHIVE_CARD_URL,
                     str(_ARCHIVE_CARD_PATH),
                     False,
-                )
+                ),
+                StaticPathConfig(
+                    _PHYSICAL_KEYS_CARD_URL,
+                    str(_PHYSICAL_KEYS_CARD_PATH),
+                    False,
+                ),
             ]
         )
-        # Fallback only. The reliable/supported path for a Lovelace custom card
+        # Fallback only. The reliable/supported path for the main Lovelace card
         # is to add _ARCHIVE_CARD_MODULE_URL as a JavaScript Module resource.
-        # add_extra_js_url can race dashboard construction on current HA frontend.
+        # The physical-key extension waits for that custom element and is safe
+        # whether it loads immediately before or after the main card script.
         frontend.add_extra_js_url(hass, _ARCHIVE_CARD_MODULE_URL)
+        frontend.add_extra_js_url(hass, _PHYSICAL_KEYS_CARD_MODULE_URL)
         _LOGGER.info("Ufanet archive card resource URL: %s", _ARCHIVE_CARD_MODULE_URL)
+        _LOGGER.info(
+            "Ufanet physical-key card extension URL: %s",
+            _PHYSICAL_KEYS_CARD_MODULE_URL,
+        )
     else:
         _LOGGER.warning(
             "Ufanet archive Lovelace card was not found at %s",
