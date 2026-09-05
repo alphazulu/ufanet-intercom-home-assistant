@@ -44,12 +44,12 @@
 - capability/coordinator физических ключей и пустой read-only inventory (`state=0`, `keys=[]`);
 - response-service `ufanet_intercom.list_physical_keys` на текущем zero-key аккаунте вернул `count: 0`, `keys: []`.
 
-До релиза обязательны оставшиеся real-call проверки гонок/несовпадений/metadata и
-полная регистрация **нового физического ключа**, включая реальный `reason=key_add`,
-непустую запись inventory, privacy-safe `list_physical_keys` и реальное
-переименование через validation-only `rename_physical_key`. Подробности:
-[уведомления Home Assistant](docs/notifications_RU.md) и
-[физические ключи/проходы](docs/api/keys_RU.md).
+До релиза обязательны оставшиеся real-call проверки гонок/несовпадений/metadata,
+live visual-проверка новой вкладки **КЛЮЧИ** и полная регистрация **нового
+физического ключа**, включая реальный `reason=key_add`, непустую запись inventory,
+privacy-safe `list_physical_keys` и реальное переименование через validation-only
+`rename_physical_key`. Подробности: [уведомления Home Assistant](docs/notifications_RU.md)
+и [физические ключи/проходы](docs/api/keys_RU.md).
 
 ## Неофициальная документация API
 
@@ -93,7 +93,7 @@
 
 ## Lovelace-карточка
 
-Текущий опубликованный релиз — v0.30.0, поэтому его cache-bust URL:
+Текущий опубликованный релиз — v0.30.0, поэтому URL основного ресурса с cache-bust:
 
 ```text
 /ufanet_intercom/ufanet-archive-card.js?v=0.30.0
@@ -120,11 +120,12 @@ default_tab: live
 - **КЛЮЧИ** — свежий privacy-safe список физических ключей, запуск 60-секундной регистрации нового ключа и переименование через opaque `key_ref`; удаление ключей отсутствует.
 - **ДИАГНОСТИКА** — token-free runtime health, polling, FCM authorization, UCAMS/archive и autosave.
 
-Вкладка **КЛЮЧИ** реализована отдельным packaged frontend-модулем
-`ufanet-physical-keys-card.js`, который интеграция загружает автоматически и который
-ждёт регистрации `custom:ufanet-intercom-card`. Отдельно добавлять этот extension в
-Lovelace Resources не требуется. В visual editor validation-ветки `keys` также можно
-выбрать как `default_tab`.
+Вкладка **КЛЮЧИ** реализована packaged validation-extension
+`ufanet-physical-keys-card.js`. Интеграция сама регистрирует/загружает этот extension,
+а он ждёт регистрации `custom:ufanet-intercom-card`, поэтому отдельно добавлять его
+в Lovelace Resources не требуется. Основной ресурс карточки остаётся настроен как
+раньше. В visual editor validation-ветки `keys` также можно выбрать как
+`default_tab`.
 
 ## Настройки
 
