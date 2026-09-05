@@ -15,7 +15,7 @@ Every endpoint or behavior should carry one of these labels:
 - **Inferred** — inferred from client code or surrounding behavior and still needs validation.
 - **Not supported** — explicitly tested and found not to work in the tested form.
 
-When new behavior is tested, update the relevant page and move the label toward **Confirmed** only when there is direct evidence. For state-changing endpoints, an HTTP 200 alone is not enough: document separately whether the expected side effect was actually verified.
+When new behavior is tested, update the relevant page and move the label toward **Confirmed** only when there is direct evidence. For state-changing endpoints, an HTTP 200 alone is not enough: document separately whether the expected side effect was actually verified. Validation code and green CI alone do not promote an evidence label.
 
 ## Architecture
 
@@ -25,7 +25,7 @@ The integration currently uses three API layers:
    - contract authentication and token refresh;
    - intercom/SKUD discovery and door control;
    - call history;
-   - physical keys: capability/list/history plus the Observed 60-second enrollment flow on the validation branch;
+   - physical keys: capability/list/history plus validation-only enrollment and opaque-ref rename flows;
    - guest/shared-access management;
    - FCM registration and authorized-session security management;
    - Confirmed `reason=sip` as the low-latency call signal and Observed `reason=key_add` as physical-key enrollment completion.
@@ -69,7 +69,7 @@ Important distinction:
 - [UCAMS camera analytics](analytics.md)
 - [Archive](archive.md)
 - [Call events/history](calls.md)
-- [Physical keys and passage history](keys.md)
+- [Physical keys and passage history](keys.md) — capability/list/passages, validation-only enrollment/FCM completion/opaque-ref rename, and the dedicated release gate.
 - [FCM / push notifications](fcm.md)
 - [Guest and shared access](guests.md)
 - [Observed data models](models.md)
@@ -99,7 +99,8 @@ For every newly tested endpoint, record:
 5. evidence label;
 6. date/conditions of the test when relevant;
 7. known side effects and whether those side effects were live-verified;
-8. any field whose semantics are still uncertain.
+8. any field whose semantics are still uncertain;
+9. for write endpoints, distinguish provider acceptance from verified state/read-back.
 
 Update both the detailed page and [STATUS.md](STATUS.md) in the same change, and
 update user-facing documentation/CHANGELOG when Home Assistant behavior changes.
