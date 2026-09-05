@@ -24,7 +24,7 @@ This table is a compact index of what has actually been tested by the project. T
 | Intercoms | `POST /api/v0/intercoms/` | **Confirmed** | One-based filtered request returned `has_key_recording_support=true` |
 | Keys | `POST /api/v4/key/list/` | **Confirmed** | HTTP 200 and empty `data.keys` confirmed; non-empty item fields remain Observed. HA empty state `state=0`, `keys=[]` was live-validated. |
 | Keys | `POST /api/v4/key/skud/<id>/auto_collect/enable/` | **Observed** | Android arms a 60-second enrollment window; the HA validation button is implemented but the endpoint has not yet been validated with a real new key. |
-| Keys | `POST /api/v4/key/edit/` | **Observed** | Android renames a key with `{key_id,name}`; current production runtime does not use it. |
+| Keys | `POST /api/v4/key/edit/` | **Observed** | Android renames with `{key_id,name}`; HA validation runtime now uses an opaque `key_ref`, fresh resolution, and post-write verification, but a real rename has not yet been tested. |
 | Keys | `POST /api/v4/key/skud/<id>/delete/key/` | **Observed** | Android deletes a key with `{key_id}`; destructive flow is neither implemented nor live-validated. |
 | Passages | `POST /api/v4/key/skud/<id>/key/pass_history/` | **Confirmed** | HTTP 200, zero-based pagination and empty `results` confirmed; item fields remain Observed |
 | Door | `GET /api/v0/skud/shared/<id>/open/?door=1` | **Confirmed** | Physical side effect; successful `{"result":true}` |
