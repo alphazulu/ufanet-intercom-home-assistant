@@ -77,7 +77,7 @@ from decompiled-client evidence alone.
 
 ## Installation
 
-### Manual
+### Manually
 
 1. Copy `custom_components/ufanet_intercom` into your Home Assistant configuration directory:
    `config/custom_components/ufanet_intercom`.
