@@ -44,12 +44,12 @@ Already live-validated on the development Home Assistant installation:
 - physical-key capability/coordinator health and empty read-only inventory (`state=0`, `keys=[]`);
 - `ufanet_intercom.list_physical_keys` returning `count: 0`, `keys: []` on the current zero-key account.
 
-Still mandatory before release: the remaining real-call race/mismatch/metadata checks
-and a complete registration of a **new physical key**, including the real
-`reason=key_add` push, a non-empty inventory row, privacy-safe `list_physical_keys`,
-and a real rename through the validation-only `rename_physical_key` service. See
-[Home Assistant call notifications](docs/notifications.md) and
-[Physical keys and passage history](docs/api/keys.md).
+Still mandatory before release: the remaining real-call race/mismatch/metadata checks,
+a live visual check of the new **KEYS** card tab, and a complete registration of a
+**new physical key**, including the real `reason=key_add` push, a non-empty inventory
+row, privacy-safe `list_physical_keys`, and a real rename through the validation-only
+`rename_physical_key` service. See [Home Assistant call notifications](docs/notifications.md)
+and [Physical keys and passage history](docs/api/keys.md).
 
 ## Unofficial API documentation
 
@@ -94,7 +94,7 @@ from decompiled-client evidence alone.
 
 ## Lovelace card
 
-Add the resource as a JavaScript module. The currently published release is v0.30.0, so its cache-bust URL is:
+Add the main resource as a JavaScript module. The currently published release is v0.30.0, so its cache-bust URL is:
 
 ```text
 /ufanet_intercom/ufanet-archive-card.js?v=0.30.0
@@ -122,10 +122,11 @@ The validation card contains six tabs:
 - **ДИАГНОСТИКА** — token-free runtime health, polling, FCM authorization state, UCAMS/archive status and autosave state.
 
 The **KEYS** tab is provided by the packaged validation extension
-`ufanet-physical-keys-card.js`. The integration loads it automatically; it waits for
-`custom:ufanet-intercom-card` to be registered, so no second manual Lovelace Resource
-entry is required. The visual editor also allows `keys` as `default_tab` on the
-validation branch.
+`ufanet-physical-keys-card.js`. The integration registers/loads that extension
+automatically and it waits for `custom:ufanet-intercom-card`, so no separate manual
+Lovelace Resource entry is required for the extension. The existing main card
+resource remains configured as before. The visual editor also allows `keys` as
+`default_tab` on the validation branch.
 
 ## Options
 
