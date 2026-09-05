@@ -14,7 +14,7 @@
 - Просмотр видеоархива с диапазонами записи, масштабированием/перемещением таймлайна, метками звонков и read-only метками движения.
 - История звонков, `ufanet_intercom_call`, нативные сущности **«Входящий звонок»** / **«Снимок последнего звонка»**, doorbell EventEntity и device trigger.
 - Blueprint уведомлений Companion App: мгновенный текстовый push, приватное обновление картинкой Home Assistant, опциональная защищённая кнопка **«Открыть дверь»** и прямой переход **«Открыть камеру»**.
-- Физические ключи для поддерживаемых домофонов: read-only счётчик/inventory, время последнего прохода, EventEntity/device trigger и validation-only flow **«Добавить физический ключ»**.
+- Физические ключи для поддерживаемых домофонов: read-only счётчик/inventory, время последнего прохода, EventEntity/device trigger, validation-only **«Добавить физический ключ»** и privacy-safe сервисы списка/переименования через opaque `key_ref`.
 - Read-only UCAMS `motion_alarm`: EventEntity **«Обнаружено движение»**, `ufanet_intercom_motion`, device trigger и метки на таймлайне архива.
 - Выбор получения звонков: polling по умолчанию либо экспериментальный FCM с малой задержкой и резервным опросом.
 - Privacy-safe инвентарь авторизованных Ufanet/FCM-сессий и защищённый явный отзыв сессий.
@@ -28,7 +28,7 @@
 ## Текущая validation-разработка
 
 Ветка `codex/combined-validation` содержит ещё не выпущенные изменения уведомлений
-и регистрации физических ключей. Она намеренно остаётся **validation-only** и не
+и регистрации/управления физическими ключами. Она намеренно остаётся **validation-only** и не
 должна тегироваться/публиковаться, пока не завершены live-gates в активном PR.
 Версия установленной интеграции поэтому остаётся `0.30.0` до отдельного этапа
 подготовки релиза.
@@ -44,8 +44,9 @@
 - capability/coordinator физических ключей и пустой read-only inventory (`state=0`, `keys=[]`).
 
 До релиза обязательны оставшиеся real-call проверки гонок/несовпадений/metadata и
-полная регистрация **нового физического ключа**, включая реальный `reason=key_add`
-and непустую запись inventory. Подробности:
+полная регистрация **нового физического ключа**, включая реальный `reason=key_add`,
+непустую запись inventory, privacy-safe `list_physical_keys` и реальное
+переименование через validation-only `rename_physical_key`. Подробности:
 [уведомления Home Assistant](docs/notifications_RU.md) и
 [физические ключи/проходы](docs/api/keys_RU.md).
 
@@ -207,7 +208,17 @@ FCM listener распознаёт Android-observed completion `reason=key_add`, 
 обновляет key inventory и отправляет account-level privacy-minimized событие
 `ufanet_intercom_key_enrollment`. Provider `key_id`, `external_id`, raw message text
 и push payload не публикуются. Реальный `key_add` и непустой inventory пока имеют
-статус **Observed / pending live validation**. Подробности:
+статус **Observed / pending live validation**.
+
+Для будущего управления ключами validation-ветка предоставляет response-service
+`ufanet_intercom.list_physical_keys`, который возвращает только `name`,
+`created_at` и локальный непрозрачный `key_ref`. `ufanet_intercom.rename_physical_key`
+принимает этот `key_ref`, перед изменением перечитывает свежий inventory, разрешает
+ссылку только внутри выбранного домофона и после Android-observed `/api/v4/key/edit/`
+обязательно перечитывает inventory ещё раз. Успех возвращается только если новое имя
+реально видно после refresh. Raw provider `key_id` не принимается и не возвращается.
+Сам rename endpoint остаётся **Observed / pending live validation** до появления
+реального ключа. Удаление ключа не реализовано. Подробности:
 [docs/api/keys_RU.md](docs/api/keys_RU.md).
 
 ## Аналитика движения
@@ -235,6 +246,7 @@ FCM listener распознаёт Android-observed completion `reason=key_add`, 
 - Открытие двери — реальное физическое действие; карточка/notification требуют явного действия пользователя, а notification добавляет same-device guards.
 - Запуск physical-key enrollment изменяет состояние контроля доступа и не должен использоваться как health check или автоматическое действие.
 - `external_id` физического ключа отбрасывается при нормализации; provider `key_id` остаётся только внутренним runtime ID и не попадает в sensor attributes/events/diagnostics.
+- Публичное управление физическими ключами использует только intercom-scoped opaque `key_ref`; rename перечитывает inventory до изменения и проверяет результат повторным refresh после POST.
 - Tokenized call-media URL остаются внутренними runtime-данными; image entity хранит только созданный JPEG.
 - Управление FCM-сессиями использует opaque refs вместо raw provider device IDs и защищает доказанно принадлежащие HA регистрации.
 - Motion provider cursor хранится только в private storage и наружу выводятся лишь нормализованные timestamps.
