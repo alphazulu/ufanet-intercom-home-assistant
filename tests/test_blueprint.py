@@ -36,6 +36,7 @@ def test_incoming_call_notification_blueprint_is_valid() -> None:
         "notify_device",
         "last_call_sensor",
         "last_call_image",
+        "live_camera",
         "open_door_button",
         "image_delay",
         "action_timeout",
@@ -74,6 +75,17 @@ def test_blueprint_renders_complete_privacy_safe_call_metadata() -> None:
     assert "event_data.called_at" in source
 
 
+def test_blueprint_view_camera_opens_selected_live_camera() -> None:
+    source = BLUEPRINT_PATH.read_text(encoding="utf-8")
+
+    assert "live_camera_entity: !input live_camera" in source
+    assert "live_camera_entity.startswith('camera.')" in source
+    assert "live_camera_entity in device_entities(intercom_device_id)" in source
+    assert "more-info-entity-id=" in source
+    assert 'uri: "{{ camera_uri_value }}"' in source
+    assert 'uri: "{{ dashboard_uri_value }}"' not in source
+
+
 def test_blueprint_notification_identifiers_use_available_run_context() -> None:
     source = BLUEPRINT_PATH.read_text(encoding="utf-8")
 
@@ -108,7 +120,7 @@ def test_blueprint_sends_immediately_and_uses_unique_guarded_door_action() -> No
 def test_blueprint_guards_door_button_against_selected_device() -> None:
     source = BLUEPRINT_PATH.read_text(encoding="utf-8")
 
-    assert source.count("device_entities(intercom_device_id)") >= 3
+    assert source.count("device_entities(intercom_device_id)") >= 4
     assert source.count("open_door_button_entity.startswith('button.')") >= 3
     assert "Revalidate the relay immediately before pressing it" in source
 
