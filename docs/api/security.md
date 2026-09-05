@@ -4,7 +4,7 @@
 
 These APIs control a physical intercom and expose private video/access data. Treat integration code as security-sensitive.
 
-## Secrets and private identifiers
+## Secrets
 
 Never commit, log, or expose:
 
@@ -14,14 +14,9 @@ Never commit, log, or expose:
 - UCAMS bearer token;
 - `token_l` / `token_r`;
 - guest/share tokens;
-- tokenized preview/archive/screenshot URLs;
-- FCM/GCM registration credentials;
-- physical-key `external_id` values;
-- provider `key_id` values unless required internally for a specific runtime operation.
+- tokenized preview/archive/screenshot URLs.
 
-Tokenized media URLs should be treated as credentials until expiration. A physical
-key's `external_id` should likewise be treated as a private access-medium
-identifier rather than user-facing metadata.
+Tokenized media URLs should be treated as credentials until expiration.
 
 ## Physical side effects
 
@@ -63,10 +58,21 @@ public event contains only the result, receipt time, and whether inventory refre
 succeeded. Because the observed `key_add` payload has no `skud_id`, the integration
 deliberately does not guess the target intercom.
 
-Renaming a key changes user-visible metadata; deleting a key is a destructive
-access-control operation. The observed delete endpoint must not be added to a
-production UI without live endpoint validation, strict verification that the key
-belongs to the selected intercom, and a separate explicit user confirmation.
+Provider physical-key `external_id` is discarded during response normalization.
+Provider `key_id` remains private runtime data and is never accepted through the
+public key-management services. `list_physical_keys` instead returns an opaque
+ConfigEntry/intercom-scoped `key_ref`. The validation-only `rename_physical_key`
+service refreshes inventory before resolving that ref, resolves it only for the
+selected intercom, then refreshes again after the Android-observed `/api/v4/key/edit/`
+POST and reports verified success only when the requested new name is observed.
+If the write may have succeeded but verification cannot be completed, the service
+reports an indeterminate error instead of claiming success.
+
+Renaming a key changes user-visible access metadata and remains **Observed** until a
+real key is used for live validation. Deleting a key is a destructive access-control
+operation. The observed delete endpoint must not be added to a production UI
+without live endpoint validation, strict verification that the key belongs to the
+selected intercom, and a separate explicit user confirmation.
 
 ## Guest-access side effects
 
@@ -86,13 +92,10 @@ Recommended redaction rules:
 - never include raw JWTs/tokens;
 - avoid exact private addresses and apartment information unless explicitly required by the user;
 - avoid tokenized URLs;
-- exclude physical-key `external_id` and provider `key_id` values;
 - replace exact camera identifiers with a short irreversible hash when practical;
 - report token presence/expiry rather than token value.
 
 The Home Assistant integration follows these principles in downloadable diagnostics.
-Physical-key diagnostics expose only aggregate counts/health flags plus key-add FCM
-counters/result, never key names, internal IDs, `external_id`, or raw push data.
 
 At runtime, tokenized call-media URLs stay inside the coordinator. Entity state and the `ufanet_intercom_call` event publish capability flags only. An authenticated response service may return a short-lived URL when a user explicitly requests archive playback; consumers should keep that response in memory and must not copy it into persistent entity attributes or logs. A provider-issued HTTP preview URL is rewritten to HTTPS before any request; the integration never sends the media token over HTTP and blocks automatic redirects while downloading preview bytes. Preview bytes are copied to an anonymous seekable Linux `memfd` for local decoding, then closed immediately; the tokenized URL is not passed to `ffmpeg` and no named source-video file is created. Last-call image diagnostics expose only a boolean HTTPS-upgrade flag, a fixed signature-derived payload class, permanent retry-suppression state, fixed reason codes (`invalid_url`, `unsupported_scheme`, `missing_host`, `embedded_credentials`, `empty_preview`, `size_limit`, `download_error`, `decode_error`, `ffmpeg_unavailable` or `unexpected_error`) and exception class names, never response bodies, exception messages or media identifiers.
 
@@ -106,7 +109,6 @@ All examples in this repository must use placeholders such as:
 <CAMERA_NUMBER>
 <SKUD_ID>
 <CALL_UUID>
-<KEY_ID>
 <TEMP_GUEST_TOKEN>
 ```
 
@@ -114,4 +116,4 @@ Never sanitize a secret by changing only a few characters; replace it completely
 
 ## Reverse-engineering scope
 
-This documentation is intended for interoperability with accounts/devices developers are authorized to use. It should not be used to bypass authorization, enumerate unrelated accounts/devices, or access media/access rights belonging to other users.
+This documentation is intended for interoperability with accounts/devices developers are authorized to use. It should not be used to bypass authorization, enumerate unrelated accounts/devices, or access media belonging to other users.
