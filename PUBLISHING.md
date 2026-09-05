@@ -34,7 +34,7 @@ For state-changing features, distinguish three separate checks:
 2. the provider accepts the request;
 3. the intended physical/account side effect is actually observed.
 
-Do not treat (1) or (2) alone as proof of (3).
+Do not treat (1) or (2) alone as proof of (3). When the integration has a post-write read-back verification path, successful read-back is part of the release evidence rather than an optional diagnostic.
 
 ## Live-validation gate
 
@@ -48,13 +48,16 @@ provider pushes or physical side effects. If the active development PR contains 
 Validation-only branches must not be tagged or published directly. In particular,
 physical-key enrollment must not be released solely from reconstructed Android
 behavior: a real new key must prove enrollment, `reason=key_add`, immediate
-inventory refresh, and the privacy boundaries of the resulting Home Assistant
-state/event. Notification actions with physical door control likewise require the
-recorded real-call safety checks before final release approval.
+inventory refresh, the privacy boundaries of the resulting Home Assistant
+state/event, opaque-ref listing, and an actual rename whose new name is confirmed by
+a post-write inventory refresh. The Android-observed delete-key endpoint remains
+outside the release scope unless it receives a separate safety design and controlled
+live validation. Notification actions with physical door control likewise require
+the recorded real-call safety checks before final release approval.
 
 ## Release
 
-Use a SemVer tag matching `manifest.json`, for example `v0.31.0`, and publish a GitHub Release rather than only creating a tag.
+Use a SemVer tag matching `manifest.json`, for example `v0.31.0`, and publish a GitHub Release rather than only creating a tag. The actual next version must be confirmed at release time; an Unreleased planning heading is not authorization to publish.
 
 Before tagging, verify that:
 
@@ -62,9 +65,12 @@ Before tagging, verify that:
 - all documentation links/examples refer to the release being published;
 - no validation document claims **Confirmed** for an untested provider behavior;
 - all hard live-validation gates in the active release PR are resolved;
-- the release commit is the exact commit reviewed/tested for publication.
+- the release commit is the exact commit reviewed/tested for publication;
+- all release-facing versions/cache-bust values were bumped together only after explicit release-preparation approval.
 
 Existing release tags are immutable and must not be moved to repair documentation after publication; documentation-only corrections go to `main`, while a corrected release artifact requires a new patch version.
+
+Merge, tag and GitHub Release are separate release actions. Do not perform them without explicit user approval after validation.
 
 For HACS custom-repository installation, users can add this repository as category **Integration**. A separate ZIP is optional for manual installers.
 
