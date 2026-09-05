@@ -14,7 +14,7 @@
 - Просмотр видеоархива с диапазонами записи, масштабированием/перемещением таймлайна, метками звонков и read-only метками движения.
 - История звонков, `ufanet_intercom_call`, нативные сущности **«Входящий звонок»** / **«Снимок последнего звонка»**, doorbell EventEntity и device trigger.
 - Blueprint уведомлений Companion App: мгновенный текстовый push, приватное обновление картинкой Home Assistant, опциональная защищённая кнопка **«Открыть дверь»** и прямой переход **«Открыть камеру»**.
-- Физические ключи для поддерживаемых домофонов: read-only счётчик/inventory, время последнего прохода, EventEntity/device trigger, validation-only **«Добавить физический ключ»** и privacy-safe сервисы списка/переименования через opaque `key_ref`.
+- Физические ключи для поддерживаемых домофонов: read-only счётчик/inventory, время последнего прохода, EventEntity/device trigger, validation-only **«Добавить физический ключ»**, privacy-safe сервисы списка/переименования через opaque `key_ref` и вкладка **КЛЮЧИ** в Lovelace-карточке.
 - Read-only UCAMS `motion_alarm`: EventEntity **«Обнаружено движение»**, `ufanet_intercom_motion`, device trigger и метки на таймлайне архива.
 - Выбор получения звонков: polling по умолчанию либо экспериментальный FCM с малой задержкой и резервным опросом.
 - Privacy-safe инвентарь авторизованных Ufanet/FCM-сессий и защищённый явный отзыв сессий.
@@ -41,7 +41,8 @@
 - **«Открыть камеру»** открыл More Info выбранной live-камеры;
 - timeout обновил существующее уведомление на месте и удалил устаревшую кнопку открытия;
 - combined-сборка с уведомлениями и physical-key функциями загрузилась без замеченных регрессий;
-- capability/coordinator физических ключей и пустой read-only inventory (`state=0`, `keys=[]`).
+- capability/coordinator физических ключей и пустой read-only inventory (`state=0`, `keys=[]`);
+- response-service `ufanet_intercom.list_physical_keys` на текущем zero-key аккаунте вернул `count: 0`, `keys: []`.
 
 До релиза обязательны оставшиеся real-call проверки гонок/несовпадений/metadata и
 полная регистрация **нового физического ключа**, включая реальный `reason=key_add`,
@@ -110,13 +111,20 @@ entity: camera.YOUR_UFANET_CAMERA
 default_tab: live
 ```
 
-Карточка содержит пять вкладок:
+В validation-ветке карточка содержит шесть вкладок:
 
 - **LIVE** — видео, управление дверью, последний звонок и переход к записи звонка.
 - **АРХИВ** — таймлайн, метки звонков/движения, экспорт MP4 и медиатека экспортов.
 - **ГОСТИ** — приглашения, принятый shared access, временные ключи и отзыв.
 - **УСТРОЙСТВА** — авторизованные Ufanet-сессии, защита регистраций Home Assistant, точечный и защищённый массовый отзыв.
+- **КЛЮЧИ** — свежий privacy-safe список физических ключей, запуск 60-секундной регистрации нового ключа и переименование через opaque `key_ref`; удаление ключей отсутствует.
 - **ДИАГНОСТИКА** — token-free runtime health, polling, FCM authorization, UCAMS/archive и autosave.
+
+Вкладка **КЛЮЧИ** реализована отдельным packaged frontend-модулем
+`ufanet-physical-keys-card.js`, который интеграция загружает автоматически и который
+ждёт регистрации `custom:ufanet-intercom-card`. Отдельно добавлять этот extension в
+Lovelace Resources не требуется. В visual editor validation-ветки `keys` также можно
+выбрать как `default_tab`.
 
 ## Настройки
 
@@ -210,7 +218,7 @@ FCM listener распознаёт Android-observed completion `reason=key_add`, 
 и push payload не публикуются. Реальный `key_add` и непустой inventory пока имеют
 статус **Observed / pending live validation**.
 
-Для будущего управления ключами validation-ветка предоставляет response-service
+Для управления ключами validation-ветка предоставляет response-service
 `ufanet_intercom.list_physical_keys`, который возвращает только `name`,
 `created_at` и локальный непрозрачный `key_ref`. `ufanet_intercom.rename_physical_key`
 принимает этот `key_ref`, перед изменением перечитывает свежий inventory, разрешает
@@ -218,7 +226,13 @@ FCM listener распознаёт Android-observed completion `reason=key_add`, 
 обязательно перечитывает inventory ещё раз. Успех возвращается только если новое имя
 реально видно после refresh. Raw provider `key_id` не принимается и не возвращается.
 Сам rename endpoint остаётся **Observed / pending live validation** до появления
-реального ключа. Удаление ключа не реализовано. Подробности:
+реального ключа. Удаление ключа не реализовано.
+
+Вкладка **КЛЮЧИ** использует эти же privacy-safe response-services. Кнопка
+**«Добавить ключ»** вызывает только HA entity `button.*_add_physical_key`, показывает
+60-секундный countdown и после окончания окна перечитывает список. Переименование
+запрашивает подтверждение и считает операцию успешной только если backend вернул
+`verified: true`. Никакого delete action в UI нет. Подробности:
 [docs/api/keys_RU.md](docs/api/keys_RU.md).
 
 ## Аналитика движения
