@@ -14,7 +14,7 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 - Native archive browsing with recording ranges, timeline zoom/pan, call markers, and read-only motion-event markers.
 - Intercom call history, `ufanet_intercom_call`, native **Incoming call** / **Last call image** entities, a doorbell EventEntity and visual device trigger.
 - Companion notification blueprint with immediate text delivery, private HA image replacement, optional guarded **Open door** action and direct **View camera** navigation.
-- Physical-key support for capable intercoms: read-only count/inventory, latest passage timestamp, passage EventEntity/device trigger, and validation-only **Add physical key** enrollment flow.
+- Physical-key support for capable intercoms: read-only count/inventory, latest passage timestamp, passage EventEntity/device trigger, validation-only **Add physical key**, and privacy-safe list/rename services using opaque `key_ref` values.
 - Read-only UCAMS `motion_alarm` analytics with a **Motion detected** event entity, `ufanet_intercom_motion` event, visual device trigger and archive timeline markers.
 - Selectable call updates: polling by default or experimental low-latency FCM with safety polling.
 - Privacy-safe FCM authorization/session inventory and explicit guarded session revocation.
@@ -28,7 +28,7 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 ## Current validation work
 
 The `codex/combined-validation` branch contains unreleased notification-action and
-physical-key enrollment work. It is intentionally **validation-only** and must not
+physical-key enrollment/management work. It is intentionally **validation-only** and must not
 be tagged/published until the live gates in the active validation PR are complete.
 The installed integration version therefore remains `0.30.0` until explicit
 release preparation begins.
@@ -45,7 +45,8 @@ Already live-validated on the development Home Assistant installation:
 
 Still mandatory before release: the remaining real-call race/mismatch/metadata checks
 and a complete registration of a **new physical key**, including the real
-`reason=key_add` push and a non-empty inventory row. See
+`reason=key_add` push, a non-empty inventory row, privacy-safe `list_physical_keys`,
+and a real rename through the validation-only `rename_physical_key` service. See
 [Home Assistant call notifications](docs/notifications.md) and
 [Physical keys and passage history](docs/api/keys.md).
 
@@ -208,7 +209,16 @@ It refreshes the key inventory immediately and emits the account-level,
 privacy-minimized `ufanet_intercom_key_enrollment` event. Provider `key_id`,
 `external_id`, raw message text and push payload are not published. The real
 `key_add` path and non-empty inventory remain **Observed/pending live validation**.
-See [docs/api/keys.md](docs/api/keys.md).
+
+For future key management, the validation branch exposes
+`ufanet_intercom.list_physical_keys`, returning only `name`, `created_at`, and a
+local opaque `key_ref`. `ufanet_intercom.rename_physical_key` accepts that ref,
+refreshes inventory before mutation, resolves it only inside the selected intercom,
+then calls the Android-observed `/api/v4/key/edit/` contract internally and performs
+a second refresh. It reports success only when the requested new name is observed
+after that refresh. Raw provider `key_id` is neither accepted nor returned. The
+rename endpoint itself remains **Observed/pending live validation** until a real key
+exists. Key deletion is not implemented. See [docs/api/keys.md](docs/api/keys.md).
 
 ## Motion analytics
 
@@ -236,6 +246,7 @@ supports open/download/delete plus configured retention/size cleanup.
 - Opening the door is a real physical action; the card/notification require explicit user interaction and notification actions add same-device guards.
 - Starting physical-key enrollment changes access-control state and must not be used as a health check or automatic action.
 - Physical-key `external_id` is discarded at normalization; provider `key_id` remains internal and is not exposed in sensor attributes/events/diagnostics.
+- Public physical-key management uses only an intercom-scoped opaque `key_ref`; rename refreshes inventory before mutation and verifies the result with a second refresh after POST.
 - Tokenized call-media URLs remain internal runtime data; only the generated last-call JPEG is cached for the image entity.
 - Authorized-session management exposes opaque refs rather than raw provider FCM device IDs and protects locally provable Home Assistant registrations.
 - Motion analytics stores provider cursor data only in private storage and publishes only normalized timestamps.
