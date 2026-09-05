@@ -16,11 +16,22 @@
 4. получил реальный `reason=sip` push без Android/Google Play Services;
 5. сопоставил тот же физический звонок с `/api/v1/skuds/call-history/`.
 
-Headless FCM path имеет статус **Confirmed**.
+Headless FCM transport и путь `reason=sip` имеют статус **Confirmed**.
+
+Официальный Android-клиент также содержит completion flow регистрации физического
+ключа с `data.reason=key_add`, `key_status` и `key_id`. Этот контракт пока имеет
+статус **Observed** по коду клиента и остаётся обязательным live-gate до
+end-to-end регистрации нового незарегистрированного ключа.
 
 ## Режим интеграции Home Assistant
 
 Начиная с версии 0.20.0 в настройках интеграции доступны `polling` и экспериментальный `fcm`. FCM регистрирует приватную virtual installation, слушает `data.reason=sip` и сразу запрашивает обновление `call-history` через существующий call coordinator. Polling остаётся включённым с минимальным интервалом 300 секунд, чтобы пропущенный push или разрыв MCS-соединения не отключил события звонков незаметно.
+
+Текущая validation-ветка дополнительно распознаёт `data.reason=key_add`. Этот путь
+не меняет проверенный SIP/call flow: он классифицирует результат регистрации
+ключа, немедленно обновляет physical-key coordinator и отправляет privacy-minimized
+событие Home Assistant `ufanet_intercom_key_enrollment`. Provider key ID и raw
+notification text не публикуются.
 
 По умолчанию JSON читается из `ufanet_intercom/firebase_config.json` внутри каталога конфигурации Home Assistant. В ConfigEntry сохраняется только этот относительный путь. Firebase-значения и runtime FCM credentials остаются в локальных config/storage Home Assistant и исключены из диагностики.
 
@@ -265,9 +276,64 @@ skud_id
 
 для немедленного SIP flow. UUID истории звонков для live-start не требуется.
 
+## FCM completion регистрации физического ключа
+
+**Observed в Android-клиенте; live-проверка ожидается**
+
+Клиент содержит отдельный completion path с selector:
+
+```text
+data.reason = key_add
+```
+
+Поля, используемые наблюдаемой логикой успеха:
+
+```text
+key_status
+key_id
+```
+
+Успех требует `key_status == 0` и присутствующего `key_id`, который можно разобрать
+как integer. Отсутствующий/некорректный status трактуется как ошибка. В наблюдаемом
+payload нет `skud_id`.
+
+Validation-ветка обрабатывает сообщение без публикации provider identifiers:
+
+```text
+FCM reason=key_add
+        |
+        +--> классификация success/error
+        |
+        +--> немедленный UfanetKeyPassageCoordinator refresh
+        |        |
+        |        v
+        |    POST /api/v4/key/list/
+        |
+        v
+ufanet_intercom_key_enrollment
+```
+
+Публичное событие Home Assistant содержит только:
+
+```text
+type
+source
+result
+received_at
+inventory_refresh_succeeded
+```
+
+Provider `key_id`, notification `title`/`body` и raw push не сохраняются в событии
+или diagnostics. Диагностика содержит только `received_key_add_push_count`,
+`last_key_add_push_at` и `last_key_add_result`.
+
+Так как в сообщении не наблюдался `skud_id`, событие намеренно остаётся
+account-level. Фактическая связь ключа с домофоном определяется после refresh по
+полю `devices` в inventory ключей.
+
 ## Связь push и call-history
 
-**Confirmed**
+**Confirmed для `reason=sip`**
 
 Для одного и того же физического вызова:
 
@@ -284,12 +350,12 @@ push.data.uuid != call-history.uuid
 
 Предыдущие два SIP push с интервалом около 12 секунд были двумя отдельными сделанными тестовыми вызовами, а не доказанными retries одного звонка.
 
-## Целевая архитектура Home Assistant
+## Архитектура Home Assistant
+
+Для звонков:
 
 ```text
 FCM reason=sip
-   |
-   +--> immediate transient incoming/ringing event
    |
    +--> immediate UfanetCallCoordinator refresh
               |
@@ -299,7 +365,20 @@ FCM reason=sip
        durable event + media/archive
 ```
 
-Push — low-latency wake-up signal. `call-history` остаётся authoritative source для durable identity и media. Периодический polling сохраняется как fallback и после стабилизации push может выполняться существенно реже.
+Для completion регистрации физического ключа:
+
+```text
+FCM reason=key_add
+   |
+   +--> immediate key inventory refresh
+   |
+   +--> privacy-minimized account-level completion event
+```
+
+Push — low-latency wake-up/completion signal. `call-history` остаётся authoritative
+source устойчивой идентичности и media звонка; `/api/v4/key/list/` является
+авторитетным inventory после регистрации ключа. Периодический polling сохраняется
+как fallback.
 
 ## Research latency probe
 
@@ -313,6 +392,21 @@ Windows/Python PoC после каждого SIP push проверяет `call-h
 
 В четырёх последовательных live-тестах 29 августа 2026 года совпадающая запись каждый раз находилась уже первым запросом. Запрос завершался через 0,446–0,916 секунды после push (медиана 0,613 секунды), разница timestamp push/history составляла 0–1 секунду. Во всех четырёх образцах UUID push отличался от устойчивого UUID истории. Интеграция всё равно выполняет короткие повторные refresh, чтобы учесть сетевой jitter и более медленную публикацию call-history.
 
+## Обязательная live-проверка `key_add`
+
+До допуска physical-key блока в релиз новым незарегистрированным ключом необходимо
+подтвердить:
+
+1. реальный completion push действительно приходит через headless listener;
+2. его wire-схема соответствует наблюдаемому контракту `reason=key_add`,
+   `key_status`, `key_id`;
+3. немедленный refresh coordinator проходит успешно и ключ появляется в read-only
+   inventory;
+4. `ufanet_intercom_key_enrollment` возвращает правильный result без provider ID и
+   message text.
+
+До этого `key_add` остаётся **Observed**, а не **Confirmed**.
+
 ## Безопасность
 
 Не публиковать и не коммитить:
@@ -325,6 +419,7 @@ Windows/Python PoC после каждого SIP push проверяет `call-h
 - WebPush private key/auth secret;
 - Ufanet JWT;
 - реальные SIP username/password/server;
+- `external_id` физического ключа и provider `key_id`;
 - private account/location identifiers.
 
 Хотя Firebase Android client config по своей природе поставляется внутри клиентского APK, проект сознательно не распространяет конфигурацию чужого Firebase project и получает её только локально из пользовательской копии приложения.
