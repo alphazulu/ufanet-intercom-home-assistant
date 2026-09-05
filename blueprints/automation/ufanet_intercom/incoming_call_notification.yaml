@@ -3,10 +3,10 @@ blueprint:
   description: >-
     Send an immediate Home Assistant Companion notification for a confirmed
     Ufanet intercom call, then replace it with the privately proxied last-call
-    image when the JPEG becomes ready. An optional, time-limited Open door
-    action can target an explicitly selected Ufanet button. Manual runs are
-    safe tests: they fall back to the last-call sensor and never enable the
-    door action.
+    image when the JPEG becomes ready. The push includes Home Assistant device
+    name, address, porch, flat and Home Assistant-local call time. An optional,
+    time-limited Open door action can target an explicitly selected Ufanet
+    button. Manual runs are safe tests and never enable the door action.
   domain: automation
   source_url: >-
     https://github.com/alphazulu/ufanet-intercom-home-assistant/blob/main/blueprints/automation/ufanet_intercom/incoming_call_notification.yaml
@@ -92,8 +92,17 @@ blueprint:
       default: /lovelace/0
       selector:
         text:
+    notification_channel:
+      name: Android notification channel
+      description: >-
+        Android notification channel used for intercom calls. iOS ignores this
+        Android-specific field.
+      default: Ufanet Intercom
+      selector:
+        text:
     notification_title:
-      name: Notification title
+      name: Notification title suffix
+      description: Text shown after the selected Home Assistant intercom name.
       default: Incoming intercom call
       selector:
         text:
@@ -110,6 +119,7 @@ variables:
   open_door_button_entity: !input open_door_button
   image_delay_value: !input image_delay
   dashboard_uri_value: !input dashboard_uri
+  notification_channel_value: !input notification_channel
   notification_title_value: !input notification_title
   notification_message_value: !input notification_message
   run_started_ts: "{{ as_timestamp(now()) }}"
@@ -125,25 +135,34 @@ variables:
     {{ trigger.event.context.id
        if is_live_call
        else now().strftime('%Y%m%d%H%M%S%f') }}
+  intercom_name: >-
+    {{ device_name(intercom_device_id)
+       | default(event_data.device_name, true)
+       | default('Ufanet intercom', true) }}
   call_time: >-
     {{ event_data.called_at
        | default(states(last_call_sensor_entity), true)
        | default('', true) }}
+  call_local_time: >-
+    {% set call_ts = as_timestamp(call_time, 0) %}
+    {{ call_ts | timestamp_custom('%d.%m.%Y %H:%M:%S', true)
+       if call_ts > 0 else '' }}
   call_address: >-
-    {% set address = event_data.address
+    {{ event_data.address
        | default(state_attr(last_call_sensor_entity, 'address'), true)
-       | default('', true) %}
-    {% set porch = event_data.porch
+       | default('', true) }}
+  call_porch: >-
+    {{ event_data.porch
        | default(state_attr(last_call_sensor_entity, 'porch'), true)
-       | default('', true) %}
-    {% set flat = event_data.flat
+       | default('', true) }}
+  call_flat: >-
+    {{ event_data.flat
        | default(state_attr(last_call_sensor_entity, 'flat'), true)
-       | default('', true) %}
-    {{
-      address
-      ~ (', porch ' ~ porch if porch|string|length > 0 else '')
-      ~ (', flat ' ~ flat if flat|string|length > 0 else '')
-    }}
+       | default('', true) }}
+  notification_title_rendered: >-
+    {{ '🔔 ' ~ intercom_name
+       ~ (' — ' ~ notification_title_value
+          if notification_title_value|string|length > 0 else '') }}
   notification_tag: >-
     {{ ('ufanet_intercom_' if is_live_call else 'ufanet_intercom_test_')
        ~ intercom_device_id }}
@@ -151,7 +170,14 @@ variables:
     {{ 'UFANET_OPEN_' ~ run_id }}
   notification_body: >-
     {{ notification_message_value
-       ~ ('\n' ~ call_address if call_address|string|length > 0 else '')
+       ~ ('\nAddress: ' ~ call_address
+          if call_address|string|length > 0 else '')
+       ~ ('\nPorch: ' ~ call_porch
+          if call_porch|string|length > 0 else '')
+       ~ ('\nFlat: ' ~ call_flat
+          if call_flat|string|length > 0 else '')
+       ~ ('\nTime: ' ~ call_local_time
+          if call_local_time|string|length > 0 else '')
        ~ ('\nManual test — door action is disabled.' if not is_live_call else '') }}
   can_open_door: >-
     {{ is_live_call
@@ -173,14 +199,14 @@ actions:
           - domain: mobile_app
             type: notify
             device_id: !input notify_device
-            title: "{{ notification_title_value }}"
+            title: "{{ notification_title_rendered }}"
             message: "{{ notification_body }}"
             data:
               tag: "{{ notification_tag }}"
               group: ufanet_intercom_calls
               ttl: 0
               priority: high
-              channel: Ufanet Intercom
+              channel: "{{ notification_channel_value }}"
               importance: high
               confirmation: true
               url: "{{ dashboard_uri_value }}"
@@ -196,14 +222,14 @@ actions:
       - domain: mobile_app
         type: notify
         device_id: !input notify_device
-        title: "{{ notification_title_value }}"
+        title: "{{ notification_title_rendered }}"
         message: "{{ notification_body }}"
         data:
           tag: "{{ notification_tag }}"
           group: ufanet_intercom_calls
           ttl: 0
           priority: high
-          channel: Ufanet Intercom
+          channel: "{{ notification_channel_value }}"
           importance: high
           confirmation: true
           url: "{{ dashboard_uri_value }}"
@@ -227,11 +253,13 @@ actions:
                   - domain: mobile_app
                     type: notify
                     device_id: !input notify_device
-                    title: "{{ notification_title_value }}"
+                    title: "{{ notification_title_rendered }}"
                     message: "{{ notification_body }}"
                     data:
                       tag: "{{ notification_tag }}"
                       group: ufanet_intercom_calls
+                      channel: "{{ notification_channel_value }}"
+                      importance: high
                       alert_once: true
                       confirmation: true
                       url: "{{ dashboard_uri_value }}"
@@ -281,13 +309,15 @@ actions:
                       - domain: mobile_app
                         type: notify
                         device_id: !input notify_device
-                        title: "{{ notification_title_value }}"
+                        title: "{{ notification_title_rendered }}"
                         message: >-
                           {{ notification_body
                              ~ '\nOpen door action is no longer available.' }}
                         data:
                           tag: "{{ notification_tag }}"
                           group: ufanet_intercom_calls
+                          channel: "{{ notification_channel_value }}"
+                          importance: high
                           alert_once: true
                           url: "{{ dashboard_uri_value }}"
                           clickAction: "{{ dashboard_uri_value }}"
@@ -300,12 +330,14 @@ actions:
                     domain: mobile_app
                     type: notify
                     device_id: !input notify_device
-                    title: "{{ notification_title_value }}"
+                    title: "{{ notification_title_rendered }}"
                     message: >-
                       {{ notification_body ~ '\nOpen door command sent.' }}
                     data:
                       tag: "{{ notification_tag }}"
                       group: ufanet_intercom_calls
+                      channel: "{{ notification_channel_value }}"
+                      importance: high
                       alert_once: true
                       url: "{{ dashboard_uri_value }}"
                       clickAction: "{{ dashboard_uri_value }}"
@@ -332,11 +364,13 @@ actions:
                           - domain: mobile_app
                             type: notify
                             device_id: !input notify_device
-                            title: "{{ notification_title_value }}"
+                            title: "{{ notification_title_rendered }}"
                             message: "{{ notification_body }}"
                             data:
                               tag: "{{ notification_tag }}"
                               group: ufanet_intercom_calls
+                              channel: "{{ notification_channel_value }}"
+                              importance: high
                               alert_once: true
                               confirmation: true
                               url: "{{ dashboard_uri_value }}"
@@ -382,13 +416,15 @@ actions:
                               - domain: mobile_app
                                 type: notify
                                 device_id: !input notify_device
-                                title: "{{ notification_title_value }}"
+                                title: "{{ notification_title_rendered }}"
                                 message: >-
                                   {{ notification_body
                                      ~ '\nOpen door action is no longer available.' }}
                                 data:
                                   tag: "{{ notification_tag }}"
                                   group: ufanet_intercom_calls
+                                  channel: "{{ notification_channel_value }}"
+                                  importance: high
                                   alert_once: true
                                   url: "{{ dashboard_uri_value }}"
                                   clickAction: "{{ dashboard_uri_value }}"
@@ -400,12 +436,14 @@ actions:
                           - domain: mobile_app
                             type: notify
                             device_id: !input notify_device
-                            title: "{{ notification_title_value }}"
+                            title: "{{ notification_title_rendered }}"
                             message: >-
                               {{ notification_body ~ '\nOpen door command sent.' }}
                             data:
                               tag: "{{ notification_tag }}"
                               group: ufanet_intercom_calls
+                              channel: "{{ notification_channel_value }}"
+                              importance: high
                               alert_once: true
                               url: "{{ dashboard_uri_value }}"
                               clickAction: "{{ dashboard_uri_value }}"
@@ -417,12 +455,14 @@ actions:
                       - domain: mobile_app
                         type: notify
                         device_id: !input notify_device
-                        title: "{{ notification_title_value }}"
+                        title: "{{ notification_title_rendered }}"
                         message: >-
                           {{ notification_body ~ '\nOpen door action expired.' }}
                         data:
                           tag: "{{ notification_tag }}"
                           group: ufanet_intercom_calls
+                          channel: "{{ notification_channel_value }}"
+                          importance: high
                           alert_once: true
                           url: "{{ dashboard_uri_value }}"
                           clickAction: "{{ dashboard_uri_value }}"
@@ -435,12 +475,14 @@ actions:
                 domain: mobile_app
                 type: notify
                 device_id: !input notify_device
-                title: "{{ notification_title_value }}"
+                title: "{{ notification_title_rendered }}"
                 message: >-
                   {{ notification_body ~ '\nOpen door action expired.' }}
                 data:
                   tag: "{{ notification_tag }}"
                   group: ufanet_intercom_calls
+                  channel: "{{ notification_channel_value }}"
+                  importance: high
                   alert_once: true
                   url: "{{ dashboard_uri_value }}"
                   clickAction: "{{ dashboard_uri_value }}"
@@ -461,11 +503,13 @@ actions:
       - domain: mobile_app
         type: notify
         device_id: !input notify_device
-        title: "{{ notification_title_value }}"
+        title: "{{ notification_title_rendered }}"
         message: "{{ notification_body }}"
         data:
           tag: "{{ notification_tag }}"
           group: ufanet_intercom_calls
+          channel: "{{ notification_channel_value }}"
+          importance: high
           alert_once: true
           confirmation: true
           url: "{{ dashboard_uri_value }}"
