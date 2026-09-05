@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased (validation for 0.31.0)
+
+- Added a native Home Assistant doorbell EventEntity for confirmed Ufanet calls and an importable Companion notification blueprint with immediate text delivery, private `/api/image_proxy/` image replacement, stable per-intercom notification tags, configurable image wait/action timeout and privacy-safe call metadata.
+- Added guarded actionable notification controls: **Open door** uses a unique Home Assistant-local action ID, requires the selected button to belong to the same Ufanet device, repeats that membership check immediately before `button.press`, expires after timeout, and is disabled for manual blueprint runs; **View camera** can open the selected same-device live `camera.*` entity directly through Home Assistant More Info.
+- Fixed Android Companion payload compatibility discovered during live testing (`trigger.event.context.id` rather than a missing bare context and string `authenticationRequired="true"` for the FCM data channel). Android real-call delivery, physical door opening, direct live-camera navigation and timeout replacement of the same notification have been live-tested; remaining real-call race/mismatch/metadata checks are tracked as hard release gates.
+- Added **Add physical key** for intercoms that advertise `has_key_recording_support`. The button mirrors the Android-observed `POST /api/v4/key/skud/<id>/auto_collect/enable/` flow and exposes the observed 60-second enrollment window; successful HTTP dispatch is not treated as proof that a key was registered.
+- Added `reason=key_add` FCM completion handling using the Android-observed success rule (`key_status == 0` plus a valid `key_id`), an immediate physical-key coordinator refresh, privacy-safe `ufanet_intercom_key_enrollment` events, and token/identifier-free key-add diagnostics. The real `key_add` wire payload remains Observed until a new physical key is available for end-to-end testing.
+- Extended the **Physical keys** sensor with a read-only `keys` inventory filtered to the selected intercom. Public rows contain only `name` and UTC `created_at`; provider `external_id` is discarded at normalization and provider key IDs remain internal. The empty live state (`state=0`, `keys=[]`) has been verified in Home Assistant; non-empty inventory remains a release gate.
+- Documented Android-observed physical-key rename (`POST /api/v4/key/edit/`) and delete (`POST /api/v4/key/skud/<id>/delete/key/`) contracts without implementing them. Delete remains explicitly destructive and outside the current release scope.
+- Updated EN/RU user documentation, notification guide, physical-key reference, FCM reference, API verification matrix, data models, security guidance and publishing checklist to distinguish Confirmed vs Observed behavior and preserve the required live-validation gates.
+- This work remains **validation-only**: do not tag or publish a release until the active combined-validation PR's `REQUIRED VALIDATION BEFORE ANY RELEASE` checklist is completed or explicitly reviewed/waived.
+
 ## 0.30.0
 
 - Added a live-confirmed, privacy-safe authorized-device inventory based on `POST /api/v4/fcm_device/authorized_devices/`, including non-blocking verification that the Home Assistant FCM registration is present and has call access.
