@@ -67,6 +67,9 @@
       "open_door": {
         "name": "Open door"
       },
+      "add_physical_key": {
+        "name": "Add physical key"
+      },
       "archive_previous": {
         "name": "Archive back"
       },

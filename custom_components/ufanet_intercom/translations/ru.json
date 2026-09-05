@@ -67,6 +67,9 @@
       "open_door": {
         "name": "Открыть дверь"
       },
+      "add_physical_key": {
+        "name": "Добавить физический ключ"
+      },
       "archive_previous": {
         "name": "Назад"
       },
