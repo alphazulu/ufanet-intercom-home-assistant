@@ -35,6 +35,25 @@ The integration tracks expirations and refreshes/reacquires tokens. Exact server
 
 **Status: Operational behavior Confirmed; detailed error responses still to be collected.**
 
+## Physical-key enrollment start error
+
+The official Android client has a dedicated error branch around
+`POST /api/v4/key/skud/<SKUD_ID>/auto_collect/enable/` and handles HTTP 400
+separately as an enrollment rejection/block condition.
+
+**Status: Observed in Android client code; a real HTTP 400 response and its body are
+not yet live-confirmed.**
+
+Therefore a generic HTTP 400 must not yet be documented as one universal provider
+business reason. The Home Assistant validation branch does not invent server
+semantics: a Ufanet API failure becomes a Home Assistant action error, while a
+successful HTTP response still proves only that the 60-second enrollment mode was
+armed, not that a physical key was registered.
+
+A future live test should capture only the sanitized status/body and relevant
+intercom state, never provider key IDs, `external_id`, credentials, or private
+account identifiers.
+
 ## Archive not yet available
 
 Immediately after a real-time event, the requested post-event interval may not yet be present in the archive. The integration therefore waits a settle interval and retries automatic call exports.
@@ -69,6 +88,6 @@ When adding a newly observed error, record:
 - sanitized response body;
 - whether retrying changed the result;
 - token state/expiry without exposing token values;
-- whether the operation has side effects.
+- whether the operation has side effects and whether those side effects were actually verified.
 
 Do not generalize a single observed status code to all failure modes without additional evidence.
