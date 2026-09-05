@@ -87,7 +87,9 @@ class UfanetFcmManager(BaseUfanetFcmManager):
         if coordinator is not None:
             try:
                 await coordinator.async_request_refresh()
-                refresh_succeeded = True
+                refresh_succeeded = bool(
+                    getattr(coordinator, "last_update_success", False)
+                )
             except Exception as err:  # noqa: BLE001 - FCM worker must survive
                 _LOGGER.warning(
                     "Unable to refresh physical-key inventory after key_add push: %s",
