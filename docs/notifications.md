@@ -49,7 +49,7 @@ The blueprint uses inline Companion actions supported on both Android and iOS:
 - **Open door** uses a unique Home Assistant-local action ID and never calls a provider API directly;
 - **View camera** uses the standard `URI` action. When a matching **Live camera** entity is selected, the blueprint opens that entity directly with Home Assistant's `more-info-entity-id` frontend query parameter; otherwise it falls back to the configured Home Assistant view.
 
-The selected live camera is accepted only when it is a `camera.*` entity belonging to the same Home Assistant device as the selected intercom. This prevents an accidentally selected archive or unrelated camera from silently becoming the notification target.
+The selected camera is accepted only when it is a `camera.*` entity belonging to the same Home Assistant device as the selected intercom. A Ufanet device can expose both live and archive camera entities, so choose the live camera explicitly in the blueprint selector. The device-membership guard prevents an unrelated camera from becoming the notification target.
 
 The Open door action requests device authentication where supported. During Android live testing the Companion/FCM data channel required action values to be strings, so `authenticationRequired` is encoded as `"true"`; Android Companion parses that value as a boolean. Apple-only `destructive` metadata is deliberately not included in the cross-platform payload.
 
@@ -93,7 +93,7 @@ If no notification arrives during a real call:
 1. Run the blueprint manually. If that notification arrives, Companion delivery works and the next place to inspect is the automation trace for the real incoming-call trigger.
 2. If the immediate text notification arrives but the image does not, inspect the **Last call image** entity and Ufanet diagnostics. JPEG extraction requires a working `ffmpeg` runtime.
 3. If the notification arrives but the door button is absent, confirm that an **Open door** entity from the same Ufanet device was selected and that the run was triggered by a real incoming call rather than manually.
-4. If **View camera** only opens the dashboard, select the matching **Live camera** entity in the blueprint inputs. A mismatched camera deliberately falls back to the dashboard URI.
+4. If **View camera** only opens the dashboard, select the matching live `camera.*` entity in the blueprint inputs. A mismatched camera deliberately falls back to the dashboard URI.
 5. The image URL should be `/api/image_proxy/image.entity_id`; do not append the image entity access token yourself.
 6. For Android push rejection, enable debug logging for `homeassistant.components.mobile_app.notify`; an FCM error such as `data must only contain string values` points to an invalid actionable-notification payload rather than the Ufanet call trigger.
 
