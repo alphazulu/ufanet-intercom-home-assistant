@@ -6,6 +6,10 @@
 официальном Android-клиенте, подтверждённые live-части этого контракта и
 privacy-safe production-поведение, реализованное в Ufanet Intercom v0.28.0.
 
+> Текущая combined validation-ветка уведомлений/физических ключей не меняет
+> контракт `motion_alarm` или его evidence status. Этот раздел проверен при
+> подготовке validation documentation и остаётся authoritative для аналитики.
+
 ## Метаданные возможностей камеры
 
 **Статус: Confirmed для `motion_alarm`; Observed для `perimeter_security`**
@@ -78,91 +82,39 @@ Live-ответ представляет собой объект с полями
 `limit`.
 
 Для этого report endpoint не подтверждены request-поля пагинации вроде `page`
-или `offset`, поэтому v0.28.0 намеренно их не выдумывает. Production runtime:
+или `offset`. Production поэтому не придумывает pagination contract из одной
+metadata ответа. Если временное окно возвращает больше событий, чем можно безопасно
+обработать, runtime делит только подтверждённый интервал `start`/`end`; если даже
+малое окно остаётся неполным, poll завершается ошибкой без продвижения cursor.
 
-1. проверяет `count`/`page`, чтобы определить полноту возвращённого временного
-   окна;
-2. сразу нормализует полное окно;
-3. если после baseline окно неполное, рекурсивно делит только уже подтверждённый
-   интервал `start`/`end` и запрашивает более узкие окна;
-4. не продвигает cursor, если окно остаётся слишком плотным и его нельзя
-   безопасно разрешить.
+## Архивный offset
 
-Таким образом переполнение обрабатывается fail-closed: отдельный poll может
-завершиться ошибкой, но невиденные события не будут молча потеряны из-за
-продвижения cursor за необработанный промежуток.
+Android archive player стартует воспроизведение примерно за 18 секунд до выбранного
+analytics event. Это UX-offset playback, а не изменение timestamp события.
+Validation/production marker остаётся на авторитетном `date`.
 
-## Replay cursor и baseline первого poll
+## Home Assistant model
 
-Provider `id` никогда не публикуется как пользовательские данные Home Assistant.
-Production хранит только приватный cursor для каждой камеры: точное последнее
-UTC `date` и множество ID, уже увиденных на этой же временной отметке.
+Для камеры с `motion_alarm` создаются:
 
-Важное поведение v0.28.0:
+- EventEntity **«Обнаружено движение»**;
+- event bus `ufanet_intercom_motion`;
+- device trigger **«Обнаружено движение»**;
+- read-only markers на архивном timeline.
 
-- дробная точность timestamp сохраняется в private storage, поэтому reload не
-  сдвигает cursor назад и не повторяет уже обработанное событие;
-- ID с одинаковым timestamp сохраняются для детерминированной дедупликации;
-- первый успешный poll устанавливает baseline и не воспроизводит существующую
-  историю;
-- если первый poll пустой, baseline устанавливается на время poll, а не Unix
-  epoch;
-- последующие запросы используют небольшой overlap вокруг приватного cursor, а
-  повторы удаляются самим cursor;
-- lookback аналитики ограничен и не превращается в неограниченный replay
-  истории.
+Публичное событие содержит только нормализованный `occurred_at`. Provider camera ID,
+analytics cursor/event ID, `length`, raw history, screenshots, recognition/media
+не публикуются. Cursor хранится только в private storage Home Assistant.
 
-Обновление cursors транзакционно для всех камер. Если запрос одной камеры или
-запись private storage завершается ошибкой, transient events очищаются, а cursor
-state всего poll откатывается.
+Первый успешный poll устанавливает baseline и не воспроизводит старую историю.
+Дробная точность `date` сохраняется, чтобы одинаковые timestamp корректно
+дедуплицировались после reload.
 
-## Поверхность Home Assistant в v0.28.0
+## Privacy/error boundary
 
-Для домофона, камера которого объявляет `motion_alarm`, интеграция создаёт:
+Response считается private provider data. Runtime валидирует только необходимые
+поля, неизвестные поля не прокидывает в entities/diagnostics, а server error text
+не переносится как есть в публичные coordinator errors/logs.
 
-- Home Assistant `EventEntity` **«Обнаружено движение»**;
-- событие шины Home Assistant `ufanet_intercom_motion`;
-- device trigger `motion_detected` для визуального редактора автоматизаций.
-
-EventEntity публикует только `occurred_at`. Внутреннее bus-событие может
-содержать ссылку на домофон/HA device, необходимую для маршрутизации
-автоматизации, но не раскрывает номер камеры UCAMS, provider event/cursor ID,
-`length`, raw history, media, screenshots, recognition output или произвольные
-поля ответа.
-
-Обнаружение Motion entity восстанавливается динамически: если UCAMS analytics
-недоступна при первоначальном setup, последующий успешный capability refresh
-может добавить сущность без reload ConfigEntry.
-
-Analytics coordinator работает с низкой частотой опроса — обычно раз в 60
-секунд. Это источник событий для автоматизаций, а не мгновенный security-alarm
-transport.
-
-## Модель событий таймлайна в Android-клиенте
-
-**Статус: Observed**
-
-В декомпилированном Android-клиенте для архивного timebar ведётся отдельный список точечных событий. Каждый `EventDataExistTimeSegment` хранит timestamp события, цвет и тип; timebar рисует timestamp узкой меткой поверх полосы наличия записи. Player запрашивает аналитику для доступного архивного интервала и не смешивает timestamps событий с диапазонами записи.
-
-В клиенте также присутствует `POST /api/v0/analytics/archive_events/` для общего запроса архивной аналитики. Этот endpoint имеет статус только **Observed**: проект не подтверждал его live-запросом, поэтому production-код Home Assistant его не вызывает. Метки движения в архиве повторно используют уже Confirmed endpoint `POST /api/v0/analytics/motion_alarm/report/` с ограниченными окнами `start`/`end`.
-
-При открытии analytics event официальный клиент использует playback offset примерно 18 секунд до события. Timestamp самого события не изменяется. Таймлайн Home Assistant повторяет эту UI-семантику: точечная метка остаётся на авторитетном `date`, а клик запускает запись примерно за 18 секунд до события, если этот участок архива доступен.
-
-Авторизованный response-service Home Assistant `get_motion_events` возвращает только выбранную camera-local дату, признак поддержки, количество и нормализованные времена событий, необходимые Lovelace timeline. Номера камер UCAMS, provider event IDs, `length`, raw results, media, screenshots и recognition data не возвращаются.
-
-## Ошибки, диагностика и граница приватности
-
-Production-поддержка намеренно ограничена `motion_alarm`. Проект не запрашивает
-распознавание лиц/номеров, thermal data, crowd analysis, helmet detection,
-screenshots, свободный текст или analytics media URL.
-
-Исследовательский probe выводит только HTTP-статусы, количества, наличие
-capability, форму envelope, известные имена полей и поведение пагинации. Номера
-камер, ID/timestamps событий, токены, media URL, изображения, recognition
-results и raw JSON не печатаются.
-
-На production-границе raw result немедленно сокращается до приватного cursor ID
-и авторитетного `date`; лишние поля отбрасываются. Ошибки UCAMS API преобразуются
-в фиксированную безопасную coordinator error без текста response body.
-Диагностика содержит только агрегированные счётчики/health и тип исключения, но
-не message исключения, raw events, camera identifiers или cursor values.
+Подробные модели также отражены в [models_RU.md](models_RU.md), а статус endpoints —
+в [STATUS_RU.md](STATUS_RU.md).
