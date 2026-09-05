@@ -71,7 +71,7 @@ privacy-safe `list_physical_keys` и реальное переименовани
 
 - Home Assistant **2026.8.0 или новее**.
 - Сетевой доступ к `dom.ufanet.ru`, `cloud.ucams.ru` и медиасерверам UCAMS, возвращаемым API.
-- Для экспериментального FCM — исходящий HTTPS к endpoint Firebase/GCM и TLS к `mtalk.google.com:5228`.
+- Для экспериментального FCM — исходящий HTTPS к endpoint Firebase/GCM registration endpoints и TLS к `mtalk.google.com:5228`.
 - Для MP4-экспорта и JPEG последнего звонка — доступный `ffmpeg` в runtime Home Assistant.
 - Учётная запись/договор Ufanet с уже имеющимся доступом к домофону в официальном приложении.
 
