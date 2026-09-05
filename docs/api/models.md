@@ -2,7 +2,7 @@
 
 [Русская версия](models_RU.md)
 
-This page records fields that have been observed in API responses or the official client and are used/researched by the integration. It is **not** a formal vendor schema.
+This page records fields that have been observed and are used by the integration. It is **not** a formal vendor schema.
 
 ## SKUD/intercom object
 
@@ -28,63 +28,21 @@ Do not hard-code `model == 39` or assume `camera == null` for all devices.
 
 ## Physical key
 
-**Status: empty list envelope Confirmed; non-empty item fields Observed**
+**Status: empty envelope Confirmed; non-empty item fields Observed from Android client**
 
-The Android model and expected non-empty `/api/v4/key/list/` item contain:
+The Android model contains:
 
 ```text
 id
 external_id
 name
 create_date
-devices[]
+devices
 ```
 
-Observed semantics:
+The production/validation parser drops `external_id` immediately. Provider `id` remains private runtime data and is not published through entity state, events, or diagnostics. The read-only `keys` attribute contains only `name` and normalized UTC `created_at`; `devices` determines per-intercom association.
 
-| Field | Meaning |
-|---|---|
-| `id` | internal provider key ID used by operations targeting a specific key |
-| `external_id` | private access-medium identifier; never exposed by Home Assistant |
-| `name` | user-visible physical-key name |
-| `create_date` | key creation Unix timestamp in seconds |
-| `devices[]` | SKUD/intercom references associated with the key |
-
-The production/validation runtime discards `external_id` at the normalization
-boundary. `id` is retained only in memory for potential future key-management
-operations. The public sensor attribute contains only `name` and `created_at`, and
-intercom association is derived from `devices`.
-
-The following public state has been live-validated on a Home Assistant instance
-with an empty provider inventory:
-
-```yaml
-state: 0
-attributes:
-  keys: []
-```
-
-A non-empty item is not yet live-confirmed.
-
-## Physical-key FCM completion
-
-**Status: Observed in the Android client**
-
-Observed minimum completion-push data model:
-
-```text
-reason = key_add
-key_status
-key_id
-```
-
-The Android client treats the operation as successful only when `key_status == 0`
-and a valid `key_id` is present. The observed `key_add` flow does not provide a
-`skud_id`, so Home Assistant does not attach the FCM event itself to a specific
-intercom and instead reloads the physical-key inventory after the push.
-
-Provider `key_id`, notification `title`/`body`, and the raw payload are not exposed
-through `ufanet_intercom_key_enrollment` or diagnostics.
+For validation key management, the public service API also never accepts raw provider `id`. `list_physical_keys` emits a local opaque `key_ref` scoped to the ConfigEntry/intercom/internal key ID. Rename resolves that reference again from fresh inventory for the selected intercom, and the new name must be observed after a post-write refresh before verified success is reported.
 
 ## UCAMS camera metadata
 
@@ -191,4 +149,4 @@ Private API responses may differ across accounts, cities, tariffs, firmware and 
 
 ## Schema contribution rule
 
-Only add a field to this document when it was actually observed in a response or client code. Mark uncertain semantics explicitly instead of guessing. Never publish real account-specific camera/event/key identifiers, `external_id`, or raw event history as documentation samples.
+Only add a field to this document when it was actually observed in a response or client code. Mark uncertain semantics explicitly instead of guessing. Never publish provider physical-key IDs/`external_id`, raw account-specific camera/event identifiers, or event history as documentation samples.
