@@ -37,7 +37,11 @@ RENAME_PHYSICAL_KEY_SCHEMA = vol.Schema(
 
 
 def physical_key_ref(entry_id: str, skud_id: int, key_id: int) -> str:
-    """Return a stable intercom-scoped opaque key reference."""
+    """Return a stable intercom-scoped opaque key reference.
+
+    This is a privacy-minimizing handle, not an authorization secret. Provider
+    ownership is revalidated from fresh inventory before every mutation.
+    """
     raw = f"{entry_id}\0{int(skud_id)}\0{int(key_id)}".encode(
         "utf-8",
         errors="strict",
@@ -165,7 +169,7 @@ async def _async_fresh_key_inventory(
 
 
 def async_setup_key_services(hass: HomeAssistant) -> None:
-    """Register physical-key services once after a key-capable platform loads."""
+    """Register physical-key services once during integration-level setup."""
 
     async def async_list_physical_keys(call: ServiceCall) -> ServiceResponse:
         """Return a fresh, provider-ID-free key inventory for one intercom."""
@@ -174,7 +178,7 @@ def async_setup_key_services(hass: HomeAssistant) -> None:
         )
         try:
             keys = public_physical_keys(entry.entry_id, skud_id, inventory)
-        except (KeyError, TypeError, ValueError) as err:
+        except (KeyError, TypeError, ValueError, OverflowError, OSError) as err:
             raise HomeAssistantError("Physical-key inventory is invalid") from err
         return {
             "device_id": call.data[ATTR_DEVICE_ID],
