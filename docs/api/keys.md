@@ -2,18 +2,21 @@
 
 [Русская версия](keys_RU.md)
 
-This page documents the read-only physical-key and passage-event API used by the
-official Android client and the Home Assistant integration.
+This page documents the physical-key and passage-event API used by the official
+Android client and the Home Assistant integration.
 
 ## Status
 
-The four read-only request forms below were exercised successfully against a real
-account. The account advertised `keys`, one intercom reported
-key-recording support, and both the key list and passage history returned valid
-empty collections with HTTP 200. The empty-response envelopes and pagination are
-therefore **Confirmed**; the fields of a non-empty key or passage item remain
-**Observed** from the Android client until a real item is captured. The probe does
-not create, rename, or delete keys.
+The read-only request forms were exercised successfully against a real account.
+The account advertised `keys`, one intercom reported key-recording support, and
+both the key list and passage history returned valid empty collections with HTTP
+200. The empty-response envelopes and pagination are therefore **Confirmed**;
+fields of a non-empty key or passage item remain **Observed** from the Android
+client until a real new key is captured.
+
+The validation branch also contains the native 60-second physical-key enrollment
+start and asynchronous `reason=key_add` completion handling. Those paths are not
+considered live-confirmed until a new physical key can be tested end to end.
 
 ## Account features
 
@@ -84,8 +87,43 @@ Confirmed empty envelope; non-empty item shape remains Observed:
 }
 ```
 
-`external_id` is treated as a private access identifier. It must not enter Home
-Assistant logs, diagnostics, entity states, or events.
+`external_id` is treated as a private access identifier and is discarded at the
+response-normalization boundary. It is not retained in the runtime inventory and
+must not enter Home Assistant logs, diagnostics, entity states, or events.
+
+The provider key `id` is retained only in integration memory because future
+rename/delete operations require it. It is not published in entity state or
+diagnostics.
+
+## Read-only inventory in Home Assistant
+
+The **Physical keys** sensor keeps its numeric state: the number of keys linked to
+the specific intercom. On the validation branch, the same sensor also has a
+read-only `keys` attribute:
+
+```yaml
+state: 2
+attributes:
+  keys:
+    - name: "Dad"
+      created_at: "2025-06-27T06:03:36+00:00"
+    - name: "Spare"
+      created_at: "2025-06-20T10:11:12+00:00"
+```
+
+Each visible item contains only:
+
+- `name` — the Ufanet key name;
+- `created_at` — `create_date` converted to an ISO UTC timestamp.
+
+The list is filtered by `devices`, so one intercom does not expose keys associated
+only with another intercom. Items are sorted newest first. Provider `key_id` and
+`external_id` are not exposed through the `keys` attribute.
+
+After a `reason=key_add` push, the FCM handler immediately requests a refresh of
+the key coordinator. That same refresh reloads `/api/v4/key/list/`, so a newly
+registered key is expected to appear together with the updated numeric sensor
+state. This still requires live validation with a new unregistered key.
 
 ## Passage history
 
@@ -127,17 +165,21 @@ page `0`; the client normally requests 25 items.
 
 ## Home Assistant model
 
-Version 0.27.0 implements the feature as read-only:
+The current validation branch includes:
 
 - capability discovery before polling;
-- **Physical key count** sensor;
+- **Physical keys** sensor: count plus read-only `keys` inventory;
 - **Last key passage** timestamp sensor;
 - passage `EventEntity`, `ufanet_intercom_key_passage` bus event and device trigger;
 - a private reload-safe timestamp/internal-key cursor;
-- a dedicated 60-second coordinator.
+- a dedicated 60-second coordinator;
+- an **Add physical key** button that arms native 60-second auto-collection;
+- `reason=key_add` FCM completion handling with an immediate key-list refresh.
 
-The first successful poll is a baseline and does not emit historical events. Key
-names are present only in an actual transient event. Diagnostics exclude names,
-timestamps, internal key IDs, `external_id`, and full history.
+The first successful history poll is a baseline and does not emit historical
+events. Diagnostics exclude key names, passage timestamps, internal key IDs,
+`external_id`, and full history.
 
-Key rename/delete, automatic collection, and BLE keys are outside the first phase.
+Key rename/delete is not implemented yet. BLE keys are also outside the current
+phase. Release of this block remains gated on a real physical-key registration and
+validation of the non-empty API response.
