@@ -16,11 +16,22 @@ On 2026-08-29 a standalone Windows/Python headless client successfully:
 4. received a real `reason=sip` push without Android/Google Play Services;
 5. correlated the same physical call with `/api/v1/skuds/call-history/`.
 
-The headless FCM path is therefore **Confirmed**.
+The headless FCM transport and `reason=sip` path are therefore **Confirmed**.
+
+The official Android client also contains a physical-key enrollment completion path
+using `data.reason=key_add`, `key_status`, and `key_id`. That payload contract is
+currently **Observed** from client code and remains a hard live-validation gate
+until a new unregistered physical key can be enrolled end to end.
 
 ## Home Assistant integration mode
 
-Version 0.20.0 exposes `polling` and experimental `fcm` in the integration options. FCM registers a private virtual installation, listens for `data.reason=sip`, and immediately asks the existing call coordinator to refresh `call-history`. Polling remains enabled with a minimum 300-second interval so missed pushes or a broken MCS connection do not silently disable call events.
+Version 0.20.0 exposed `polling` and experimental `fcm` in the integration options. FCM registers a private virtual installation, listens for `data.reason=sip`, and immediately asks the existing call coordinator to refresh `call-history`. Polling remains enabled with a minimum 300-second interval so missed pushes or a broken MCS connection do not silently disable call events.
+
+The current validation branch additionally recognizes `data.reason=key_add`. That
+path does not alter the proven SIP/call flow: it classifies the key-enrollment
+result, requests an immediate physical-key coordinator refresh, and emits a
+privacy-minimized `ufanet_intercom_key_enrollment` Home Assistant event. It never
+publishes the provider key ID or raw notification text.
 
 The required JSON is read from `ufanet_intercom/firebase_config.json` under the Home Assistant configuration directory by default. Only this relative path is stored in the config entry. Firebase values and runtime FCM credentials are kept in the local Home Assistant storage/config area and are excluded from diagnostics.
 
@@ -262,9 +273,65 @@ skud_id
 
 and does not require the call-history UUID to start the live SIP flow.
 
+## Physical-key completion push
+
+**Observed in the Android client; live validation pending**
+
+The client contains a separate completion path selected by:
+
+```text
+data.reason = key_add
+```
+
+The fields used by the observed success logic are:
+
+```text
+key_status
+key_id
+```
+
+Success requires `key_status == 0` and a present, parseable `key_id`. Missing or
+invalid status is treated as an error. The observed payload does not provide a
+`skud_id`.
+
+The validation branch handles this message without exposing provider identifiers:
+
+```text
+FCM reason=key_add
+        |
+        +--> classify success/error
+        |
+        +--> immediate UfanetKeyPassageCoordinator refresh
+        |        |
+        |        v
+        |    POST /api/v4/key/list/
+        |
+        v
+ufanet_intercom_key_enrollment
+```
+
+The public Home Assistant event contains only:
+
+```text
+type
+source
+result
+received_at
+inventory_refresh_succeeded
+```
+
+Provider `key_id`, notification `title`/`body`, and the raw push are never retained
+in the event or diagnostics. Diagnostics expose only
+`received_key_add_push_count`, `last_key_add_push_at`, and
+`last_key_add_result`.
+
+Because the message has no observed `skud_id`, the event is deliberately
+account-level. The refreshed key inventory determines actual intercom association
+through each key's `devices` field.
+
 ## Relationship to call history
 
-**Confirmed**
+**Confirmed for `reason=sip`**
 
 For the same physical call:
 
@@ -281,12 +348,12 @@ Therefore:
 
 Two earlier SIP pushes about twelve seconds apart were two separate manually initiated test calls, not confirmed retries of one call.
 
-## Target Home Assistant architecture
+## Home Assistant architecture
+
+For calls:
 
 ```text
 FCM reason=sip
-   |
-   +--> immediate transient incoming/ringing event
    |
    +--> immediate UfanetCallCoordinator refresh
               |
@@ -296,7 +363,17 @@ FCM reason=sip
        durable event + media/archive
 ```
 
-Push is the low-latency wake-up signal. `call-history` remains the authoritative source for durable identity and media. Periodic polling remains as a fallback and can be slowed substantially once push handling is production-hardened.
+For physical-key enrollment completion:
+
+```text
+FCM reason=key_add
+   |
+   +--> immediate key inventory refresh
+   |
+   +--> privacy-minimized account-level completion event
+```
+
+Push is a low-latency wake-up/completion signal. `call-history` remains the authoritative source for durable call identity and media; `/api/v4/key/list/` is the authoritative inventory source after key enrollment. Periodic polling remains as a fallback.
 
 ## Research latency probe
 
@@ -310,6 +387,21 @@ and measures an upper bound on when the matching history record becomes observab
 
 In four consecutive live test calls on 2026-08-29, the matching row was found by the first request every time. Request completion ranged from 0.446 to 0.916 seconds after the push (median 0.613 seconds), with a push/history timestamp delta of 0–1 second. The push UUID and durable history UUID differed in all four samples. The integration still performs short follow-up refreshes to cover network jitter and slower call-history publication.
 
+## Required key-add live validation
+
+Before the physical-key block is eligible for release, a new unregistered key must
+confirm that:
+
+1. the real completion push is actually delivered through the headless listener;
+2. its wire shape matches the observed `reason=key_add`, `key_status`, `key_id`
+   contract;
+3. the immediate coordinator refresh succeeds and the key appears in the
+   read-only inventory;
+4. `ufanet_intercom_key_enrollment` reports the correct result without exposing
+   provider identifiers or message text.
+
+Until then, `key_add` remains **Observed**, not **Confirmed**.
+
 ## Security
 
 Do not publish or commit:
@@ -322,6 +414,7 @@ Do not publish or commit:
 - WebPush private keys/auth secrets;
 - Ufanet JWTs;
 - real SIP username/password/server values;
+- physical-key `external_id` or provider `key_id` values;
 - private account/location identifiers.
 
 Although Firebase Android client configuration is technically shipped inside the client APK, this open-source project deliberately obtains it locally from the user's own copy rather than redistributing a third party's Firebase project configuration as part of the integration.
