@@ -46,6 +46,18 @@ blueprint:
           filter:
             domain: image
             integration: ufanet_intercom
+    live_camera:
+      name: Live camera
+      description: >-
+        Optional. Select the live camera entity from the same intercom. The
+        View camera action opens its Home Assistant More Info view directly.
+        If omitted or mismatched, the configured Home Assistant view is used.
+      default: ""
+      selector:
+        entity:
+          filter:
+            domain: camera
+            integration: ufanet_intercom
     open_door_button:
       name: Open door button
       description: >-
@@ -88,7 +100,9 @@ blueprint:
           mode: slider
     dashboard_uri:
       name: Home Assistant view
-      description: Relative Home Assistant path opened by the View camera action.
+      description: >-
+        Relative Home Assistant path used as the notification tap target and as
+        the fallback/base path for View camera.
       default: /lovelace/0
       selector:
         text:
@@ -116,6 +130,7 @@ variables:
   intercom_device_id: !input intercom_device
   last_call_sensor_entity: !input last_call_sensor
   last_call_image_entity: !input last_call_image
+  live_camera_entity: !input live_camera
   open_door_button_entity: !input open_door_button
   image_delay_value: !input image_delay
   dashboard_uri_value: !input dashboard_uri
@@ -159,6 +174,17 @@ variables:
     {{ event_data.flat
        | default(state_attr(last_call_sensor_entity, 'flat'), true)
        | default('', true) }}
+  camera_uri_value: >-
+    {%- set base = dashboard_uri_value
+       if dashboard_uri_value|string|length > 0 else '/' -%}
+    {%- if live_camera_entity|string|length > 0
+          and live_camera_entity.startswith('camera.')
+          and live_camera_entity in device_entities(intercom_device_id) -%}
+      {{- base ~ ('&' if '?' in base else '?')
+          ~ 'more-info-entity-id=' ~ live_camera_entity -}}
+    {%- else -%}
+      {{- base -}}
+    {%- endif -%}
   notification_title_rendered: >-
     {{ '🔔 ' ~ intercom_name
        ~ (' — ' ~ notification_title_value
@@ -217,7 +243,7 @@ actions:
                   authenticationRequired: "true"
                 - action: URI
                   title: View camera
-                  uri: "{{ dashboard_uri_value }}"
+                  uri: "{{ camera_uri_value }}"
     default:
       - domain: mobile_app
         type: notify
@@ -237,7 +263,7 @@ actions:
           actions:
             - action: URI
               title: View camera
-              uri: "{{ dashboard_uri_value }}"
+              uri: "{{ camera_uri_value }}"
 
   - alias: Handle image readiness and the guarded door action
     choose:
@@ -272,7 +298,7 @@ actions:
                           authenticationRequired: "true"
                         - action: URI
                           title: View camera
-                          uri: "{{ dashboard_uri_value }}"
+                          uri: "{{ camera_uri_value }}"
 
           - alias: Wait for either the door action or an image state change
             wait_for_trigger:
@@ -324,7 +350,7 @@ actions:
                           actions:
                             - action: URI
                               title: View camera
-                              uri: "{{ dashboard_uri_value }}"
+                              uri: "{{ camera_uri_value }}"
                       - stop: Open door button no longer matches the intercom
                   - alias: Remove the door action after sending the command
                     domain: mobile_app
@@ -344,7 +370,7 @@ actions:
                       actions:
                         - action: URI
                           title: View camera
-                          uri: "{{ dashboard_uri_value }}"
+                          uri: "{{ camera_uri_value }}"
                   - stop: Open door action handled
 
               - conditions: >-
@@ -383,7 +409,7 @@ actions:
                                   authenticationRequired: "true"
                                 - action: URI
                                   title: View camera
-                                  uri: "{{ dashboard_uri_value }}"
+                                  uri: "{{ camera_uri_value }}"
 
                   - alias: Keep waiting for the same unique door action
                     wait_for_trigger:
@@ -431,7 +457,7 @@ actions:
                                   actions:
                                     - action: URI
                                       title: View camera
-                                      uri: "{{ dashboard_uri_value }}"
+                                      uri: "{{ camera_uri_value }}"
                               - stop: Open door button no longer matches the intercom
                           - domain: mobile_app
                             type: notify
@@ -450,7 +476,7 @@ actions:
                               actions:
                                 - action: URI
                                   title: View camera
-                                  uri: "{{ dashboard_uri_value }}"
+                                  uri: "{{ camera_uri_value }}"
                     default:
                       - domain: mobile_app
                         type: notify
@@ -469,7 +495,7 @@ actions:
                           actions:
                             - action: URI
                               title: View camera
-                              uri: "{{ dashboard_uri_value }}"
+                              uri: "{{ camera_uri_value }}"
             default:
               - alias: Remove the door action after its timeout
                 domain: mobile_app
@@ -489,7 +515,7 @@ actions:
                   actions:
                     - action: URI
                       title: View camera
-                      uri: "{{ dashboard_uri_value }}"
+                      uri: "{{ camera_uri_value }}"
 
     default:
       - alias: Wait for a private image when no door action is exposed
@@ -519,6 +545,6 @@ actions:
           actions:
             - action: URI
               title: View camera
-              uri: "{{ dashboard_uri_value }}"
+              uri: "{{ camera_uri_value }}"
 
 mode: restart
