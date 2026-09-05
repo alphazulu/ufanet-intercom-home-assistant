@@ -19,7 +19,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
 
 from .analytics import UfanetMotionAnalyticsCoordinator
-from .api import UfanetApi, UfanetAuthError, UfanetConnectionError, UfanetResponseError
+from .api import UfanetAuthError, UfanetConnectionError, UfanetResponseError
 from .archive import UfanetArchiveController
 from .auto_export import UfanetCallAutoSaveManager
 from .const import (
@@ -53,6 +53,7 @@ from .fcm_key import UfanetFcmManager
 from .firebase_config import UfanetFirebaseConfigError, async_load_firebase_config
 from .guest_store import UfanetGuestInviteStore
 from .image_status import UfanetLastCallImageStatusManager
+from .key_inventory import UfanetApi
 from .options import effective_options
 from .services import async_setup_services
 
