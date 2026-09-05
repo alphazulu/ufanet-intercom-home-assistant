@@ -205,7 +205,7 @@ For every intercom advertising key-recording support, the integration creates:
 The dedicated coordinator polls every 60 seconds. Its first successful history poll
 is a baseline and does not replay older passages. A private cursor prevents duplicate
 passage delivery after reloads. Public passage events contain only `key_name` and
-`occurred_at`; provider `external_id` and full history are not exposed.
+`occurred_at`; private provider identifiers and full history are not exposed.
 
 The validation branch also adds **Add physical key** (`mdi:key-plus`) only for
 supported intercoms. It mirrors the Android-observed 60-second
@@ -215,19 +215,19 @@ seconds.
 
 The FCM listener recognizes the Android-observed `reason=key_add` completion path.
 It refreshes the key inventory immediately and emits the account-level,
-privacy-minimized `ufanet_intercom_key_enrollment` event. Provider `key_id`,
-`external_id`, raw message text and push payload are not published. The real
-`key_add` path and non-empty inventory remain **Observed/pending live validation**.
+privacy-minimized `ufanet_intercom_key_enrollment` event. Private provider identifiers,
+raw message text and push payload are not published. The real `key_add` path and
+non-empty inventory remain **Observed/pending live validation**.
 
 For key management, the validation branch exposes
 `ufanet_intercom.list_physical_keys`, returning only `name`, `created_at`, and a
 local opaque `key_ref`. `ufanet_intercom.rename_physical_key` accepts that ref,
 refreshes inventory before mutation, resolves it only inside the selected intercom,
-then calls the Android-observed `/api/v4/key/edit/` contract internally and performs
-a second refresh. It reports success only when the requested new name is observed
-after that refresh. Raw provider `key_id` is neither accepted nor returned. The
-rename endpoint itself remains **Observed/pending live validation** until a real key
-exists. Key deletion is not implemented.
+then calls the Android-observed edit contract internally and performs a second
+refresh. It reports success only when the requested new name is observed after that
+refresh. Raw provider identifiers are neither accepted nor returned. The rename
+endpoint itself remains **Observed/pending live validation** until a real key exists.
+Key deletion is not implemented.
 
 The **KEYS** tab uses the same privacy-safe response services. **Add key** invokes
 only the same-device Home Assistant `button.*_add_physical_key`, shows the observed
@@ -260,7 +260,7 @@ supports open/download/delete plus configured retention/size cleanup.
 - Generated guest links are access capabilities and should be treated as temporary credentials.
 - Opening the door is a real physical action; the card/notification require explicit user interaction and notification actions add same-device guards.
 - Starting physical-key enrollment changes access-control state and must not be used as a health check or automatic action.
-- Physical-key `external_id` is discarded at normalization; provider `key_id` remains internal and is not exposed in sensor attributes/events/diagnostics.
+- Private provider physical-key identifiers remain internal and are not exposed in sensor attributes/events/diagnostics.
 - Public physical-key management uses only an intercom-scoped opaque `key_ref`; rename refreshes inventory before mutation and verifies the result with a second refresh after POST.
 - Tokenized call-media URLs remain internal runtime data; only the generated last-call JPEG is cached for the image entity.
 - Authorized-session management exposes opaque refs rather than raw provider FCM device IDs and protects locally provable Home Assistant registrations.
