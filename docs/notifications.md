@@ -13,7 +13,8 @@ Import `blueprints/automation/ufanet_intercom/incoming_call_notification.yaml` a
 - optionally, the matching **Live camera** entity;
 - optionally, the exact **Open door** button/relay;
 - the Home Assistant dashboard URI used as notification/fallback navigation;
-- optionally, the Android notification channel name.
+- optionally, the Android notification channel name;
+- optionally, the image-wait delay and Open door action timeout.
 
 The blueprint keeps the existing `incoming_call` device trigger for compatibility. A native doorbell EventEntity also represents the same confirmed call using Home Assistant's standard `ring` event type.
 
@@ -38,13 +39,13 @@ The call time is formatted from the confirmed `called_at` timestamp with Home As
 4. If that image becomes ready inside the configured image window, the blueprint replaces the notification using the same `tag` and `/api/image_proxy/image.entity_id`.
 5. The raw Ufanet preview/archive URL is never put into automation variables or notification data.
 
-A stable live `tag` is derived from the selected Home Assistant intercom device, so image/status updates replace the same notification and a newer call replaces an older pending call for that intercom. Manual tests use a separate tag.
+A stable live `tag` is derived from the selected Home Assistant intercom device, so image/status updates replace the same notification. Manual tests use a separate tag and do not replace an active real-call notification.
 
 For Android, the initial push requests `ttl: 0` and `priority: high` for prompt delivery. The configurable `channel` and `importance: high` fields are Android-specific; iOS ignores the Android channel field. Image/status replacements use `alert_once: true` so they update the existing notification without intentionally producing another alert.
 
 ## Android and iOS actions
 
-The blueprint uses inline Companion actions supported on both Android and iOS:
+The blueprint uses inline Companion actions matching the shared Android/iOS action schema:
 
 - **Open door** uses a unique Home Assistant-local action ID and never calls a provider API directly;
 - **View camera** uses the standard `URI` action. When a matching **Live camera** entity is selected, the blueprint opens that entity directly with Home Assistant's `more-info-entity-id` frontend query parameter; otherwise it falls back to the configured Home Assistant view.
@@ -53,13 +54,15 @@ The selected camera is accepted only when it is a `camera.*` entity belonging to
 
 The Open door action requests device authentication where supported. During Android live testing the Companion/FCM data channel required action values to be strings, so `authenticationRequired` is encoded as `"true"`; Android Companion parses that value as a boolean. Apple-only `destructive` metadata is deliberately not included in the cross-platform payload.
 
+**Android Companion has been live-tested. iOS action delivery has not been live-tested**; iOS compatibility is documentation/schema-aligned rather than claimed as live-confirmed.
+
 ## Actions and safety model
 
 When an **Open door** button is selected, a real incoming-call notification contains a unique action identifier derived from the Home Assistant event context. Provider call UUIDs are not used in the Companion payload.
 
 The door action is enabled only when the selected button belongs to the same Home Assistant device as the selected Ufanet intercom. The same device-membership check is repeated immediately before `button.press`, so a stale or mismatched entity selection cannot be used to open another configured intercom.
 
-The blueprint runs in `restart` mode. A newer call therefore cancels the previous run, invalidates its action listener and replaces the live notification for the same intercom. The previous action ID is not accepted by the new run.
+The blueprint runs in `restart` mode. A newer call therefore cancels the previous run, invalidates its action listener and replaces the live notification for the same intercom. The previous action ID is not accepted by the new run. Regression tests cover the state machine, but two sequential **real** calls remain a required live gate.
 
 The Open door action is accepted only for the configured timeout. After either a successful `button.press` dispatch or timeout, the notification is replaced without the Open door action. The success message deliberately says that the open command was **sent**; it does not claim that the physical door state was independently verified.
 
@@ -73,18 +76,32 @@ A manual automation run has no real `trigger.event`. The blueprint therefore fal
 
 This is intentional: `ufanet_intercom_call` publishes only sanitized call metadata plus `has_preview` / `has_archive`; temporary provider media URLs remain private runtime data.
 
-## Live validation completed during v0.31.0 development
+## Live validation on the combined validation branch
 
-The notification flow was smoke-tested on a real Home Assistant installation with the Android Companion app:
+The following has already been confirmed on a real Home Assistant installation with the Android Companion app:
 
 - manual notification delivery with the cached last-call image;
 - synthetic `ufanet_intercom_call` delivery through the integration device trigger;
 - Android actionable notification delivery;
 - real Ufanet incoming call delivery;
 - presence of the Open door action on the real call;
-- successful dispatch of the selected Ufanet `button.press` from the notification action.
+- successful dispatch of the selected Ufanet `button.press` from the notification action and physical door opening;
+- **View camera** opens More Info for the selected live `camera.*` entity directly;
+- after the action timeout, the existing notification is updated **in place** under the same stable tag, no second notification is created, Open door disappears, and View camera remains.
 
-Two Android payload issues found during live testing were fixed: bare automation `context.id` was replaced with the actual event context, and action-specific boolean values that the FCM data channel requires as strings were corrected.
+Android payload issues found during live testing were fixed: bare automation `context.id` was replaced with the actual event context, and action-specific boolean values that the FCM data channel requires as strings were corrected.
+
+## Required live gates before release
+
+Before the combined validation work can be treated as release-ready, real-world testing still needs to confirm:
+
+1. a second real call replaces the first pending notification and the old action is no longer accepted;
+2. after a successful **Open door** tap, the same notification is immediately replaced without the door action and shows the command-sent status;
+3. a door button from another Ufanet device is never exposed or executed;
+4. a fresh real-call notification shows the expected Home Assistant device name, address, porch, flat and local call time;
+5. iOS needs a separate real-device test only if it is later going to be described as live-tested; this documentation currently makes no such claim.
+
+These items do not block unrelated development, but they do block final live-validation of the notification feature for release unless explicitly reviewed and waived.
 
 ## Troubleshooting
 
