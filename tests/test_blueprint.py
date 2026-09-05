@@ -40,6 +40,7 @@ def test_incoming_call_notification_blueprint_is_valid() -> None:
         "image_delay",
         "action_timeout",
         "dashboard_uri",
+        "notification_channel",
         "notification_title",
         "notification_message",
     }
@@ -55,6 +56,22 @@ def test_blueprint_uses_private_image_proxy_and_no_provider_media_urls() -> None
     assert "access_token" not in source
     assert "preview_url" not in source
     assert "archive_url" not in source
+
+
+def test_blueprint_renders_complete_privacy_safe_call_metadata() -> None:
+    source = BLUEPRINT_PATH.read_text(encoding="utf-8")
+
+    assert "device_name(intercom_device_id)" in source
+    assert "notification_title_rendered" in source
+    assert "Address: " in source
+    assert "Porch: " in source
+    assert "Flat: " in source
+    assert "Time: " in source
+    assert "timestamp_custom('%d.%m.%Y %H:%M:%S', true)" in source
+    assert "event_data.address" in source
+    assert "event_data.porch" in source
+    assert "event_data.flat" in source
+    assert "event_data.called_at" in source
 
 
 def test_blueprint_notification_identifiers_use_available_run_context() -> None:
@@ -80,9 +97,12 @@ def test_blueprint_sends_immediately_and_uses_unique_guarded_door_action() -> No
     assert "Manual test — door action is disabled." in source
     assert "ttl: 0" in source
     assert "priority: high" in source
+    assert 'channel: "{{ notification_channel_value }}"' in source
+    assert "importance: high" in source
     assert "tag: \"{{ notification_tag }}\"" in source
     assert "alert_once: true" in source
     assert "confirmation: true" in source
+    assert "action: URI" in source
 
 
 def test_blueprint_guards_door_button_against_selected_device() -> None:
