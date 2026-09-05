@@ -15,8 +15,13 @@ fields of a non-empty key or passage item remain **Observed** from the Android
 client until a real new key is captured.
 
 The validation branch also contains the native 60-second physical-key enrollment
-start and asynchronous `reason=key_add` completion handling. Those paths are not
-considered live-confirmed until a new physical key can be tested end to end.
+start and asynchronous `reason=key_add` completion handling. Their wire contracts
+were reconstructed from the official Android client and remain **Observed** until
+an end-to-end test can be completed with a new unregistered physical key.
+
+The empty Home Assistant inventory state has already been live-validated: the
+**Physical keys** sensor reports numeric state `0` and its read-only attribute
+returns `keys: []`.
 
 ## Account features
 
@@ -25,7 +30,7 @@ GET /api/v4/skud/features/
 Authorization: JWT <UFANET_ACCESS>
 ```
 
-Confirmed response shape:
+**Confirmed**
 
 ```json
 {
@@ -47,6 +52,8 @@ Authorization: JWT <UFANET_ACCESS>
 Content-Type: application/json
 ```
 
+**Confirmed**
+
 ```json
 {
   "page": 1,
@@ -60,7 +67,8 @@ Content-Type: application/json
 Entries in `result.intercoms` carry an `id` and the Boolean
 `has_key_recording_support` capability. Both the request and a `true` capability
 were live-confirmed. Paging is one-based for this endpoint. The integration does
-not poll passage history for an intercom that is absent from the filtered result.
+not create the enrollment button or poll passage history for an intercom that is
+absent from the filtered result.
 
 ## Physical-key list
 
@@ -69,7 +77,7 @@ POST /api/v4/key/list/
 Authorization: JWT <UFANET_ACCESS>
 ```
 
-Confirmed empty envelope; non-empty item shape remains Observed:
+**Confirmed for the empty envelope; non-empty item fields remain Observed**
 
 ```json
 {
@@ -91,9 +99,9 @@ Confirmed empty envelope; non-empty item shape remains Observed:
 response-normalization boundary. It is not retained in the runtime inventory and
 must not enter Home Assistant logs, diagnostics, entity states, or events.
 
-The provider key `id` is retained only in integration memory because future
-rename/delete operations require it. It is not published in entity state or
-diagnostics.
+The provider key `id` is retained only in integration memory because it may be
+needed for future rename/delete operations. It is not published in entity state,
+events, or diagnostics.
 
 ## Read-only inventory in Home Assistant
 
@@ -120,10 +128,100 @@ The list is filtered by `devices`, so one intercom does not expose keys associat
 only with another intercom. Items are sorted newest first. Provider `key_id` and
 `external_id` are not exposed through the `keys` attribute.
 
-After a `reason=key_add` push, the FCM handler immediately requests a refresh of
-the key coordinator. That same refresh reloads `/api/v4/key/list/`, so a newly
-registered key is expected to appear together with the updated numeric sensor
-state. This still requires live validation with a new unregistered key.
+The following empty state has been live-validated on the test Home Assistant
+installation:
+
+```yaml
+state: 0
+attributes:
+  keys: []
+```
+
+A non-empty `keys` list still requires validation after a real new key is
+registered.
+
+## Starting physical-key enrollment
+
+The official Android client arms server-side automatic collection with:
+
+```http
+POST /api/v4/key/skud/<skud_id>/auto_collect/enable/
+Authorization: JWT <UFANET_ACCESS>
+```
+
+**Observed in the Android client; live validation pending**
+
+After a successful response the application opens a **60-second** window during
+which the new physical key must be presented to the intercom reader. A successful
+HTTP response means only that enrollment mode was armed; it does not prove that a
+key was presented or persisted.
+
+Home Assistant exposes this flow through the **Add physical key** button
+(`mdi:key-plus`). The button is created only for an intercom with confirmed
+`has_key_recording_support` and exposes:
+
+```yaml
+enrollment_window_seconds: 60
+```
+
+The button is unavailable when the main coordinator is unhealthy or the intercom
+is marked `is_blocked`. Ufanet errors are converted to Home Assistant action
+errors; pressing the button is never treated as proof of successful enrollment.
+
+## Asynchronous enrollment completion through FCM
+
+The official Android client recognizes a push carrying:
+
+```text
+data.reason = key_add
+data.key_status
+data.key_id
+```
+
+**Observed in the Android client; live validation pending**
+
+Native success semantics are:
+
+```text
+key_status == 0
+AND
+key_id is present and parseable as an integer
+```
+
+A missing or invalid `key_status` is treated as an error. The Home Assistant
+validation branch mirrors this logic without publishing the provider `key_id`,
+`title`, or `body`.
+
+After `reason=key_add`, the integration immediately requests a key-coordinator
+refresh. The same refresh reloads `/api/v4/key/list/`, so a newly enrolled key is
+expected to appear together with the updated numeric sensor state.
+
+Home Assistant fires only this privacy-minimized account-level event:
+
+```yaml
+event_type: ufanet_intercom_key_enrollment
+data:
+  type: key_enrollment
+  source: fcm
+  result: success
+  received_at: "<UTC ISO-8601>"
+  inventory_refresh_succeeded: true
+```
+
+The observed Android `key_add` payload does not contain `skud_id`, so the
+integration deliberately does not guess a target intercom in this event. The
+subsequent `/api/v4/key/list/` response associates the key with intercoms through
+its `devices` field.
+
+FCM diagnostics retain only:
+
+```text
+received_key_add_push_count
+last_key_add_push_at
+last_key_add_result
+```
+
+Provider `key_id`, `title`, `body`, and the raw push payload are not retained.
 
 ## Passage history
 
@@ -133,6 +231,8 @@ Authorization: JWT <UFANET_ACCESS>
 Content-Type: application/json
 ```
 
+**Confirmed for envelope/pagination; non-empty item fields remain Observed**
+
 Minimal request without a per-key filter:
 
 ```json
@@ -141,8 +241,6 @@ Minimal request without a per-key filter:
   "page_size": 5
 }
 ```
-
-Confirmed envelope and pagination; non-empty item shape remains Observed:
 
 ```json
 {
@@ -163,7 +261,54 @@ Confirmed envelope and pagination; non-empty item shape remains Observed:
 The Android client interprets `time_passage` as Unix seconds. Paging starts at
 page `0`; the client normally requests 25 items.
 
-## Home Assistant model
+The first successful history poll establishes a baseline and does not emit old
+passages. A private cursor prevents duplicate passage delivery after Home
+Assistant/integration reloads.
+
+## Observed key-management operations
+
+The official Android client also contains the following state-changing operations.
+They are **not implemented** by the current Home Assistant runtime and must not be
+considered live-confirmed.
+
+### Rename
+
+**Observed**
+
+```http
+POST /api/v4/key/edit/
+Authorization: JWT <UFANET_ACCESS>
+Content-Type: application/json
+```
+
+```json
+{
+  "key_id": 1,
+  "name": "<new-name>"
+}
+```
+
+### Delete
+
+**Observed**
+
+```http
+POST /api/v4/key/skud/<skud_id>/delete/key/
+Authorization: JWT <UFANET_ACCESS>
+Content-Type: application/json
+```
+
+```json
+{
+  "key_id": 1
+}
+```
+
+Deletion is destructive and must not be added to a production UI without a
+separate endpoint validation, a guard against selecting the wrong intercom/key,
+and an explicit user confirmation.
+
+## Home Assistant model on the validation branch
 
 The current validation branch includes:
 
@@ -174,12 +319,24 @@ The current validation branch includes:
 - a private reload-safe timestamp/internal-key cursor;
 - a dedicated 60-second coordinator;
 - an **Add physical key** button that arms native 60-second auto-collection;
-- `reason=key_add` FCM completion handling with an immediate key-list refresh.
+- `reason=key_add` FCM completion handling with an immediate key-list refresh;
+- the privacy-safe `ufanet_intercom_key_enrollment` event and aggregate FCM
+  diagnostics.
 
-The first successful history poll is a baseline and does not emit historical
-events. Diagnostics exclude key names, passage timestamps, internal key IDs,
+Diagnostics exclude key names, passage timestamps, internal key IDs,
 `external_id`, and full history.
 
-Key rename/delete is not implemented yet. BLE keys are also outside the current
-phase. Release of this block remains gated on a real physical-key registration and
-validation of the non-empty API response.
+## Required live validation before release
+
+Release of this block remains gated until a real new key confirms:
+
+1. auto-collection can be armed from the Home Assistant button;
+2. the new key can be presented to the selected intercom within 60 seconds;
+3. the real `reason=key_add` wire shape matches the observed Android contract;
+4. the numeric **Physical keys** state updates promptly after the FCM-triggered
+   refresh;
+5. the new item appears in `keys` with the expected `name` and `created_at`;
+6. `key_id`/`external_id` remain absent from public state/events/diagnostics;
+7. `ufanet_intercom_key_enrollment` reports the correct result.
+
+Rename, delete, and BLE keys remain outside the current release scope.
