@@ -14,7 +14,7 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 - Native archive browsing with recording ranges, timeline zoom/pan, call markers, and read-only motion-event markers.
 - Intercom call history, `ufanet_intercom_call`, native **Incoming call** / **Last call image** entities, a doorbell EventEntity and visual device trigger.
 - Companion notification blueprint with immediate text delivery, private HA image replacement, optional guarded **Open door** action and direct **View camera** navigation.
-- Physical-key support for capable intercoms: read-only count/inventory, latest passage timestamp, passage EventEntity/device trigger, validation-only **Add physical key**, and privacy-safe list/rename services using opaque `key_ref` values.
+- Physical-key support for capable intercoms: read-only count/inventory, latest passage timestamp, passage EventEntity/device trigger, validation-only **Add physical key**, privacy-safe list/rename services using opaque `key_ref` values, and a **KEYS** Lovelace tab.
 - Read-only UCAMS `motion_alarm` analytics with a **Motion detected** event entity, `ufanet_intercom_motion` event, visual device trigger and archive timeline markers.
 - Selectable call updates: polling by default or experimental low-latency FCM with safety polling.
 - Privacy-safe FCM authorization/session inventory and explicit guarded session revocation.
@@ -41,7 +41,8 @@ Already live-validated on the development Home Assistant installation:
 - **View camera** opening More Info for the selected live camera;
 - timeout updating the existing notification in place and removing the stale door action;
 - combined notification + physical-key build loading without observed regression;
-- physical-key capability/coordinator health and empty read-only inventory (`state=0`, `keys=[]`).
+- physical-key capability/coordinator health and empty read-only inventory (`state=0`, `keys=[]`);
+- `ufanet_intercom.list_physical_keys` returning `count: 0`, `keys: []` on the current zero-key account.
 
 Still mandatory before release: the remaining real-call race/mismatch/metadata checks
 and a complete registration of a **new physical key**, including the real
@@ -111,13 +112,20 @@ entity: camera.YOUR_UFANET_CAMERA
 default_tab: live
 ```
 
-The card contains five tabs:
+The validation card contains six tabs:
 
 - **LIVE** — video, door control, latest call and jump-to-call recording.
 - **АРХИВ** — timeline, call/motion markers, MP4 export and export media library.
 - **ГОСТИ** — shared invitations, accepted guest access, temporary keys and revoke actions.
 - **УСТРОЙСТВА** — authorized Ufanet sessions, Home Assistant ownership protection, targeted revocation and guarded bulk revocation.
+- **KEYS / КЛЮЧИ** — fresh privacy-safe physical-key inventory, explicit 60-second new-key enrollment and rename through opaque `key_ref`; key deletion is absent.
 - **ДИАГНОСТИКА** — token-free runtime health, polling, FCM authorization state, UCAMS/archive status and autosave state.
+
+The **KEYS** tab is provided by the packaged validation extension
+`ufanet-physical-keys-card.js`. The integration loads it automatically; it waits for
+`custom:ufanet-intercom-card` to be registered, so no second manual Lovelace Resource
+entry is required. The visual editor also allows `keys` as `default_tab` on the
+validation branch.
 
 ## Options
 
@@ -210,7 +218,7 @@ privacy-minimized `ufanet_intercom_key_enrollment` event. Provider `key_id`,
 `external_id`, raw message text and push payload are not published. The real
 `key_add` path and non-empty inventory remain **Observed/pending live validation**.
 
-For future key management, the validation branch exposes
+For key management, the validation branch exposes
 `ufanet_intercom.list_physical_keys`, returning only `name`, `created_at`, and a
 local opaque `key_ref`. `ufanet_intercom.rename_physical_key` accepts that ref,
 refreshes inventory before mutation, resolves it only inside the selected intercom,
@@ -218,7 +226,13 @@ then calls the Android-observed `/api/v4/key/edit/` contract internally and perf
 a second refresh. It reports success only when the requested new name is observed
 after that refresh. Raw provider `key_id` is neither accepted nor returned. The
 rename endpoint itself remains **Observed/pending live validation** until a real key
-exists. Key deletion is not implemented. See [docs/api/keys.md](docs/api/keys.md).
+exists. Key deletion is not implemented.
+
+The **KEYS** tab uses the same privacy-safe response services. **Add key** invokes
+only the same-device Home Assistant `button.*_add_physical_key`, shows the observed
+60-second countdown, then refreshes inventory. Rename asks for explicit confirmation
+and accepts success only when the backend returns `verified: true`. No key-delete
+action exists in the UI. See [docs/api/keys.md](docs/api/keys.md).
 
 ## Motion analytics
 
