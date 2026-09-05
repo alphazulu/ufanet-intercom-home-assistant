@@ -52,19 +52,9 @@ POST /api/v4/key/list/
 Authorization: JWT <UFANET_ACCESS>
 ```
 
-**Confirmed for the empty envelope; non-empty item fields remain Observed.** Android-observed item shape:
+**Confirmed for the empty envelope; non-empty item fields remain Observed.** Android-observed items contain a private provider identifier, `external_id`, `name`, `create_date`, and `devices`.
 
-```json
-{
-  "id": 1,
-  "external_id": "<redacted>",
-  "name": "<redacted>",
-  "create_date": 1700000000,
-  "devices": ["<redacted-skud-id>"]
-}
-```
-
-`external_id` is treated as a private access identifier and discarded at response normalization. Provider `id` is retained only in private runtime memory because operations on one key require it. Neither value is published through entity state, events, diagnostics, or public service responses.
+`external_id` is treated as a private access identifier and discarded at response normalization. The internal provider identifier is retained only in private runtime memory because operations on one key require it. These identifiers are not published through entity state, events, diagnostics, or public service responses.
 
 ## Read-only inventory in Home Assistant
 
@@ -104,7 +94,7 @@ keys:
     created_at: "<UTC ISO-8601>"
 ```
 
-`key_ref` is a local opaque reference scoped to the ConfigEntry, selected SKUD, and internal provider key ID. Raw provider IDs are neither accepted nor returned, and a reference from another intercom does not resolve for the selected device.
+`key_ref` is a local opaque reference scoped to the ConfigEntry, selected SKUD, and internal provider identifier. Raw provider identifiers are neither accepted nor returned, and a reference from another intercom does not resolve for the selected device.
 
 The empty service response is live-confirmed (`count: 0`, `keys: []`). A non-empty response remains pending live validation.
 
@@ -123,7 +113,7 @@ Home Assistant exposes **Add physical key** (`mdi:key-plus`) only for capability
 
 ## Asynchronous enrollment completion through FCM
 
-The Android client recognizes `reason=key_add` plus key status and an internal key identifier. **Observed; live validation pending.** Native success semantics require status `0` and a parseable key identifier.
+The Android client recognizes `reason=key_add` plus status and an internal key identifier. **Observed; live validation pending.** Native success semantics require status `0` and a parseable key identifier.
 
 The validation runtime refreshes the key coordinator immediately and fires only the privacy-minimized account-level event:
 
@@ -143,7 +133,7 @@ FCM diagnostics retain only `received_key_add_push_count`, `last_key_add_push_at
 
 ## Physical-key rename
 
-The official Android client uses `POST /api/v4/key/edit/` with its internal key identifier and the requested name. **Observed in the Android client; the real endpoint is not live-confirmed yet.**
+The official Android client uses `POST /api/v4/key/edit/` with its internal provider identifier and the requested name. **Observed in the Android client; the real endpoint is not live-confirmed yet.**
 
 The validation branch implements this through:
 
