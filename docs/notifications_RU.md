@@ -49,7 +49,7 @@ Blueprint использует inline actions Companion App, работающи�
 - **«Открыть дверь»** использует уникальный локальный Home Assistant action ID и не вызывает provider API напрямую;
 - **«Открыть камеру»** использует стандартный action `URI`. Если выбрана live camera того же домофона, blueprint открывает More Info именно этой `camera.*` сущности через frontend-параметр `more-info-entity-id`. Если камера не выбрана или не принадлежит выбранному домофону, используется настроенный URI панели Home Assistant.
 
-Выбранная live camera принимается только тогда, когда это `camera.*` entity, принадлежащая тому же Home Assistant device, что и выбранный домофон. Поэтому случайно выбранная архивная либо посторонняя камера не становится скрытой целью кнопки уведомления.
+Одно устройство Ufanet может публиковать и live-, и archive-camera, поэтому в selector нужно явно выбрать live `camera.*`. Blueprint проверяет, что выбранная камера принадлежит тому же Home Assistant device, что и домофон, и тем самым исключает переход на постороннюю камеру.
 
 Для кнопки открытия запрашивается аутентификация/разблокировка устройства там, где это поддерживается. В ходе live-теста Android выяснилось, что FCM data channel требует строковые значения action-полей, поэтому `authenticationRequired` передаётся как строка `"true"`, которую Android Companion преобразует в boolean. Apple-only поле `destructive` намеренно не включается в общий кроссплатформенный payload.
 
@@ -93,7 +93,7 @@ Blueprint работает в режиме `restart`. Новый звонок о
 1. Выполните blueprint вручную. Если тестовое уведомление пришло, доставка Companion работает; дальше нужно смотреть trace реального incoming-call trigger.
 2. Если текстовый push приходит сразу, но изображение не появляется, проверьте сущность **«Снимок последнего звонка»** и диагностику Ufanet. Для JPEG нужен рабочий `ffmpeg` в среде Home Assistant.
 3. Если уведомление приходит без кнопки открытия двери, проверьте, что выбрана сущность **«Открыть дверь»** того же устройства Ufanet и что запуск был вызван реальным звонком, а не вручную.
-4. Если **«Открыть камеру»** только открывает панель Home Assistant, выберите соответствующую live camera в inputs blueprint. При несовпадающей камере blueprint намеренно использует fallback URI панели.
+4. Если **«Открыть камеру»** только открывает панель Home Assistant, выберите соответствующую live `camera.*` в inputs blueprint. При несовпадающей камере blueprint намеренно использует fallback URI панели.
 5. URL картинки должен иметь вид `/api/image_proxy/image.entity_id`; вручную добавлять `access_token` image entity не нужно.
 6. При отказе Android push можно временно включить debug для `homeassistant.components.mobile_app.notify`. Ошибка FCM вида `data must only contain string values` указывает на некорректный actionable-notification payload, а не на Ufanet incoming-call trigger.
 
