@@ -17,11 +17,15 @@ This table is a compact index of what has actually been tested by the project. T
 | FCM | `POST /api/v4/fcm_device/authorized_devices/` | **Confirmed** | Live-tested no-body POST returns `data.device_list`; confirmed fields include `device_id`, `title`, `last_update`, `is_call_access`, plus server metadata `os`/`os_display`. `devices_num_permission` is live-observed; exact business semantics remain unconfirmed. |
 | FCM | `POST /api/v4/fcm_device/logout_device/` | **Confirmed** | Controlled probe-owned session was present before `{device_id}` logout, absent after HTTP 200, restored through `/api/v0/fcm/`, and present again; targeted production revoke was also live-tested in Home Assistant. |
 | Push | `data.reason = "sip"` | **Confirmed** | Real payload carries `username`, `password`, `server`, `skud_id`, `transport`, `contract`, `house_id`, `flat`, `time`, `uuid`; `from=<sender-id>`, priority `normal` |
+| Push | `data.reason = "key_add"` | **Observed** | Android uses `key_status` + `key_id`; success is `key_status == 0` with a valid `key_id`. A real push from a newly enrolled key has not yet been captured. |
 | SKUD | `GET /api/v0/skud/shared/` | **Confirmed** | Returns tested intercom |
 | SKUD | `GET /api/v0/skud/` | **Observed** | Returned `[]` for tested account |
 | Capabilities | `GET /api/v4/skud/features/` | **Confirmed** | Live response included the `keys` account feature |
 | Intercoms | `POST /api/v0/intercoms/` | **Confirmed** | One-based filtered request returned `has_key_recording_support=true` |
-| Keys | `POST /api/v4/key/list/` | **Confirmed** | HTTP 200 and empty `data.keys` confirmed; non-empty item fields remain Observed |
+| Keys | `POST /api/v4/key/list/` | **Confirmed** | HTTP 200 and empty `data.keys` confirmed; non-empty item fields remain Observed. HA empty state `state=0`, `keys=[]` was live-validated. |
+| Keys | `POST /api/v4/key/skud/<id>/auto_collect/enable/` | **Observed** | Android arms a 60-second enrollment window; the HA validation button is implemented but the endpoint has not yet been validated with a real new key. |
+| Keys | `POST /api/v4/key/edit/` | **Observed** | Android renames a key with `{key_id,name}`; current production runtime does not use it. |
+| Keys | `POST /api/v4/key/skud/<id>/delete/key/` | **Observed** | Android deletes a key with `{key_id}`; destructive flow is neither implemented nor live-validated. |
 | Passages | `POST /api/v4/key/skud/<id>/key/pass_history/` | **Confirmed** | HTTP 200, zero-based pagination and empty `results` confirmed; item fields remain Observed |
 | Door | `GET /api/v0/skud/shared/<id>/open/?door=1` | **Confirmed** | Physical side effect; successful `{"result":true}` |
 | UCAMS | `POST /api/v0/cameras/this/` | **Confirmed** | Camera/server/token metadata; `analytics` capability metadata also live-confirmed |
@@ -53,4 +57,5 @@ When adding a new finding:
 - do not mark a behavior **Confirmed** based only on decompiled client code;
 - record tested failures as **Not supported** only for the exact request form that was tested;
 - do not infer untested pagination/request fields from response metadata;
-- avoid publishing account-specific data, credentials, camera/event identifiers, exact event history, or raw private responses.
+- for state-changing operations, record separately whether the physical/account side effect was actually verified rather than only the HTTP response;
+- avoid publishing account-specific data, credentials, camera/event/key identifiers, exact event history, or raw private responses.
