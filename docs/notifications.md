@@ -11,19 +11,44 @@ Import `blueprints/automation/ufanet_intercom/incoming_call_notification.yaml` a
 - the matching **Last call** sensor (recommended, used for manual-test fallback metadata);
 - the matching **Last call image** entity;
 - optionally, the exact **Open door** button/relay;
-- the Home Assistant dashboard URI to open from the notification.
+- the Home Assistant dashboard URI to open from the notification;
+- optionally, the Android notification channel name.
 
 The blueprint keeps the existing `incoming_call` device trigger for compatibility. A native doorbell EventEntity also represents the same confirmed call using Home Assistant's standard `ring` event type.
+
+## Native push content
+
+A real call notification is built only from Home Assistant-safe metadata. The title contains the selected Home Assistant intercom device name. The body can contain:
+
+- address;
+- porch;
+- flat;
+- call time converted to the Home Assistant local timezone.
+
+Missing fields are simply omitted. Manual runs use the same formatting with metadata from the selected **Last call** sensor and are explicitly marked as tests.
+
+The call time is formatted from the confirmed `called_at` timestamp with Home Assistant's local timezone, so it follows the timezone configured for the HA instance rather than displaying provider UTC directly.
 
 ## Delivery sequence
 
 1. A new call is confirmed by the integration's call-history coordinator (polling or FCM-assisted refresh).
-2. The blueprint sends a text notification immediately. Image generation never delays this first push.
+2. The blueprint sends the text notification immediately. Image generation never delays this first push.
 3. The integration privately downloads the provider preview and extracts a JPEG into the **Last call image** entity.
 4. If that image becomes ready inside the configured image window, the blueprint replaces the notification using the same `tag` and `/api/image_proxy/image.entity_id`.
 5. The raw Ufanet preview/archive URL is never put into automation variables or notification data.
 
-For Android, the initial push requests `ttl: 0` and `priority: high` for prompt delivery. The image replacement uses the same notification tag and `alert_once: true` so it updates the existing notification without intentionally producing another alert.
+A stable live `tag` is derived from the selected Home Assistant intercom device, so image/status updates replace the same notification and a newer call replaces an older pending call for that intercom. Manual tests use a separate tag.
+
+For Android, the initial push requests `ttl: 0` and `priority: high` for prompt delivery. The configurable `channel` and `importance: high` fields are Android-specific; iOS ignores the Android channel field. Image/status replacements use `alert_once: true` so they update the existing notification without intentionally producing another alert.
+
+## Android and iOS actions
+
+The blueprint uses inline Companion actions supported on both Android and iOS:
+
+- **Open door** uses a unique Home Assistant-local action ID and never calls a provider API directly;
+- **View camera** uses the standard `URI` action with the configured Home Assistant dashboard path.
+
+The Open door action requests device authentication where supported. During Android live testing the Companion/FCM data channel required action values to be strings, so `authenticationRequired` is encoded as `"true"`; Android Companion parses that value as a boolean. Apple-only `destructive` metadata is deliberately not included in the cross-platform payload.
 
 ## Actions and safety model
 
@@ -35,11 +60,9 @@ The blueprint runs in `restart` mode. A newer call therefore cancels the previou
 
 The Open door action is accepted only for the configured timeout. After either a successful `button.press` dispatch or timeout, the notification is replaced without the Open door action. The success message deliberately says that the open command was **sent**; it does not claim that the physical door state was independently verified.
 
-The action requests device authentication where supported. For Android Companion/FCM compatibility the `authenticationRequired` action property is encoded as the string `"true"`, which the Android app parses as a boolean.
-
 Manual runs deliberately disable the physical door action and use a separate notification tag, so **Run actions** can test delivery without replacing an active real-call notification or creating a door-control path.
 
-The second action opens the configured Home Assistant dashboard URI.
+No door opening occurs without an explicit user tap on the actionable notification.
 
 ## Manual testing
 
