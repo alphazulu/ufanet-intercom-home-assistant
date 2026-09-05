@@ -54,6 +54,7 @@ from .firebase_config import UfanetFirebaseConfigError, async_load_firebase_conf
 from .guest_store import UfanetGuestInviteStore
 from .image_status import UfanetLastCallImageStatusManager
 from .key_inventory import UfanetApi
+from .key_management import async_setup_key_services
 from .options import effective_options
 from .services import async_setup_services
 
@@ -91,6 +92,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     # Keep hass.data[DOMAIN] reserved for config-entry runtime dictionaries.
     # Service handlers retain this Store instance through their closures.
     async_setup_services(hass, guest_invite_store)
+    async_setup_key_services(hass)
 
     if await hass.async_add_executor_job(_path_is_file, _ARCHIVE_CARD_PATH):
         await hass.http.async_register_static_paths(
