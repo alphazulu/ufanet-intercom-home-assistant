@@ -13,9 +13,10 @@ The validation branch now contains:
 - native 60-second physical-key enrollment;
 - FCM `reason=key_add` completion handling;
 - read-only key inventory;
-- privacy-safe `list_physical_keys` and `rename_physical_key` services.
+- privacy-safe `list_physical_keys` and `rename_physical_key` services;
+- a validation-only Lovelace **KEYS** tab built on those Home Assistant surfaces.
 
-Enrollment, `key_add`, non-empty key-item, and rename wire contracts remain **Observed** until a real unregistered key is tested end to end. The empty Home Assistant state is live-confirmed: **Physical keys** reports numeric `0` and `keys: []`.
+Enrollment, `key_add`, non-empty key-item, and rename wire contracts remain **Observed** until a real unregistered key is tested end to end. The empty Home Assistant paths are live-confirmed: **Physical keys** reports numeric `0` and `keys: []`, and `ufanet_intercom.list_physical_keys` returned `count: 0`, `keys: []`.
 
 ## Account features
 
@@ -105,7 +106,7 @@ keys:
 
 `key_ref` is a local opaque reference scoped to the ConfigEntry, selected SKUD, and internal provider key ID. Raw `key_id` is neither accepted nor returned, and a reference from another intercom does not resolve for the selected device.
 
-A non-empty service response remains pending live validation.
+The empty service response is live-confirmed (`count: 0`, `keys: []`). A non-empty response remains pending live validation.
 
 ## Starting physical-key enrollment
 
@@ -195,6 +196,14 @@ Provider key ID is never accepted or returned by the service. If the POST may ha
 
 Until a real key exists, this path is **validation-only** and the endpoint remains **Observed**.
 
+## Lovelace KEYS tab
+
+The validation branch automatically loads the packaged `ufanet-physical-keys-card.js` extension. It waits for `custom:ufanet-intercom-card` and adds **KEYS / КЛЮЧИ** without changing the main card source.
+
+The browser workflow uses only `list_physical_keys`, `rename_physical_key`, and the same-device Home Assistant enrollment button. Rows render only the key name and created time; the opaque `key_ref` is passed back to Home Assistant but is not shown to the user. **Add key** requires confirmation, shows the 60-second countdown, and refreshes the list afterward. **Rename** requires confirmation and reports success only after the backend returns `verified: true`. No delete action exists.
+
+Provider key IDs and `external_id` are not referenced by the extension. Its zero-key layout and actual integration with the development dashboard remain a live visual gate before release.
+
 ## Delete key
 
 The Android client also contains:
@@ -239,22 +248,24 @@ Current validation functionality includes:
 - FCM `key_add` + immediate inventory refresh;
 - `ufanet_intercom_key_enrollment`;
 - `list_physical_keys` with opaque `key_ref`;
-- validation-only `rename_physical_key` with fresh resolution and post-write verification.
+- validation-only `rename_physical_key` with fresh resolution and post-write verification;
+- validation-only **KEYS** Lovelace tab with no delete action.
 
 Diagnostics exclude key names, passage timestamps, provider key IDs, `external_id`, and full history.
 
 ## Required live validation before release
 
-Release remains blocked until a real new key confirms:
+Release remains blocked until these are confirmed:
 
-1. HA can arm auto-collection;
-2. the new key can be presented within 60 seconds;
-3. the real `reason=key_add` wire shape;
-4. prompt numeric Physical keys update;
-5. non-empty `keys` with expected `name`/`created_at`;
-6. no provider `key_id`/`external_id` on public surfaces;
-7. correct `ufanet_intercom_key_enrollment` result;
-8. `list_physical_keys` returns an opaque `key_ref` without provider IDs;
-9. `rename_physical_key` really changes the name through `/api/v4/key/edit/` and the post-write refresh confirms it.
+1. the **KEYS** tab loads in the existing Lovelace card and shows the correct zero-key empty state without errors;
+2. HA/card can arm auto-collection;
+3. the new key can be presented within 60 seconds;
+4. the real `reason=key_add` wire shape;
+5. prompt numeric Physical keys update;
+6. non-empty `keys` with expected `name`/`created_at`;
+7. no provider `key_id`/`external_id` on public surfaces;
+8. correct `ufanet_intercom_key_enrollment` result;
+9. `list_physical_keys` returns an opaque `key_ref` without provider IDs;
+10. `rename_physical_key` really changes the name through `/api/v4/key/edit/`, the post-write refresh confirms it, and the **KEYS** tab renders the updated value.
 
 Delete and BLE keys remain outside the current release scope.
