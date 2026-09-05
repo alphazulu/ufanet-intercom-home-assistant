@@ -206,7 +206,7 @@ Companion, но iOS action delivery на реальном устройстве �
 Отдельный coordinator опрашивает API раз в 60 секунд. Первый успешный poll истории
 устанавливает baseline и не воспроизводит старые проходы; private cursor защищает
 от дублей после reload. Публичный passage event содержит только `key_name` и
-`occurred_at`; provider `external_id` и полная история не публикуются.
+`occurred_at`; private provider identifiers и полная история не публикуются.
 
 Validation-ветка добавляет **«Добавить физический ключ»** (`mdi:key-plus`) только
 для поддерживаемых домофонов. Кнопка повторяет Android-observed 60-секундный
@@ -215,9 +215,9 @@ Validation-ветка добавляет **«Добавить физически
 
 FCM listener распознаёт Android-observed completion `reason=key_add`, немедленно
 обновляет key inventory и отправляет account-level privacy-minimized событие
-`ufanet_intercom_key_enrollment`. Provider identifiers, raw message text и push
-payload не публикуются. Реальный `key_add` и непустой inventory пока имеют статус
-**Observed / pending live validation**.
+`ufanet_intercom_key_enrollment`. Private provider identifiers, raw message text и
+push payload не публикуются. Реальный `key_add` и непустой inventory пока имеют
+статус **Observed / pending live validation**.
 
 Для управления ключами validation-ветка предоставляет response-service
 `ufanet_intercom.list_physical_keys`, который возвращает только `name`,
