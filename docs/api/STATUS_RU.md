@@ -24,7 +24,7 @@
 | Домофоны | `POST /api/v0/intercoms/` | **Confirmed** | Фильтрованный запрос со страницей от `1` вернул `has_key_recording_support=true` |
 | Ключи | `POST /api/v4/key/list/` | **Confirmed** | Подтверждены HTTP 200 и пустой `data.keys`; поля непустой записи остаются Observed. В HA live-проверено пустое состояние `state=0`, `keys=[]`. |
 | Ключи | `POST /api/v4/key/skud/<id>/auto_collect/enable/` | **Observed** | Android-клиент запускает 60-секундный режим регистрации; validation-кнопка HA реализована, но endpoint ещё не проверен реальным новым ключом. |
-| Ключи | `POST /api/v4/key/edit/` | **Observed** | Android-клиент переименовывает ключ телом `{key_id,name}`; production runtime пока не использует. |
+| Ключи | `POST /api/v4/key/edit/` | **Observed** | Android-клиент переименовывает ключ телом `{key_id,name}`; validation-runtime HA реализует opaque `key_ref`, fresh-resolution и post-write verification, но реальный rename ещё не проверен. |
 | Ключи | `POST /api/v4/key/skud/<id>/delete/key/` | **Observed** | Android-клиент удаляет ключ телом `{key_id}`; destructive flow не реализован и не live-проверен. |
 | Проходы | `POST /api/v4/key/skud/<id>/key/pass_history/` | **Confirmed** | Подтверждены HTTP 200, страницы от `0` и пустой `results`; поля записи остаются Observed |
 | Дверь | `GET /api/v0/skud/shared/<id>/open/?door=1` | **Confirmed** | Физическое действие; успешный `{"result":true}` |
