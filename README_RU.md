@@ -215,19 +215,19 @@ Validation-ветка добавляет **«Добавить физически
 
 FCM listener распознаёт Android-observed completion `reason=key_add`, немедленно
 обновляет key inventory и отправляет account-level privacy-minimized событие
-`ufanet_intercom_key_enrollment`. Provider `key_id`, `external_id`, raw message text
-и push payload не публикуются. Реальный `key_add` и непустой inventory пока имеют
-статус **Observed / pending live validation**.
+`ufanet_intercom_key_enrollment`. Provider identifiers, raw message text и push
+payload не публикуются. Реальный `key_add` и непустой inventory пока имеют статус
+**Observed / pending live validation**.
 
 Для управления ключами validation-ветка предоставляет response-service
 `ufanet_intercom.list_physical_keys`, который возвращает только `name`,
 `created_at` и локальный непрозрачный `key_ref`. `ufanet_intercom.rename_physical_key`
 принимает этот `key_ref`, перед изменением перечитывает свежий inventory, разрешает
-ссылку только внутри выбранного домофона и после Android-observed `/api/v4/key/edit/`
+ссылку только внутри выбранного домофона и после Android-observed edit request
 обязательно перечитывает inventory ещё раз. Успех возвращается только если новое имя
-реально видно после refresh. Raw provider `key_id` не принимается и не возвращается.
-Сам rename endpoint остаётся **Observed / pending live validation** до появления
-реального ключа. Удаление ключа не реализовано.
+реально видно после refresh. Raw provider identifiers не принимаются и не
+возвращаются. Сам rename endpoint остаётся **Observed / pending live validation** до
+появления реального ключа. Удаление ключа не реализовано.
 
 Вкладка **КЛЮЧИ** использует эти же privacy-safe response-services. Кнопка
 **«Добавить ключ»** вызывает только HA entity `button.*_add_physical_key`, показывает
@@ -260,7 +260,7 @@ FCM listener распознаёт Android-observed completion `reason=key_add`, 
 - Гостевые ссылки являются временными capabilities доступа.
 - Открытие двери — реальное физическое действие; карточка/notification требуют явного действия пользователя, а notification добавляет same-device guards.
 - Запуск physical-key enrollment изменяет состояние контроля доступа и не должен использоваться как health check или автоматическое действие.
-- `external_id` физического ключа отбрасывается при нормализации; provider `key_id` остаётся только внутренним runtime ID и не попадает в sensor attributes/events/diagnostics.
+- Private provider identifiers физических ключей остаются внутри runtime и не попадают в sensor attributes/events/diagnostics.
 - Публичное управление физическими ключами использует только intercom-scoped opaque `key_ref`; rename перечитывает inventory до изменения и проверяет результат повторным refresh после POST.
 - Tokenized call-media URL остаются внутренними runtime-данными; image entity хранит только созданный JPEG.
 - Управление FCM-сессиями использует opaque refs вместо raw provider device IDs и защищает доказанно принадлежащие HA регистрации.
