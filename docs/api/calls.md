@@ -46,7 +46,9 @@ Observed response includes tokenized URLs for:
 - a `preview` MP4;
 - an archive/media `url` MP4.
 
-These URLs contain temporary access credentials and must not be logged or exposed in diagnostics.
+These URLs contain temporary access credentials and must not be logged, included in
+diagnostics, persisted in Recorder-backed attributes, or copied into automation
+payloads.
 
 ## Time semantics
 
@@ -68,3 +70,22 @@ Incorrect behavior such as blindly assigning the separate `timezone` field can s
 The integration uses the call `uuid` as the event identity for deduplication. For local automatic MP4 filenames it stores only a truncated SHA-256 reference, not the raw UUID.
 
 **Status: Integration behavior, not an API requirement.**
+
+## Home Assistant exposure
+
+A confirmed `call-history` row remains the authoritative source for the durable
+Home Assistant event even in FCM mode. `reason=sip` is used as a low-latency refresh
+signal, but the push UUID does not replace `call-history.uuid`.
+
+The public `ufanet_intercom_call` event and doorbell EventEntity deliberately omit
+`preview_url`/`archive_url`. Home Assistant receives safe call metadata plus
+`has_preview` / `has_archive` flags while tokenized media URLs remain private
+runtime data.
+
+The validation branch also feeds the same confirmed event into the Companion
+notification blueprint. Images come from the private HA ImageEntity through
+`/api/image_proxy/`, and the door action invokes the selected Home Assistant button
+entity rather than embedding a provider endpoint/credential in the notification.
+
+See [../notifications.md](../notifications.md) for the delivery sequence, Android
+live-validation, safety model and remaining release gates.
