@@ -46,10 +46,10 @@ from .coordinator import (
 )
 from .entity import device_name
 from .fcm import (
-    UfanetFcmManager,
     async_remove_stored_fcm_registration,
     async_retry_pending_fcm_unregister,
 )
+from .fcm_key import UfanetFcmManager
 from .firebase_config import UfanetFirebaseConfigError, async_load_firebase_config
 from .guest_store import UfanetGuestInviteStore
 from .image_status import UfanetLastCallImageStatusManager
