@@ -13,9 +13,10 @@ Read-only формы запросов успешно проверены на р�
 - 60-секундная регистрация физического ключа;
 - обработка FCM `reason=key_add`;
 - read-only inventory ключей;
-- privacy-safe сервисы `list_physical_keys` и `rename_physical_key`.
+- privacy-safe сервисы `list_physical_keys` и `rename_physical_key`;
+- Lovelace-вкладка **КЛЮЧИ** поверх этих privacy-safe HA surface.
 
-Wire-контракты регистрации, `key_add`, непустого key item и переименования остаются **Observed**, пока не выполнен end-to-end тест реальным новым ключом. На реальной установке Home Assistant уже подтверждено пустое состояние inventory: числовой state сенсора **«Физические ключи»** равен `0`, а `keys` равен `[]`.
+Wire-контракты регистрации, `key_add`, непустого key item и переименования остаются **Observed**, пока не выполнен end-to-end тест реальным новым ключом. На реальной установке Home Assistant уже подтверждено пустое состояние inventory: числовой state сенсора **«Физические ключи»** равен `0`, `keys` равен `[]`, а `ufanet_intercom.list_physical_keys` вернул `count: 0`, `keys: []`.
 
 ## Возможности аккаунта
 
@@ -105,7 +106,7 @@ keys:
 
 `key_ref` — локальная непрозрачная ссылка, зависящая от ConfigEntry, выбранного SKUD и внутреннего provider key ID. Raw `key_id` не принимается и не возвращается. Это предотвращает использование публичного HA service API как интерфейса прямого ввода provider ID и не позволяет перенести `key_ref` на другой домофон.
 
-Непустой результат этого сервиса пока не live-проверен.
+Пустой live-вызов этого сервиса уже подтверждён (`count: 0`, `keys: []`). Непустой результат пока не live-проверен.
 
 ## Запуск регистрации физического ключа
 
@@ -201,6 +202,20 @@ Provider `key_id` не попадает в service input/output. Если POST �
 
 До появления реального ключа этот runtime path считается **validation-only**, а endpoint остаётся **Observed**.
 
+## Lovelace-вкладка КЛЮЧИ
+
+Validation-ветка автоматически загружает packaged frontend extension `ufanet-physical-keys-card.js`. Он ждёт регистрации `custom:ufanet-intercom-card` и добавляет вкладку **КЛЮЧИ**, не изменяя основной код уже проверенных LIVE/АРХИВ/ГОСТИ/УСТРОЙСТВА/ДИАГНОСТИКА.
+
+Frontend использует только Home Assistant surface:
+
+- `ufanet_intercom.list_physical_keys` для свежего списка;
+- `ufanet_intercom.rename_physical_key` для переименования;
+- same-device `button.*_add_physical_key` для запуска enrollment.
+
+В браузерном коде отсутствуют provider `key_id`, `external_id` и delete endpoint. В строке списка выводятся только имя и дата добавления; `key_ref` передаётся обратно в HA service, но не показывается пользователю. **Добавить ключ** требует явного подтверждения, показывает 60-секундный countdown и после завершения окна перечитывает список. **Переименовать** требует подтверждения и отображает успех только после `verified: true` от backend. Delete action отсутствует.
+
+Пустое состояние и интеграция extension с реальной Lovelace-карточкой требуют отдельного live visual test до релиза.
+
 ## Удаление ключа
 
 Android-клиент также содержит:
@@ -245,22 +260,24 @@ Content-Type: application/json
 - FCM `key_add` + немедленный inventory refresh;
 - `ufanet_intercom_key_enrollment`;
 - `list_physical_keys` с opaque `key_ref`;
-- validation-only `rename_physical_key` с fresh-resolution и post-write verification.
+- validation-only `rename_physical_key` с fresh-resolution и post-write verification;
+- validation-only Lovelace-вкладку **КЛЮЧИ** без delete action.
 
 Diagnostics не содержат имён ключей, времени проходов, provider key IDs, `external_id` или полной истории.
 
 ## Обязательная live-проверка до релиза
 
-Релиз блока остаётся заблокирован, пока реальным новым ключом не подтверждены:
+Релиз блока остаётся заблокирован, пока не подтверждены:
 
-1. запуск auto-collect кнопкой HA;
-2. приложение нового ключа в пределах 60 секунд;
-3. реальный `reason=key_add` и его wire-схема;
-4. быстрое обновление числового Physical keys state;
-5. появление непустого `keys` с ожидаемыми `name`/`created_at`;
-6. отсутствие provider `key_id`/`external_id` в публичных surface;
-7. корректный `ufanet_intercom_key_enrollment`;
-8. `list_physical_keys` выдаёт opaque `key_ref` без provider ID;
-9. `rename_physical_key` реально меняет имя через `/api/v4/key/edit/` и post-write refresh подтверждает новое имя.
+1. вкладка **КЛЮЧИ** реально загружается в существующей Lovelace-карточке и на zero-key аккаунте показывает корректное пустое состояние без ошибок;
+2. запуск auto-collect кнопкой HA/карточки;
+3. приложение нового ключа в пределах 60 секунд;
+4. реальный `reason=key_add` и его wire-схема;
+5. быстрое обновление числового Physical keys state;
+6. появление непустого `keys` с ожидаемыми `name`/`created_at`;
+7. отсутствие provider `key_id`/`external_id` в публичных surface;
+8. корректный `ufanet_intercom_key_enrollment`;
+9. `list_physical_keys` выдаёт opaque `key_ref` без provider ID;
+10. `rename_physical_key` реально меняет имя через `/api/v4/key/edit/`, post-write refresh подтверждает новое имя, а вкладка **КЛЮЧИ** отображает обновлённое значение.
 
 Удаление и BLE-ключи остаются вне текущего release scope.
