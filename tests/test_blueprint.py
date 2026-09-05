@@ -28,7 +28,7 @@ def _load_blueprint() -> tuple[dict, Blueprint]:
 
 
 def test_incoming_call_notification_blueprint_is_valid() -> None:
-    _data, blueprint = _load_blueprint()
+    data, blueprint = _load_blueprint()
 
     assert blueprint.name == "Ufanet incoming call notification"
     assert set(blueprint.inputs) == {
@@ -44,6 +44,8 @@ def test_incoming_call_notification_blueprint_is_valid() -> None:
         "notification_message",
     }
     assert blueprint.metadata["homeassistant"]["min_version"] == "2026.8.0"
+    assert data["mode"] == "restart"
+    assert "max" not in data
 
 
 def test_blueprint_uses_private_image_proxy_and_no_provider_media_urls() -> None:
@@ -60,8 +62,9 @@ def test_blueprint_notification_identifiers_use_available_run_context() -> None:
 
     assert "trigger.event.context.id" in source
     assert "context.id" not in source.replace("trigger.event.context.id", "")
-    assert "{{ 'ufanet_intercom_' ~ run_id }}" in source
     assert "{{ 'UFANET_OPEN_' ~ run_id }}" in source
+    assert "ufanet_intercom_test_" in source
+    assert "~ intercom_device_id" in source
     assert "call_uuid" not in source
 
 
@@ -80,6 +83,26 @@ def test_blueprint_sends_immediately_and_uses_unique_guarded_door_action() -> No
     assert "tag: \"{{ notification_tag }}\"" in source
     assert "alert_once: true" in source
     assert "confirmation: true" in source
+
+
+def test_blueprint_guards_door_button_against_selected_device() -> None:
+    source = BLUEPRINT_PATH.read_text(encoding="utf-8")
+
+    assert source.count("device_entities(intercom_device_id)") >= 3
+    assert source.count("open_door_button_entity.startswith('button.')") >= 3
+    assert "Revalidate the relay immediately before pressing it" in source
+
+
+def test_blueprint_invalidates_old_and_expired_door_actions() -> None:
+    source = BLUEPRINT_PATH.read_text(encoding="utf-8")
+
+    assert "mode: restart" in source
+    assert "Open door action expired." in source
+    assert "Open door command sent." in source
+    assert "Open door action is no longer available." in source
+    assert "timeout: \"{{ wait.remaining }}\"" in source
+    assert "id: open_door" in source
+    assert "id: image_changed" in source
 
 
 def test_blueprint_real_call_trigger_is_device_scoped() -> None:
