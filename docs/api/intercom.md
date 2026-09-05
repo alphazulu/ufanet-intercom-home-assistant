@@ -43,6 +43,35 @@ Authorization: JWT <UFANET_ACCESS_JWT>
 
 For the account used in testing this endpoint returned an empty array while `/api/v0/skud/shared/` returned the actual intercom. Do not assume `/api/v0/skud/` is the preferred discovery endpoint.
 
+## Physical-key capability
+
+Physical-key recording support is not inferred from `model` or from an optional
+field on the ordinary SKUD object. The project live-confirmed a separate filtered
+request:
+
+```http
+POST /api/v0/intercoms/
+Authorization: JWT <UFANET_ACCESS_JWT>
+Content-Type: application/json
+```
+
+```json
+{
+  "page": 1,
+  "page_size": 10,
+  "filters": {
+    "has_key_recording_support": true
+  }
+}
+```
+
+**Status: Confirmed for capability discovery.**
+
+Only intercoms actually returned with `has_key_recording_support=true` receive the
+validation-branch **Add physical key** button and key/passage polling. The enrollment
+and `reason=key_add` wire contracts are documented separately in [keys.md](keys.md)
+and remain below Confirmed until a new physical key is tested.
+
 ## Open door
 
 **Status: Confirmed — physical side effect**
@@ -61,6 +90,11 @@ Observed successful response:
 ```
 
 > **Warning:** this endpoint performs a real physical action. Do not call it as a connectivity probe, health check, background retry test, or documentation example against a live device. Require explicit user intent in applications.
+
+The validation-branch Companion notification does not place this provider endpoint
+inside the push. **Open door** invokes the selected Home Assistant button entity and
+also verifies that it belongs to the same HA device as the selected intercom. See
+[../notifications.md](../notifications.md).
 
 ### `door` parameter
 

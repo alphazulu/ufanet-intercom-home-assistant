@@ -17,11 +17,15 @@
 | FCM | `POST /api/v4/fcm_device/authorized_devices/` | **Confirmed** | Live-проверенный POST без body возвращает `data.device_list`; подтверждены `device_id`, `title`, `last_update`, `is_call_access` и серверные metadata `os`/`os_display`. `devices_num_permission` наблюдается live, но его точная бизнес-семантика пока не подтверждена. |
 | FCM | `POST /api/v4/fcm_device/logout_device/` | **Confirmed** | Controlled probe-owned сессия была видна до logout `{device_id}`, исчезла после HTTP 200, восстановлена через `/api/v0/fcm/` и снова появилась; targeted production revoke также live-проверен в Home Assistant. |
 | Push | `data.reason = "sip"` | **Confirmed** | Реальный payload содержит `username`, `password`, `server`, `skud_id`, `transport`, `contract`, `house_id`, `flat`, `time`, `uuid`; `from=<sender-id>`, priority `normal` |
+| Push | `data.reason = "key_add"` | **Observed** | Android-клиент использует `key_status` + `key_id`; успех: `key_status == 0` и присутствует корректный `key_id`. Реальный push новым ключом ещё не захвачен. |
 | SKUD | `GET /api/v0/skud/shared/` | **Confirmed** | Возвращает протестированный домофон |
 | SKUD | `GET /api/v0/skud/` | **Observed** | На тестируемом аккаунте вернул `[]` |
 | Возможности | `GET /api/v4/skud/features/` | **Confirmed** | Live-ответ содержал account feature `keys` |
 | Домофоны | `POST /api/v0/intercoms/` | **Confirmed** | Фильтрованный запрос со страницей от `1` вернул `has_key_recording_support=true` |
-| Ключи | `POST /api/v4/key/list/` | **Confirmed** | Подтверждены HTTP 200 и пустой `data.keys`; поля непустой записи остаются Observed |
+| Ключи | `POST /api/v4/key/list/` | **Confirmed** | Подтверждены HTTP 200 и пустой `data.keys`; поля непустой записи остаются Observed. В HA live-проверено пустое состояние `state=0`, `keys=[]`. |
+| Ключи | `POST /api/v4/key/skud/<id>/auto_collect/enable/` | **Observed** | Android-клиент запускает 60-секундный режим регистрации; validation-кнопка HA реализована, но endpoint ещё не проверен реальным новым ключом. |
+| Ключи | `POST /api/v4/key/edit/` | **Observed** | Android-клиент переименовывает ключ телом `{key_id,name}`; validation-runtime HA реализует opaque `key_ref`, fresh-resolution и post-write verification, но реальный rename ещё не проверен. |
+| Ключи | `POST /api/v4/key/skud/<id>/delete/key/` | **Observed** | Android-клиент удаляет ключ телом `{key_id}`; destructive flow не реализован и не live-проверен. |
 | Проходы | `POST /api/v4/key/skud/<id>/key/pass_history/` | **Confirmed** | Подтверждены HTTP 200, страницы от `0` и пустой `results`; поля записи остаются Observed |
 | Дверь | `GET /api/v0/skud/shared/<id>/open/?door=1` | **Confirmed** | Физическое действие; успешный `{"result":true}` |
 | UCAMS | `POST /api/v0/cameras/this/` | **Confirmed** | Метаданные камеры/сервера/токенов; metadata capability `analytics` также live-подтверждена |
@@ -53,4 +57,5 @@
 - не ставьте **Confirmed** только на основании декомпилированного кода клиента;
 - статус **Not supported** относится только к точно проверенной форме запроса;
 - не выводите непроверенные request-поля пагинации из одной только metadata ответа;
-- не публикуйте данные конкретного аккаунта, credentials, camera/event identifiers, точную историю событий или raw private responses.
+- для state-changing операций отдельно фиксируйте, был ли реально проверен побочный эффект, а не только HTTP-ответ;
+- не публикуйте данные конкретного аккаунта, credentials, camera/event/key identifiers, точную историю событий или raw private responses.

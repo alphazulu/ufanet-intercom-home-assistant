@@ -19,7 +19,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
 
 from .analytics import UfanetMotionAnalyticsCoordinator
-from .api import UfanetApi, UfanetAuthError, UfanetConnectionError, UfanetResponseError
+from .api import UfanetAuthError, UfanetConnectionError, UfanetResponseError
 from .archive import UfanetArchiveController
 from .auto_export import UfanetCallAutoSaveManager
 from .const import (
@@ -46,13 +46,15 @@ from .coordinator import (
 )
 from .entity import device_name
 from .fcm import (
-    UfanetFcmManager,
     async_remove_stored_fcm_registration,
     async_retry_pending_fcm_unregister,
 )
+from .fcm_key import UfanetFcmManager
 from .firebase_config import UfanetFirebaseConfigError, async_load_firebase_config
 from .guest_store import UfanetGuestInviteStore
 from .image_status import UfanetLastCallImageStatusManager
+from .key_inventory import UfanetApi
+from .key_management import async_setup_key_services
 from .options import effective_options
 from .services import async_setup_services
 
@@ -62,6 +64,9 @@ _FRONTEND_DIR = Path(__file__).parent / "frontend"
 _ARCHIVE_CARD_PATH = _FRONTEND_DIR / "ufanet-archive-card.js"
 _ARCHIVE_CARD_URL = "/ufanet_intercom/ufanet-archive-card.js"
 _ARCHIVE_CARD_MODULE_URL = f"{_ARCHIVE_CARD_URL}?v=0.30.0"
+_PHYSICAL_KEYS_CARD_PATH = _FRONTEND_DIR / "ufanet-physical-keys-card.js"
+_PHYSICAL_KEYS_CARD_URL = "/ufanet_intercom/ufanet-physical-keys-card.js"
+_PHYSICAL_KEYS_CARD_MODULE_URL = f"{_PHYSICAL_KEYS_CARD_URL}?v=0.30.0"
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -83,13 +88,14 @@ def _path_is_file(path: Path) -> bool:
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up integration-level service actions and archive dashboard card."""
+    """Set up integration-level services and dashboard frontend resources."""
     guest_invite_store = UfanetGuestInviteStore(hass)
     await guest_invite_store.async_load()
 
     # Keep hass.data[DOMAIN] reserved for config-entry runtime dictionaries.
     # Service handlers retain this Store instance through their closures.
     async_setup_services(hass, guest_invite_store)
+    async_setup_key_services(hass)
 
     if await hass.async_add_executor_job(_path_is_file, _ARCHIVE_CARD_PATH):
         await hass.http.async_register_static_paths(
@@ -98,14 +104,25 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                     _ARCHIVE_CARD_URL,
                     str(_ARCHIVE_CARD_PATH),
                     False,
-                )
+                ),
+                StaticPathConfig(
+                    _PHYSICAL_KEYS_CARD_URL,
+                    str(_PHYSICAL_KEYS_CARD_PATH),
+                    False,
+                ),
             ]
         )
-        # Fallback only. The reliable/supported path for a Lovelace custom card
+        # Fallback only. The reliable/supported path for the main Lovelace card
         # is to add _ARCHIVE_CARD_MODULE_URL as a JavaScript Module resource.
-        # add_extra_js_url can race dashboard construction on current HA frontend.
+        # The physical-key extension waits for that custom element and is safe
+        # whether it loads immediately before or after the main card script.
         frontend.add_extra_js_url(hass, _ARCHIVE_CARD_MODULE_URL)
+        frontend.add_extra_js_url(hass, _PHYSICAL_KEYS_CARD_MODULE_URL)
         _LOGGER.info("Ufanet archive card resource URL: %s", _ARCHIVE_CARD_MODULE_URL)
+        _LOGGER.info(
+            "Ufanet physical-key card extension URL: %s",
+            _PHYSICAL_KEYS_CARD_MODULE_URL,
+        )
     else:
         _LOGGER.warning(
             "Ufanet archive Lovelace card was not found at %s",

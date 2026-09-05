@@ -33,6 +33,47 @@ Applications should:
 - never use the endpoint for health checking;
 - distinguish viewing video from controlling access.
 
+The validation-branch Companion **Open door** action follows the same boundary: it
+is exposed only for a real call, requires an explicit tap, uses a unique local
+action ID, validates that the button belongs to the same Home Assistant device
+both when the notification is built and immediately before `button.press`, and is
+removed after command dispatch or timeout. A manual blueprint run cannot open the
+door.
+
+## Physical-key enrollment and management
+
+Calling `/api/v4/key/skud/<SKUD_ID>/auto_collect/enable/` changes access-control
+state: it arms a 60-second window in which a new physical key can be registered by
+presenting it to the intercom reader. It is not a read-only health check and must
+not be started automatically.
+
+Home Assistant creates **Add physical key** only for an intercom that explicitly
+advertises `has_key_recording_support`, and the button is unavailable for an
+`is_blocked` device. A successful HTTP response proves only that enrollment mode
+was armed, not that a key was actually registered.
+
+FCM completion `reason=key_add` is handled with privacy minimization: provider
+`key_id`, notification `title`/`body`, and the raw payload are not published. The
+public event contains only the result, receipt time, and whether inventory refresh
+succeeded. Because the observed `key_add` payload has no `skud_id`, the integration
+deliberately does not guess the target intercom.
+
+Provider physical-key `external_id` is discarded during response normalization.
+Provider `key_id` remains private runtime data and is never accepted through the
+public key-management services. `list_physical_keys` instead returns an opaque
+ConfigEntry/intercom-scoped `key_ref`. The validation-only `rename_physical_key`
+service refreshes inventory before resolving that ref, resolves it only for the
+selected intercom, then refreshes again after the Android-observed `/api/v4/key/edit/`
+POST and reports verified success only when the requested new name is observed.
+If the write may have succeeded but verification cannot be completed, the service
+reports an indeterminate error instead of claiming success.
+
+Renaming a key changes user-visible access metadata and remains **Observed** until a
+real key is used for live validation. Deleting a key is a destructive access-control
+operation. The observed delete endpoint must not be added to a production UI
+without live endpoint validation, strict verification that the key belongs to the
+selected intercom, and a separate explicit user confirmation.
+
 ## Guest-access side effects
 
 Creating, accepting, and revoking guest/shared access changes authorization state. Interfaces should clearly label these operations and request confirmation for destructive revocation.

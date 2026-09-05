@@ -1,17 +1,26 @@
-"""Event platform for Ufanet physical-key passages and motion analytics."""
+"""Event platform for Ufanet calls, physical-key passages and motion analytics."""
 
 from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from homeassistant.components.event import EventEntity
+from homeassistant.components.event import DoorbellEventType, EventDeviceClass, EventEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .analytics import UfanetMotionAnalyticsCoordinator
-from .const import DOMAIN, EVENT_KEY_PASSAGE, EVENT_MOTION_ANALYTICS
-from .coordinator import UfanetCoordinator, UfanetKeyPassageCoordinator
+from .const import (
+    DOMAIN,
+    EVENT_INTERCOM_CALL,
+    EVENT_KEY_PASSAGE,
+    EVENT_MOTION_ANALYTICS,
+)
+from .coordinator import (
+    UfanetCallCoordinator,
+    UfanetCoordinator,
+    UfanetKeyPassageCoordinator,
+)
 from .entity import device_info
 
 
@@ -20,9 +29,10 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up passage and motion event entities."""
+    """Set up call, passage and motion event entities."""
     runtime = hass.data[DOMAIN][entry.entry_id]
     coordinator: UfanetCoordinator = runtime["coordinator"]
+    call_coordinator: UfanetCallCoordinator = runtime["call_coordinator"]
     passage_coordinator: UfanetKeyPassageCoordinator = runtime[
         "key_passage_coordinator"
     ]
@@ -30,12 +40,17 @@ async def async_setup_entry(
         "analytics_coordinator"
     )
 
+    call_entities: list[EventEntity] = [
+        UfanetIncomingCallEvent(call_coordinator, skud)
+        for skud in coordinator.data.values()
+        if skud.get("cctv_number")
+    ]
     passage_entities: list[EventEntity] = [
         UfanetKeyPassageEvent(passage_coordinator, coordinator.data[skud_id])
         for skud_id in passage_coordinator.data
         if skud_id in coordinator.data
     ]
-    async_add_entities(passage_entities)
+    async_add_entities([*call_entities, *passage_entities])
 
     if analytics_coordinator is None:
         return
@@ -70,6 +85,62 @@ async def async_setup_entry(
     entry.async_on_unload(
         analytics_coordinator.async_add_listener(_add_supported_motion_entities)
     )
+
+
+class UfanetIncomingCallEvent(EventEntity):
+    """Represent a confirmed Ufanet intercom call as a standard doorbell event."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "incoming_call_event"
+    _attr_icon = "mdi:doorbell-video"
+    _attr_device_class = EventDeviceClass.DOORBELL
+    _attr_event_types: ClassVar[list[str]] = [DoorbellEventType.RING]
+
+    def __init__(
+        self,
+        coordinator: UfanetCallCoordinator,
+        skud: dict[str, Any],
+    ) -> None:
+        self.coordinator = coordinator
+        self.skud_id = int(skud["id"])
+        self._attr_unique_id = f"{self.skud_id}_incoming_call_event"
+        self._attr_device_info = device_info(skud)
+
+    @property
+    def available(self) -> bool:
+        """Return whether call-history updates are healthy."""
+        return self.coordinator.last_update_success
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to privacy-safe incoming-call events."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.hass.bus.async_listen(
+                EVENT_INTERCOM_CALL,
+                self._async_handle_call,
+            )
+        )
+
+    @callback
+    def _async_handle_call(self, event: Event) -> None:
+        """Publish a standard ring event for this intercom only."""
+        if event.data.get("skud_id") != self.skud_id:
+            return
+        attributes = {
+            field: event.data[field]
+            for field in (
+                "uuid",
+                "called_at",
+                "address",
+                "porch",
+                "flat",
+                "has_preview",
+                "has_archive",
+            )
+            if field in event.data
+        }
+        self._trigger_event(DoorbellEventType.RING, attributes)
+        self.async_write_ha_state()
 
 
 class UfanetKeyPassageEvent(EventEntity):

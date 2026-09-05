@@ -1,8 +1,8 @@
 # curl examples
 
-These examples intentionally focus on read-only operations. Commands that open a physical door or change/revoke guest access are documented on their reference pages but are omitted here to reduce accidental execution.
+These examples intentionally focus on read-only operations. Commands that open a physical door, arm physical-key enrollment, rename/delete a physical key, change/revoke guest access, or terminate an FCM session are documented on their reference pages but are omitted here to reduce accidental execution.
 
-Set placeholders in your shell environment or replace them manually. Never commit real values. UCAMS analytics responses contain private camera/event identifiers and exact event times; inspect them locally and do not paste raw responses into public issues or CI logs.
+Set placeholders in your shell environment or replace them manually. Never commit real values. UCAMS analytics and physical-key responses can contain private provider identifiers; inspect them locally and do not paste raw responses into public issues or CI logs.
 
 ## 1. Authenticate with Ufanet
 
@@ -115,5 +115,7 @@ The returned media URLs can contain active tokens. Do not paste the response int
 - Ufanet uses `JWT`; UCAMS uses `Bearer`.
 - `token_l` and `token_r` are media tokens, not substitutes for the UCAMS bearer token.
 - `motion_alarm` is the only analytics report currently Confirmed and used by production runtime.
+- Physical-key `external_id` and provider `key_id` values are private; do not publish raw key-list responses.
+- Physical-key enrollment/rename/delete are state-changing and intentionally have no copy/paste commands on this page; see [../keys.md](../keys.md) for evidence status and safety notes.
 - Never publish raw analytics responses, provider camera/event IDs, exact event history, or tokens.
 - For archive MP4 export, use the HLS method described in [../archive.md](../archive.md); the arbitrary `.mp4?token=<TOKEN_R>` form returned HTTP 403 in testing.

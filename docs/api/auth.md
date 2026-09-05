@@ -2,6 +2,10 @@
 
 [Русская версия](auth_RU.md)
 
+> The combined notification/physical-key validation branch does not change the
+> Ufanet/UCAMS authentication chain. This page was re-audited during the
+> documentation refresh and its existing Confirmed claims remain unchanged.
+
 ## Ufanet login
 
 **Status: Confirmed**

@@ -4,6 +4,10 @@
 
 Ufanet exposes two distinct access-sharing flows observed by this project: accepted/shared users and temporary guest links.
 
+> The combined notification/physical-key validation branch does not change the
+> guest/shared-access contracts or their evidence status. This page was re-audited
+> during the documentation refresh and has no functional changes.
+
 ## List temporary guest links
 
 **Status: Confirmed**

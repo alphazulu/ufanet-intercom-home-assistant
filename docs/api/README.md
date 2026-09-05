@@ -15,7 +15,7 @@ Every endpoint or behavior should carry one of these labels:
 - **Inferred** — inferred from client code or surrounding behavior and still needs validation.
 - **Not supported** — explicitly tested and found not to work in the tested form.
 
-When new behavior is tested, update the relevant page and move the label toward **Confirmed** only when there is direct evidence.
+When new behavior is tested, update the relevant page and move the label toward **Confirmed** only when there is direct evidence. For state-changing endpoints, an HTTP 200 alone is not enough: document separately whether the expected side effect was actually verified. Validation code and green CI alone do not promote an evidence label.
 
 ## Architecture
 
@@ -25,8 +25,10 @@ The integration currently uses three API layers:
    - contract authentication and token refresh;
    - intercom/SKUD discovery and door control;
    - call history;
+   - physical keys: capability/list/history plus validation-only enrollment and opaque-ref rename flows;
    - guest/shared-access management;
-   - FCM registration and authorized-session security management.
+   - FCM registration and authorized-session security management;
+   - Confirmed `reason=sip` as the low-latency call signal and Observed `reason=key_add` as physical-key enrollment completion.
 2. **UCAMS control API** — `https://cloud.ucams.ru`
    - exchanges the Ufanet JWT for a UCAMS bearer token;
    - returns camera metadata, live/archive tokens and media server information;
@@ -67,7 +69,7 @@ Important distinction:
 - [UCAMS camera analytics](analytics.md)
 - [Archive](archive.md)
 - [Call events/history](calls.md)
-- [Physical keys and passage history](keys.md)
+- [Physical keys and passage history](keys.md) — capability/list/passages, validation-only enrollment/FCM completion/opaque-ref rename, and the dedicated release gate.
 - [FCM / push notifications](fcm.md)
 - [Guest and shared access](guests.md)
 - [Observed data models](models.md)
@@ -77,10 +79,14 @@ Important distinction:
 ## Verification and examples
 
 - [API verification matrix](STATUS.md) — compact list of tested endpoints and their current evidence status.
-- [curl examples](examples/curl.md) — read-only command-line examples, including analytics capability discovery and `motion_alarm` reporting.
+- [curl examples](examples/curl.md) — safe/read-only copy-paste examples, including analytics capability discovery and `motion_alarm` reporting.
 - [Python read-only example](examples/python.md) — authentication/discovery/UCAMS flow with privacy-safe analytics handling guidance.
 
-State-changing examples (door opening, guest creation/revocation, FCM session logout) are intentionally kept on the relevant reference pages rather than in the copy/paste examples collection.
+State-changing examples (door opening, physical-key enrollment, key rename/delete,
+guest creation/revocation, FCM session logout) are intentionally kept on the
+relevant reference pages rather than in the copy/paste examples collection.
+Observed key-management operations must not be interpreted as production-ready
+until separately live-validated.
 
 ## Contributing new API findings
 
@@ -92,9 +98,11 @@ For every newly tested endpoint, record:
 4. minimal sanitized response;
 5. evidence label;
 6. date/conditions of the test when relevant;
-7. known side effects;
-8. any field whose semantics are still uncertain.
+7. known side effects and whether those side effects were live-verified;
+8. any field whose semantics are still uncertain;
+9. for write endpoints, distinguish provider acceptance from verified state/read-back.
 
-Update both the detailed page and [STATUS.md](STATUS.md) in the same change.
+Update both the detailed page and [STATUS.md](STATUS.md) in the same change, and
+update user-facing documentation/CHANGELOG when Home Assistant behavior changes.
 
-Never commit real passwords, JWTs, refresh tokens, guest tokens, tokenized media URLs, exact private addresses, camera/event identifiers from a live account, raw event history, or other account-specific secrets.
+Never commit real passwords, JWTs, refresh tokens, guest tokens, tokenized media URLs, physical-key `external_id`/provider key IDs, exact private addresses, camera/event identifiers from a live account, raw event history, or other account-specific secrets.

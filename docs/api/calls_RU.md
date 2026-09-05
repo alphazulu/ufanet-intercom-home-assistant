@@ -46,7 +46,8 @@ Content-Type: application/json
 - `preview` MP4;
 - архивного/media `url` MP4.
 
-Эти URL содержат временные права доступа и не должны попадать в логи или диагностику.
+Эти URL содержат временные права доступа и не должны попадать в логи, диагностику,
+Recorder-backed attributes или automation payload.
 
 ## Семантика времени
 
@@ -68,3 +69,22 @@ Content-Type: application/json
 Интеграция использует `uuid` звонка для дедупликации. В имени автоматически сохранённого MP4 хранится только сокращённый SHA-256 reference, а не исходный UUID.
 
 **Статус: поведение интеграции, не требование API.**
+
+## Представление в Home Assistant
+
+Подтверждённая запись `call-history` является authoritative source для устойчивого
+события Home Assistant даже в FCM-режиме. `reason=sip` используется как low-latency
+сигнал на refresh, но push UUID не заменяет `call-history.uuid`.
+
+Публичное `ufanet_intercom_call` и doorbell EventEntity намеренно не содержат
+`preview_url`/`archive_url`. Через Home Assistant наружу передаются безопасные
+metadata звонка и признаки `has_preview` / `has_archive`; токенизированные media URL
+остаются runtime-данными.
+
+Validation-ветка также использует то же подтверждённое событие в Companion
+notification blueprint. Картинка берётся из приватной HA ImageEntity через
+`/api/image_proxy/`, а action открытия двери вызывает выбранную Home Assistant
+button entity, а не вставляет provider endpoint/credential в notification payload.
+
+Подробная последовательность, Android live-validation и оставшиеся release gates:
+[../notifications_RU.md](../notifications_RU.md).

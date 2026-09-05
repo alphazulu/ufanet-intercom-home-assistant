@@ -26,6 +26,24 @@ Relevant fields:
 
 Do not hard-code `model == 39` or assume `camera == null` for all devices.
 
+## Physical key
+
+**Status: empty envelope Confirmed; non-empty item fields Observed from Android client**
+
+The Android model contains:
+
+```text
+id
+external_id
+name
+create_date
+devices
+```
+
+The production/validation parser drops `external_id` immediately. Provider `id` remains private runtime data and is not published through entity state, events, or diagnostics. The read-only `keys` attribute contains only `name` and normalized UTC `created_at`; `devices` determines per-intercom association.
+
+For validation key management, the public service API also never accepts raw provider `id`. `list_physical_keys` emits a local opaque `key_ref` scoped to the ConfigEntry/intercom/internal key ID. Rename resolves that reference again from fresh inventory for the selected intercom, and the new name must be observed after a post-write refresh before verified success is reported.
+
 ## UCAMS camera metadata
 
 **Status: Observed; `motion_alarm` capability Confirmed on the live-tested camera**
@@ -127,8 +145,8 @@ Private API responses may differ across accounts, cities, tariffs, firmware and 
 - tolerate explicit `null`;
 - avoid assuming all enum values are already known;
 - validate confirmed fields before use;
-- discard or redact unknown/private analytics fields instead of exposing raw responses through public diagnostics.
+- discard or redact unknown/private fields instead of exposing raw responses through public diagnostics.
 
 ## Schema contribution rule
 
-Only add a field to this document when it was actually observed in a response or client code. Mark uncertain semantics explicitly instead of guessing. Never publish raw account-specific camera/event identifiers or event history as documentation samples.
+Only add a field to this document when it was actually observed in a response or client code. Mark uncertain semantics explicitly instead of guessing. Never publish provider physical-key IDs/`external_id`, raw account-specific camera/event identifiers, or event history as documentation samples.

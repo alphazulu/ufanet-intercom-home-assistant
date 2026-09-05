@@ -62,7 +62,6 @@ get_archive_url:
           unit_of_measurement: s
           mode: box
 
-
 get_archive_download_url:
   name: Get archive MP4 download URL
   description: Export the selected recorded archive interval to a persistent local MP4 file using ffmpeg. The file is stored in Home Assistant Media and can be downloaded through an authenticated media URL.
@@ -116,7 +115,6 @@ get_archive_download_url:
           step: 1
           unit_of_measurement: MB
           mode: box
-
 
 list_archive_exports:
   name: List archive exports
@@ -226,7 +224,6 @@ get_last_call_preview_url:
         device:
           integration: ufanet_intercom
 
-
 get_guest_access:
   name: Get guest access
   description: Return active temporary guest links and users with shared access for the selected intercom.
@@ -251,7 +248,6 @@ create_guest_invite:
         device:
           integration: ufanet_intercom
 
-
 forget_guest_invite:
   name: Forget generated guest invite
   description: Remove one locally stored generated invitation from Home Assistant. This does not revoke the invitation on the Ufanet server.
@@ -269,7 +265,6 @@ forget_guest_invite:
       required: true
       selector:
         text:
-
 
 revoke_shared_access:
   name: Revoke shared access
@@ -290,7 +285,6 @@ revoke_shared_access:
         number:
           min: 1
           mode: box
-
 
 create_temporary_guest_link:
   name: Create temporary guest link
@@ -329,7 +323,6 @@ revoke_temporary_guest_link:
       required: true
       selector:
         text:
-
 
 list_fcm_sessions:
   name: List authorized FCM sessions
@@ -390,3 +383,39 @@ revoke_other_fcm_sessions:
       required: true
       selector:
         boolean:
+
+list_physical_keys:
+  name: List physical keys
+  description: Return a fresh privacy-safe physical-key inventory for the selected intercom. Provider key IDs and external IDs are never returned.
+  fields:
+    device_id:
+      name: Intercom
+      description: Ufanet Intercom device with physical-key recording support.
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+
+rename_physical_key:
+  name: Rename physical key
+  description: Rename one physical key selected by the opaque key_ref returned by List physical keys. The inventory is refreshed before the request and the new name is verified afterward; raw provider key IDs are never accepted or returned.
+  fields:
+    device_id:
+      name: Intercom
+      description: Ufanet Intercom device to which the key is assigned.
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    key_ref:
+      name: Key reference
+      description: Opaque key_ref returned by List physical keys. Raw provider key IDs are not accepted.
+      required: true
+      selector:
+        text:
+    new_name:
+      name: New name
+      description: New user-facing name for the physical key.
+      required: true
+      selector:
+        text:
