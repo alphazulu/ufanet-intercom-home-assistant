@@ -19,7 +19,6 @@ from .key_enrollment import (
     KEY_ENROLLMENT_WINDOW_SECONDS,
     async_start_physical_key_enrollment,
 )
-from .key_management import async_setup_key_services
 
 
 async def async_setup_entry(
@@ -28,8 +27,6 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up intercom buttons."""
-    async_setup_key_services(hass)
-
     runtime = hass.data[DOMAIN][entry.entry_id]
     coordinator: UfanetCoordinator = runtime["coordinator"]
     api: UfanetApi = runtime["api"]
