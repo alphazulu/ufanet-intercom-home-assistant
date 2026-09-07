@@ -72,7 +72,12 @@ def public_physical_keys(
     skud_id: int,
     inventory: tuple[PhysicalKeyInventoryItem, ...] | list[PhysicalKeyInventoryItem],
 ) -> list[dict[str, Any]]:
-    """Return one intercom's key inventory without provider key IDs."""
+    """Return one intercom's user-facing key inventory without internal provider IDs.
+
+    ``external_id`` is the physical key number used by the official client for
+    passage-history filtering. It is intentionally renamed to the user-facing
+    ``number`` field. The internal provider ``key_id`` remains private.
+    """
     rows: list[dict[str, Any]] = []
     seen_refs: set[str] = set()
     for item in inventory:
@@ -82,13 +87,17 @@ def public_physical_keys(
         if ref in seen_refs:
             raise ValueError("physical-key reference collision")
         seen_refs.add(ref)
-        rows.append(
-            {
-                "key_ref": ref,
-                "name": item["name"],
-                "created_at": _key_created_at_iso(int(item["created_at"])),
-            }
-        )
+
+        row: dict[str, Any] = {
+            "key_ref": ref,
+            "name": item["name"],
+            "created_at": _key_created_at_iso(int(item["created_at"])),
+        }
+        number = item.get("external_id")
+        if isinstance(number, str) and number:
+            row["number"] = number
+        rows.append(row)
+
     rows.sort(key=lambda item: item["created_at"], reverse=True)
     return rows
 
@@ -186,7 +195,7 @@ def async_setup_key_services(hass: HomeAssistant) -> None:
     """Register physical-key services once during integration-level setup."""
 
     async def async_list_physical_keys(call: ServiceCall) -> ServiceResponse:
-        """Return a fresh, provider-ID-free key inventory for one intercom."""
+        """Return a fresh key inventory for one intercom without internal provider IDs."""
         _runtime, entry, skud_id, _api, _coordinator, inventory = (
             await _async_fresh_key_inventory(hass, call.data[ATTR_DEVICE_ID])
         )
