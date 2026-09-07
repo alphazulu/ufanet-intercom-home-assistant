@@ -53,14 +53,17 @@ Already live-validated on the development Home Assistant installation:
 
 The **number** shown in the KEYS tab is deliberately **Experimental**. It is derived
 from the provider value used for selected-key history, but correspondence to the
-digits printed on a known physical key has not yet been proven. The card labels it
-`Номер ключа (эксп.)` until that mapping is confirmed or the field is renamed/removed.
+digits printed on a known physical key has not been proven. On 2026-09-07 the user
+explicitly chose to keep this candidate Experimental for the current release work.
+The card labels it `Номер ключа (эксп.)`, documentation does not claim the mapping
+as Confirmed, and real values stay out of diagnostics/logs/events/public support data.
 
 Still mandatory before release: the remaining real-call race/mismatch/metadata
 checks, controlled live key rename, full registration of a **new unregistered
 physical key** including the real `reason=key_add` push and immediate inventory
-refresh, enrollment/rename error behavior, and resolution of the experimental key
-number mapping. See [Home Assistant call notifications](docs/notifications.md),
+refresh, enrollment/rename error behavior, plus a final smoke check that the
+Experimental label remains visible and no internal provider ID is exposed. See
+[Home Assistant call notifications](docs/notifications.md),
 [Physical keys and passage history](docs/api/keys.md), and the
 [draft 0.31.0 release notes](docs/releases/0.31.0-draft.md).
 
@@ -232,8 +235,8 @@ Read-only key and passage behavior is now live-confirmed on a non-empty account:
 
 For management, `ufanet_intercom.list_physical_keys` returns an opaque `key_ref`,
 Experimental `number`, `name`, and `created_at`. The provider `id` is never exposed.
-The `number` value is a candidate only; it is **not yet confirmed** to match the
-marking on the physical key.
+The `number` value is intentionally retained as Experimental for this candidate; it
+is **not claimed** to match the marking on the physical key.
 
 The validation branch also adds **Add physical key** (`mdi:key-plus`) only for
 supported intercoms. It mirrors the Android-observed 60-second
