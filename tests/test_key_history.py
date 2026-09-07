@@ -21,6 +21,7 @@ from custom_components.ufanet_intercom.key_management import physical_key_ref
 
 SKUD_ID = 154273
 KEY_ID = 41
+EXTERNAL_ID = "7898795"
 
 
 def _install_runtime(hass):
@@ -42,6 +43,7 @@ def _install_runtime(hass):
     api.physical_key_inventory = (
         {
             "key_id": KEY_ID,
+            "external_id": EXTERNAL_ID,
             "name": "Visible key name",
             "created_at": 1_700_000_000,
             "devices": (SKUD_ID,),
@@ -66,7 +68,7 @@ def _install_runtime(hass):
     return entry, device, api, coordinator
 
 
-def test_filtered_passage_parser_accepts_numeric_strings_and_hides_raw_fields() -> None:
+def test_filtered_passage_parser_accepts_live_string_key_and_hides_raw_fields() -> None:
     payload = {
         "count": "1",
         "current_page": "0",
@@ -74,7 +76,7 @@ def test_filtered_passage_parser_accepts_numeric_strings_and_hides_raw_fields() 
         "page_size": "25",
         "results": [
             {
-                "key": "41",
+                "key": EXTERNAL_ID,
                 "key_name": "PRIVATE-PASSAGE-NAME",
                 "time_passage": "1700000100",
                 "future_field": {"secret": "ignored"},
@@ -84,7 +86,7 @@ def test_filtered_passage_parser_accepts_numeric_strings_and_hides_raw_fields() 
 
     result = _parse_filtered_passage_response(
         payload,
-        expected_key_id=KEY_ID,
+        expected_external_id=EXTERNAL_ID,
         requested_page=0,
     )
 
@@ -98,7 +100,28 @@ def test_filtered_passage_parser_accepts_numeric_strings_and_hides_raw_fields() 
     serialized = json.dumps(result)
     assert "PRIVATE-PASSAGE-NAME" not in serialized
     assert "future_field" not in serialized
-    assert "key_id" not in serialized
+    assert EXTERNAL_ID not in serialized
+
+
+def test_filtered_passage_parser_accepts_int_equivalent_of_external_id() -> None:
+    result = _parse_filtered_passage_response(
+        {
+            "count": 1,
+            "current_page": 0,
+            "page_count": 0,
+            "page_size": 25,
+            "results": [
+                {
+                    "key": int(EXTERNAL_ID),
+                    "key_name": "ignored",
+                    "time_passage": 1_700_000_100,
+                }
+            ],
+        },
+        expected_external_id=EXTERNAL_ID,
+        requested_page=0,
+    )
+    assert len(result["passages"]) == 1
 
 
 def test_filtered_passage_parser_rejects_result_for_another_key() -> None:
@@ -111,19 +134,19 @@ def test_filtered_passage_parser_rejects_result_for_another_key() -> None:
                 "page_size": 25,
                 "results": [
                     {
-                        "key": KEY_ID + 1,
+                        "key": "7898796",
                         "key_name": "Wrong key",
                         "time_passage": 1_700_000_100,
                     }
                 ],
             },
-            expected_key_id=KEY_ID,
+            expected_external_id=EXTERNAL_ID,
             requested_page=0,
         )
 
 
 @pytest.mark.asyncio
-async def test_service_resolves_opaque_ref_and_uses_android_single_key_filter(hass) -> None:
+async def test_service_resolves_opaque_ref_and_uses_android_external_id_filter(hass) -> None:
     entry, device, api, coordinator = _install_runtime(hass)
     key_ref = physical_key_ref(entry.entry_id, SKUD_ID, KEY_ID)
     api._async_ufanet_json.return_value = {
@@ -133,7 +156,7 @@ async def test_service_resolves_opaque_ref_and_uses_android_single_key_filter(ha
         "page_size": 25,
         "results": [
             {
-                "key": KEY_ID,
+                "key": EXTERNAL_ID,
                 "key_name": "PRIVATE-PASSAGE-NAME",
                 "time_passage": 1_700_000_100,
             }
@@ -159,7 +182,7 @@ async def test_service_resolves_opaque_ref_and_uses_android_single_key_filter(ha
         json_body={
             "page": 0,
             "page_size": 25,
-            "filters": {"key": str(KEY_ID)},
+            "filters": {"key": EXTERNAL_ID},
         },
     )
     assert result["device_id"] == device.id
@@ -170,6 +193,7 @@ async def test_service_resolves_opaque_ref_and_uses_android_single_key_filter(ha
     ]
     serialized = json.dumps(result)
     assert "PRIVATE-PASSAGE-NAME" not in serialized
+    assert EXTERNAL_ID not in serialized
     assert '"key_id"' not in serialized
     assert '"external_id"' not in serialized
 
@@ -185,7 +209,7 @@ async def test_service_fails_closed_if_provider_filter_returns_another_key(hass)
         "page_size": 25,
         "results": [
             {
-                "key": KEY_ID + 1,
+                "key": "7898796",
                 "key_name": "Another key",
                 "time_passage": 1_700_000_100,
             }
