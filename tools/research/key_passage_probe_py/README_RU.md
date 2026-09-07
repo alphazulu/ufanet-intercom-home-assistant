@@ -17,7 +17,7 @@ Probe **намеренно не выполняет** state-changing операц
 - `POST /api/v4/key/edit/` (переименование);
 - `POST /api/v4/key/skud/<id>/delete/key/` (удаление).
 
-Эти контракты документируются отдельно в `docs/api/keys_RU.md`. Enrollment в validation-ветке Home Assistant должен проверяться только явным нажатием **«Добавить физический ключ»** с новым незарегистрированным ключом. Переименование и особенно destructive delete требуют отдельного controlled live-теста и не входят в этот read-only probe.
+Эти контракты документируются отдельно в `docs/api/keys_RU.md`. Enrollment в validation-ветке Home Assistant должен проверяться только явным нажатием **«Добавить физический ключ»** с новым незарегистрированным ключом. Переименование уже прошло controlled live-тест через Home Assistant: `/api/v4/key/edit/` реально изменил имя выбранного ключа, а automatic post-write verification успешно учёл eventual-consistent inventory. Этот read-only probe всё равно никогда не выполняет rename. Destructive delete остаётся вне текущего release scope.
 
 ### Запуск обычного probe в Windows
 
@@ -72,6 +72,8 @@ POST /api/v4/key/list/
 - каждое поле отдельной строкой вместе с JSON-типом;
 - UTC-подсказку для timestamp-подобных полей;
 - для числовых и numeric-string полей — дополнительные decimal/hex представления, чтобы можно было глазами сравнить их с номером, нанесённым на физический ключ.
+
+Live-сравнение уже показало, что `external_id` и другие проверенные candidate identifiers не совпадают с номером, нанесённым на проверенный ключ. Поэтому inspector следует использовать только как research-инструмент для локального анализа новых вариантов, а не как основание публиковать один из provider identifiers как «номер ключа».
 
 Inspector не выполняет enrollment, rename, delete, door-open и другие state-changing запросы.
 
