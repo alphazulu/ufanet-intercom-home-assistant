@@ -28,6 +28,8 @@ The release self-check requires the same version in all release-facing locations
 
 When a release adds or confirms private API behavior, update the detailed EN/RU API page, the EN/RU verification matrix, relevant data-model/example pages, user-facing feature documentation and CHANGELOG in the same release work. Do not upgrade an evidence label to **Confirmed** without a live test.
 
+The project also uses **Experimental** for a user-facing interpretation that is deliberately exposed for validation but whose semantics are not yet proven. An Experimental field may ship only if its provisional nature is explicit and harmless, or it must be renamed/removed before release. For the current physical-key work, the value derived from provider `external_id` is displayed as an experimental `number`; matching that value to the digits printed on a known physical key is still a live gate.
+
 For state-changing features, distinguish three separate checks:
 
 1. the request shape matches the observed client contract;
@@ -36,37 +38,53 @@ For state-changing features, distinguish three separate checks:
 
 Do not treat (1) or (2) alone as proof of (3). When the integration has a post-write read-back verification path, successful read-back is part of the release evidence rather than an optional diagnostic.
 
+## Current 0.31.0 preparation state
+
+The combined validation branch is now in **release-preparation documentation freeze**, not release authorization.
+
+Already live-confirmed for the physical-key/read-only path:
+
+- capability discovery;
+- empty and non-empty physical-key inventory;
+- non-empty physical-key item fields;
+- live passage-history item schema;
+- selected-key `filters.key=<external_id>` behavior;
+- Home Assistant/Lovelace selected-key history with real passage rows.
+
+Still unresolved before publication:
+
+- experimental `external_id` -> printed-key-number interpretation;
+- real `auto_collect/enable` enrollment with a new unregistered key;
+- real `reason=key_add` completion;
+- live rename plus post-write confirmation;
+- documented enrollment/rename error behavior;
+- remaining notification safety gates tracked in PR #15.
+
+Do **not** bump release-facing versions merely because documentation/release notes are being prepared. The version/cache-bust bump belongs to the exact release-candidate commit after the hard gates are resolved or explicitly waived.
+
 ## Live-validation gate
 
-A green CI run is necessary but not sufficient for features that depend on real
-provider pushes or physical side effects. If the active development PR contains a
-`REQUIRED VALIDATION BEFORE ANY RELEASE` checklist, every item must be either:
+A green CI run is necessary but not sufficient for features that depend on real provider pushes or physical side effects. If the active development PR contains a `REQUIRED VALIDATION BEFORE ANY RELEASE` checklist, every item must be either:
 
 - live-confirmed and recorded in the PR/documentation; or
 - explicitly reviewed and waived with a documented reason.
 
-Validation-only branches must not be tagged or published directly. In particular,
-physical-key enrollment must not be released solely from reconstructed Android
-behavior: a real new key must prove enrollment, `reason=key_add`, immediate
-inventory refresh, the privacy boundaries of the resulting Home Assistant
-state/event, opaque-ref listing, and an actual rename whose new name is confirmed by
-a post-write inventory refresh. The Android-observed delete-key endpoint remains
-outside the release scope unless it receives a separate safety design and controlled
-live validation. Notification actions with physical door control likewise require
-the recorded real-call safety checks before final release approval.
+Validation-only branches must not be tagged or published directly. In particular, physical-key enrollment must not be released solely from reconstructed Android behavior: a real new key must prove enrollment, `reason=key_add`, immediate inventory refresh and the privacy boundaries of resulting Home Assistant state/event. The Android-observed rename contract likewise requires a controlled live rename with post-write verification before it is promoted to Confirmed. The Android-observed delete-key endpoint remains outside release scope unless it receives a separate safety design and controlled live validation. Notification actions with physical door control likewise require the recorded real-call safety checks before final release approval.
 
 ## Release
 
-Use a SemVer tag matching `manifest.json`, for example `v0.31.0`, and publish a GitHub Release rather than only creating a tag. The actual next version must be confirmed at release time; an Unreleased planning heading is not authorization to publish.
+The planned next minor version is **0.31.0**, subject to final confirmation at release time. Use a SemVer tag matching `manifest.json`, for example `v0.31.0`, and publish a GitHub Release rather than only creating a tag. An Unreleased planning heading or draft release notes are not authorization to publish.
 
 Before tagging, verify that:
 
 - the matching CHANGELOG section exists;
 - all documentation links/examples refer to the release being published;
 - no validation document claims **Confirmed** for an untested provider behavior;
+- any **Experimental** behavior is explicitly documented as such or removed/renamed before release;
 - all hard live-validation gates in the active release PR are resolved;
 - the release commit is the exact commit reviewed/tested for publication;
-- all release-facing versions/cache-bust values were bumped together only after explicit release-preparation approval.
+- all release-facing versions/cache-bust values were bumped together only after explicit release-preparation approval;
+- the final GitHub Release notes match the actual release candidate rather than an older validation snapshot.
 
 Existing release tags are immutable and must not be moved to repair documentation after publication; documentation-only corrections go to `main`, while a corrected release artifact requires a new patch version.
 
