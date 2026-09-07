@@ -23,17 +23,18 @@ def test_physical_key_tab_uses_privacy_safe_response_services() -> None:
     assert "key_ref: item.key_ref" in source
     assert "служебный ID Ufanet" in source
     assert "key_id" not in source
+    assert "external_id" not in source
 
 
 def test_physical_key_tab_renders_experimental_key_number() -> None:
-    """Show the external-id candidate without claiming the printed-number mapping."""
+    """Show a number candidate without claiming the printed-number mapping."""
     source = EXTENSION_PATH.read_text(encoding="utf-8")
 
     assert 'typeof item.number === "string"' in source
     assert 'number.className = "physical-key-number"' in source
     assert "Номер ключа (эксп.)" in source
+    assert "экспериментальное значение API" in source.lower()
     assert "совпадение с маркировкой" in source
-    assert "external_id" in source
 
 
 def test_physical_key_tab_has_enrollment_but_no_delete_path() -> None:
