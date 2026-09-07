@@ -14,7 +14,7 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 - Native archive browsing with recording ranges, timeline zoom/pan, call markers, and read-only motion-event markers.
 - Intercom call history, `ufanet_intercom_call`, native **Incoming call** / **Last call image** entities, a doorbell EventEntity and visual device trigger.
 - Companion notification blueprint with immediate text delivery, private HA image replacement, optional guarded **Open door** action and direct **View camera** navigation.
-- Physical-key support for capable intercoms: read-only count/inventory, latest passage timestamp, passage EventEntity/device trigger, validation-only **Add physical key**, privacy-safe list/rename services using opaque `key_ref` values, and a **KEYS** Lovelace tab.
+- Physical-key support for capable intercoms: read-only count/inventory, latest passage timestamp, passage EventEntity/device trigger, validation-only **Add physical key**, privacy-safe list/history/rename services using opaque `key_ref` values, and a **KEYS** Lovelace tab with selected-key passage history.
 - Read-only UCAMS `motion_alarm` analytics with a **Motion detected** event entity, `ufanet_intercom_motion` event, visual device trigger and archive timeline markers.
 - Selectable call updates: polling by default or experimental low-latency FCM with safety polling.
 - Privacy-safe FCM authorization/session inventory and explicit guarded session revocation.
@@ -25,13 +25,16 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 - Options Flow and privacy-conscious Home Assistant diagnostics.
 - Unified Lovelace card: `custom:ufanet-intercom-card`.
 
-## Current validation work
+## Current validation / 0.31.0 preparation
 
 The `codex/combined-validation` branch contains unreleased notification-action and
-physical-key enrollment/management work. It is intentionally **validation-only** and must not
-be tagged/published until the live gates in the active validation PR are complete.
-The installed integration version therefore remains `0.30.0` until explicit
-release preparation begins.
+physical-key enrollment/management work. The branch is now being prepared as the
+basis for a future **0.31.0** release, but it remains **validation-only**: it must
+not be merged, tagged or published until the hard live-validation gates in PR #15
+are completed or explicitly reviewed/waived.
+
+The installed integration version intentionally remains `0.30.0` until the exact
+release-candidate commit is approved for the synchronized version/cache-bust bump.
 
 Already live-validated on the development Home Assistant installation:
 
@@ -41,15 +44,25 @@ Already live-validated on the development Home Assistant installation:
 - **View camera** opening More Info for the selected live camera;
 - timeout updating the existing notification in place and removing the stale door action;
 - combined notification + physical-key build loading without observed regression;
-- physical-key capability/coordinator health and empty read-only inventory (`state=0`, `keys=[]`);
-- `ufanet_intercom.list_physical_keys` returning `count: 0`, `keys: []` on the current zero-key account.
+- physical-key capability discovery;
+- empty and non-empty physical-key inventory;
+- non-empty `/api/v4/key/list/` item fields (`id`, `external_id`, `name`, `create_date`, `devices`);
+- non-empty passage history with live item schema `key:str`, `key_name:str`, `time_passage:int`;
+- selected-key history filtering through `filters.key=<external_id>`;
+- Home Assistant/Lovelace rendering one real key and two passage timestamps after selecting that key.
 
-Still mandatory before release: the remaining real-call race/mismatch/metadata checks,
-a live visual check of the new **KEYS** card tab, and a complete registration of a
-**new physical key**, including the real `reason=key_add` push, a non-empty inventory
-row, privacy-safe `list_physical_keys`, and a real rename through the validation-only
-`rename_physical_key` service. See [Home Assistant call notifications](docs/notifications.md)
-and [Physical keys and passage history](docs/api/keys.md).
+The **number** shown in the KEYS tab is deliberately **Experimental**. It is derived
+from the provider value used for selected-key history, but correspondence to the
+digits printed on a known physical key has not yet been proven. The card labels it
+`Номер ключа (эксп.)` until that mapping is confirmed or the field is renamed/removed.
+
+Still mandatory before release: the remaining real-call race/mismatch/metadata
+checks, controlled live key rename, full registration of a **new unregistered
+physical key** including the real `reason=key_add` push and immediate inventory
+refresh, enrollment/rename error behavior, and resolution of the experimental key
+number mapping. See [Home Assistant call notifications](docs/notifications.md),
+[Physical keys and passage history](docs/api/keys.md), and the
+[draft 0.31.0 release notes](docs/releases/0.31.0-draft.md).
 
 ## Unofficial API documentation
 
@@ -63,9 +76,9 @@ The repository contains a maintained reverse-engineered reference for the Ufanet
 - [curl examples](docs/api/examples/curl.md)
 - [Python read-only example](docs/api/examples/python.md)
 
-The reference explicitly distinguishes **Confirmed**, **Observed**, **Inferred**, and
-**Not supported** behavior. State-changing behavior is not promoted to Confirmed
-from decompiled-client evidence alone.
+The reference explicitly distinguishes **Confirmed**, **Observed**, **Inferred**,
+**Experimental**, and **Not supported** behavior. State-changing behavior is not
+promoted to Confirmed from decompiled-client evidence or green CI alone.
 
 ## Requirements
 
@@ -102,7 +115,7 @@ Add the main resource as a JavaScript module. The currently published release is
 
 The `?v=` value must match the installed release. Do not change this documentation
 value on validation branches until the integration/card version is actually bumped
-for release preparation.
+on the approved release candidate.
 
 Minimal card:
 
@@ -118,15 +131,14 @@ The validation card contains six tabs:
 - **АРХИВ** — timeline, call/motion markers, MP4 export and export media library.
 - **ГОСТИ** — shared invitations, accepted guest access, temporary keys and revoke actions.
 - **УСТРОЙСТВА** — authorized Ufanet sessions, Home Assistant ownership protection, targeted revocation and guarded bulk revocation.
-- **KEYS / КЛЮЧИ** — fresh privacy-safe physical-key inventory, explicit 60-second new-key enrollment and rename through opaque `key_ref`; key deletion is absent.
+- **KEYS / КЛЮЧИ** — fresh physical-key inventory, Experimental key-number candidate, selected-key passage history, explicit 60-second new-key enrollment and rename through opaque `key_ref`; key deletion is absent.
 - **ДИАГНОСТИКА** — token-free runtime health, polling, FCM authorization state, UCAMS/archive status and autosave state.
 
-The **KEYS** tab is provided by the packaged validation extension
-`ufanet-physical-keys-card.js`. The integration registers/loads that extension
-automatically and it waits for `custom:ufanet-intercom-card`, so no separate manual
-Lovelace Resource entry is required for the extension. The existing main card
-resource remains configured as before. The visual editor also allows `keys` as
-`default_tab` on the validation branch.
+The **KEYS** tab is provided by packaged validation extensions. The integration
+registers/loads them automatically through the Lovelace resource mechanism and they
+wait for `custom:ufanet-intercom-card`, so no separate manual Resource entry is
+required for the extensions. The existing main card resource remains configured as
+before. The visual editor also allows `keys` as `default_tab` on the validation branch.
 
 ## Options
 
@@ -202,38 +214,51 @@ For every intercom advertising key-recording support, the integration creates:
 - **Last key passage** — latest known passage timestamp;
 - **Physical key passage** EventEntity and matching visual device trigger.
 
-The dedicated coordinator polls every 60 seconds. Its first successful history poll
-is a baseline and does not replay older passages. A private cursor prevents duplicate
-passage delivery after reloads. Public passage events contain only `key_name` and
-`occurred_at`; private provider identifiers and full history are not exposed.
+The dedicated coordinator polls every 60 seconds. Capability, inventory and passage
+history health are tracked independently: a temporary history failure no longer
+turns a supported intercom into an `unsupported` device. The first successful
+history poll is a baseline and does not replay older passages. A private cursor
+prevents duplicate passage delivery after reloads. Public passage events contain
+only `key_name` and `occurred_at`; private provider identifiers and full history are
+not exposed.
+
+Read-only key and passage behavior is now live-confirmed on a non-empty account:
+
+- `/api/v4/key/list/` returned a real key with `id`, `external_id`, `name`, `create_date`, and `devices`;
+- `/api/v4/key/skud/<id>/key/pass_history/` returned two real passage rows;
+- live passage `key` is a numeric JSON string;
+- Android-compatible selected-key filtering uses `filters.key=<external_id>`;
+- selecting the key in Lovelace loaded its two passage times below the list.
+
+For management, `ufanet_intercom.list_physical_keys` returns an opaque `key_ref`,
+Experimental `number`, `name`, and `created_at`. The provider `id` is never exposed.
+The `number` value is a candidate only; it is **not yet confirmed** to match the
+marking on the physical key.
 
 The validation branch also adds **Add physical key** (`mdi:key-plus`) only for
 supported intercoms. It mirrors the Android-observed 60-second
 `auto_collect/enable` flow. A successful button request means only that enrollment
 mode was armed; the new key still has to be presented to the reader within 60
-seconds.
+seconds. The real new-key side effect remains pending live validation.
 
 The FCM listener recognizes the Android-observed `reason=key_add` completion path.
 It refreshes the key inventory immediately and emits the account-level,
 privacy-minimized `ufanet_intercom_key_enrollment` event. Private provider identifiers,
-raw message text and push payload are not published. The real `key_add` path and
-non-empty inventory remain **Observed/pending live validation**.
+raw message text and push payload are not published. The real `key_add` path remains
+**Observed/pending live validation**.
 
-For key management, the validation branch exposes
-`ufanet_intercom.list_physical_keys`, returning only `name`, `created_at`, and a
-local opaque `key_ref`. `ufanet_intercom.rename_physical_key` accepts that ref,
-refreshes inventory before mutation, resolves it only inside the selected intercom,
-then calls the Android-observed edit contract internally and performs a second
-refresh. It reports success only when the requested new name is observed after that
-refresh. Raw provider identifiers are neither accepted nor returned. The rename
-endpoint itself remains **Observed/pending live validation** until a real key exists.
-Key deletion is not implemented.
+`ufanet_intercom.rename_physical_key` accepts only `key_ref` and a new name. It
+refreshes inventory before mutation, resolves the ref only inside the selected
+intercom, calls the Android-observed edit contract internally, then performs a
+second refresh. It reports success only when the requested new name is observed
+after that refresh. The provider rename endpoint itself remains **Observed/pending
+live validation** even though the safety/read-back implementation and CI are present.
 
-The **KEYS** tab uses the same privacy-safe response services. **Add key** invokes
-only the same-device Home Assistant `button.*_add_physical_key`, shows the observed
-60-second countdown, then refreshes inventory. Rename asks for explicit confirmation
-and accepts success only when the backend returns `verified: true`. No key-delete
-action exists in the UI. See [docs/api/keys.md](docs/api/keys.md).
+The **KEYS** tab uses these response services. **Add key** invokes only the same-device
+Home Assistant enrollment button and shows the observed 60-second countdown. Rename
+requires explicit confirmation and accepts success only when the backend returns
+`verified: true`. Clicking a key loads its privacy-safe passage history below the
+list. No key-delete action exists in the UI. See [docs/api/keys.md](docs/api/keys.md).
 
 ## Motion analytics
 
@@ -260,7 +285,8 @@ supports open/download/delete plus configured retention/size cleanup.
 - Generated guest links are access capabilities and should be treated as temporary credentials.
 - Opening the door is a real physical action; the card/notification require explicit user interaction and notification actions add same-device guards.
 - Starting physical-key enrollment changes access-control state and must not be used as a health check or automatic action.
-- Private provider physical-key identifiers remain internal and are not exposed in sensor attributes/events/diagnostics.
+- Internal provider physical-key IDs remain private and are not exposed in sensor attributes/events/diagnostics.
+- The Experimental key-number candidate is visible only to the authenticated Home Assistant user; real values are excluded from diagnostics, logs, public support bundles, events and repository examples.
 - Public physical-key management uses only an intercom-scoped opaque `key_ref`; rename refreshes inventory before mutation and verifies the result with a second refresh after POST.
 - Tokenized call-media URLs remain internal runtime data; only the generated last-call JPEG is cached for the image entity.
 - Authorized-session management exposes opaque refs rather than raw provider FCM device IDs and protects locally provable Home Assistant registrations.
@@ -293,7 +319,8 @@ version consistency.
 **Green CI does not replace required physical/live validation.** Before tagging a
 release, resolve the active PR's `REQUIRED VALIDATION BEFORE ANY RELEASE` checklist,
 update evidence labels/documents/CHANGELOG, then bump all release-facing versions
-and cache-bust URLs together. See [PUBLISHING.md](PUBLISHING.md).
+and cache-bust URLs together on the exact release candidate. See
+[PUBLISHING.md](PUBLISHING.md).
 
 ## License
 
