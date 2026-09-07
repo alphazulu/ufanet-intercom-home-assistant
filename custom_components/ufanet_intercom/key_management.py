@@ -21,9 +21,7 @@ from .services import _resolve_device_runtime
 KEY_REF_LENGTH = 24
 MAX_KEY_NAME_LENGTH = 128
 
-LIST_PHYSICAL_KEYS_SCHEMA = vol.Schema(
-    {vol.Required(ATTR_DEVICE_ID): cv.string}
-)
+LIST_PHYSICAL_KEYS_SCHEMA = vol.Schema({vol.Required(ATTR_DEVICE_ID): cv.string})
 RENAME_PHYSICAL_KEY_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
@@ -145,12 +143,12 @@ async def _async_fresh_key_inventory(
 
     skud_id = int(skud["id"])
     coordinator = runtime.get("key_passage_coordinator")
-    supported = getattr(coordinator, "data", None)
-    if coordinator is None or not isinstance(supported, dict) or skud_id not in supported:
-        raise ServiceValidationError(
-            "Selected intercom does not advertise physical-key recording support"
-        )
+    if coordinator is None:
+        raise HomeAssistantError("Physical-key coordinator is unavailable")
 
+    # Always refresh before deciding that an intercom is unsupported. The old
+    # implementation checked coordinator.data first, so a previous failed poll
+    # became a sticky false-negative that the service itself could not recover.
     try:
         await coordinator.async_request_refresh()
     except Exception as err:  # noqa: BLE001 - normalize coordinator failures for service UI
@@ -159,6 +157,22 @@ async def _async_fresh_key_inventory(
         ) from err
     if not bool(getattr(coordinator, "last_update_success", False)):
         raise HomeAssistantError("Unable to refresh the physical-key inventory")
+
+    supports_skud = getattr(coordinator, "supports_skud", None)
+    if callable(supports_skud):
+        if not bool(getattr(coordinator, "capability_known", False)):
+            raise HomeAssistantError("Physical-key capability is unavailable")
+        if not supports_skud(skud_id):
+            raise ServiceValidationError(
+                "Selected intercom does not advertise physical-key recording support"
+            )
+    else:
+        # Compatibility path for simple test doubles / older runtime objects.
+        supported = getattr(coordinator, "data", None)
+        if not isinstance(supported, dict) or skud_id not in supported:
+            raise ServiceValidationError(
+                "Selected intercom does not advertise physical-key recording support"
+            )
 
     api: UfanetApi = runtime["api"]
     inventory = getattr(api, "physical_key_inventory", None)
