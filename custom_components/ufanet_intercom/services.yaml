@@ -386,7 +386,7 @@ revoke_other_fcm_sessions:
 
 list_physical_keys:
   name: List physical keys
-  description: Return a fresh physical-key inventory for the selected intercom. Internal provider key IDs are never returned. The optional number field is derived from provider external_id and is Experimental until matched against a known physical key.
+  description: Return a fresh privacy-safe physical-key inventory for the selected intercom. The response includes only an opaque key_ref, user-facing name, and creation time; provider IDs and external_id are never returned.
   fields:
     device_id:
       name: Intercom
