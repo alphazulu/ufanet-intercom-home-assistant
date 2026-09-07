@@ -55,14 +55,17 @@ release-candidate commit, после чего все release-facing версии
 Поле **«Номер ключа (эксп.)»** во вкладке КЛЮЧИ намеренно имеет статус
 **Experimental**. Оно построено из provider value, который используется Android для
 истории выбранного ключа, но соответствие этого значения цифрам, нанесённым на
-заведомо известный физический ключ, пока не доказано. До проверки поле остаётся
-экспериментальным либо перед релизом должно быть переименовано/удалено.
+заведомо известный физический ключ, не доказано. 7 сентября 2026 пользователь явно
+решил оставить candidate Experimental в текущей release-разработке. UI маркирует
+поле как экспериментальное, документация не объявляет mapping Confirmed, а реальные
+значения исключены из diagnostics/logs/events/public support data.
 
 До релиза обязательны оставшиеся real-call проверки гонок/несовпадений/metadata,
 controlled live rename существующего ключа, полная регистрация **нового
 незарегистрированного ключа** с реальным `reason=key_add` и быстрым inventory
-refresh, проверка enrollment/rename error behavior и финальное решение по
-Experimental номеру. Подробности: [уведомления Home Assistant](docs/notifications_RU.md),
+refresh, проверка enrollment/rename error behavior и финальный smoke test, что
+Experimental label виден, а внутренний provider ID нигде не раскрывается.
+Подробности: [уведомления Home Assistant](docs/notifications_RU.md),
 [физические ключи/проходы](docs/api/keys_RU.md) и
 [черновик release notes 0.31.0](docs/releases/0.31.0-draft.md).
 
@@ -233,8 +236,8 @@ Read-only key/history flow теперь live-подтверждён на неп�
 
 Для управления `ufanet_intercom.list_physical_keys` возвращает opaque `key_ref`,
 Experimental `number`, `name` и `created_at`. Внутренний provider `id` наружу не
-выходит. `number` пока является только candidate: соответствие маркировке на
-физическом ключе **не подтверждено**.
+выходит. `number` намеренно остаётся Experimental в текущем candidate и **не
+объявляется** совпадающим с маркировкой физического ключа.
 
 Validation-ветка добавляет **«Добавить физический ключ»** (`mdi:key-plus`) только
 для поддерживаемых домофонов. Кнопка повторяет Android-observed 60-секундный
