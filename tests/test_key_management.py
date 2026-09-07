@@ -76,7 +76,10 @@ def test_physical_key_ref_is_stable_scoped_and_opaque() -> None:
     assert first != physical_key_ref("entry-b", SKUD_ID, 41)
     assert first != physical_key_ref("entry-a", SKUD_ID + 1, 41)
     assert first != physical_key_ref("entry-a", SKUD_ID, 42)
-    assert "41" not in first
+    # An opaque hexadecimal ref may contain the same digit sequence as a raw
+    # provider ID by chance. Privacy means the raw ID is not the ref or a
+    # separately exposed field; substring exclusion would be probabilistic.
+    assert first != "41"
 
 
 @pytest.mark.asyncio
@@ -98,10 +101,11 @@ async def test_list_physical_keys_hides_provider_ids_and_filters_intercom(hass) 
     assert result["count"] == 1
     assert result["keys"][0]["name"] == "Front door"
     assert result["keys"][0]["created_at"] == "2023-11-14T22:15:00+00:00"
-    assert re.fullmatch(r"[0-9a-f]{24}", result["keys"][0]["key_ref"])
+    key_ref = result["keys"][0]["key_ref"]
+    assert re.fullmatch(r"[0-9a-f]{24}", key_ref)
     assert "key_id" not in str(result)
     assert "external_id" not in str(result)
-    assert "41" not in result["keys"][0]["key_ref"]
+    assert key_ref != "41"
     coordinator.async_request_refresh.assert_awaited_once()
 
 
