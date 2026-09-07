@@ -22,11 +22,13 @@
 | SKUD | `GET /api/v0/skud/` | **Observed** | На тестируемом аккаунте вернул `[]` |
 | Возможности | `GET /api/v4/skud/features/` | **Confirmed** | Live-ответ содержал account feature `keys` |
 | Домофоны | `POST /api/v0/intercoms/` | **Confirmed** | Фильтрованный запрос со страницей от `1` вернул `has_key_recording_support=true` |
-| Ключи | `POST /api/v4/key/list/` | **Confirmed** | Подтверждены HTTP 200 и пустой `data.keys`; поля непустой записи остаются Observed. В HA live-проверено пустое состояние `state=0`, `keys=[]`. |
+| Ключи | `POST /api/v4/key/list/` | **Confirmed** | Live-проверены пустой и непустой ответы. Подтверждены поля элемента `id`, `external_id`, `name`, `create_date`, `devices`. Пустой и непустой inventory также проверены в HA. |
+| Ключи | `external_id` как номер на физическом ключе | **Experimental** | Android использует `external_id` для фильтрации истории выбранного ключа. UI показывает его значение как экспериментальное поле `number`, но совпадение с цифрами, нанесёнными на брелок, пока не подтверждено. |
 | Ключи | `POST /api/v4/key/skud/<id>/auto_collect/enable/` | **Observed** | Android-клиент запускает 60-секундный режим регистрации; validation-кнопка HA реализована, но endpoint ещё не проверен реальным новым ключом. |
 | Ключи | `POST /api/v4/key/edit/` | **Observed** | Android-клиент переименовывает ключ телом `{key_id,name}`; validation-runtime HA реализует opaque `key_ref`, fresh-resolution и post-write verification, но реальный rename ещё не проверен. |
 | Ключи | `POST /api/v4/key/skud/<id>/delete/key/` | **Observed** | Android-клиент удаляет ключ телом `{key_id}`; destructive flow не реализован и не live-проверен. |
-| Проходы | `POST /api/v4/key/skud/<id>/key/pass_history/` | **Confirmed** | Подтверждены HTTP 200, страницы от `0` и пустой `results`; поля записи остаются Observed |
+| Проходы | `POST /api/v4/key/skud/<id>/key/pass_history/` | **Confirmed** | Подтверждены пустой и непустой ответы. Live-поля записи: `key:str`, `key_name:str`, `time_passage:int`; пагинация начинается с `0`. |
+| Проходы | `filters.key=<external_id>` | **Confirmed** | Privacy-safe live-probe и Home Assistant flow выбранного ключа вернули два прохода, относящиеся к реальному зарегистрированному ключу. |
 | Дверь | `GET /api/v0/skud/shared/<id>/open/?door=1` | **Confirmed** | Физическое действие; успешный `{"result":true}` |
 | UCAMS | `POST /api/v0/cameras/this/` | **Confirmed** | Метаданные камеры/сервера/токенов; metadata capability `analytics` также live-подтверждена |
 | Аналитика | `analytics` в metadata камеры: `motion_alarm` | **Confirmed** | Проверенная live-камера объявляет аналитику движения; используется production v0.28.0 |
@@ -55,6 +57,7 @@
 
 - обновляйте эту матрицу и подробную страницу одним commit;
 - не ставьте **Confirmed** только на основании декомпилированного кода клиента;
+- используйте **Experimental** для пользовательской интерпретации, которую намеренно выводим для проверки, но чья семантика ещё не доказана;
 - статус **Not supported** относится только к точно проверенной форме запроса;
 - не выводите непроверенные request-поля пагинации из одной только metadata ответа;
 - для state-changing операций отдельно фиксируйте, был ли реально проверен побочный эффект, а не только HTTP-ответ;
