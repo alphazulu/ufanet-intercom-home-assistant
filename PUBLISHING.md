@@ -28,9 +28,9 @@ The release self-check requires the same version in all release-facing locations
 
 When a release adds or confirms private API behavior, update the detailed EN/RU API page, the EN/RU verification matrix, relevant data-model/example pages, user-facing feature documentation and CHANGELOG in the same release work. Do not upgrade an evidence label to **Confirmed** without a live test.
 
-The project also uses **Experimental** for a user-facing interpretation that is deliberately exposed for validation but whose semantics are not yet proven. An Experimental field may ship only when its provisional nature is explicit, non-destructive and accepted during release review; otherwise it must be renamed/removed before release.
+The project may use **Experimental** for a user-facing interpretation deliberately exposed during validation while its semantics are unproven. Such a field must be explicitly provisional and harmless, or removed/renamed before publication.
 
-For the current physical-key work, provider `external_id` is **Confirmed** as the selector used by the official Android client for per-key passage history, while its interpretation as the digits printed on the physical key is **not confirmed**. On 2026-09-07 the user explicitly chose to keep the user-facing `number` candidate as Experimental for now. Therefore the release requirement is to preserve the explicit Experimental label in UI/docs and never present the mapping as Confirmed; matching it to a known physical key can happen later without blocking 0.31.0 solely on that semantic question.
+For the current physical-key work, the `external_id` question is now resolved by live testing: `external_id` is **Confirmed** as the backend selector used for per-key passage history, while a direct comparison showed that it does **not** match the number printed on the tested physical key. The previously Experimental public `number` field has therefore been removed. Provider identifiers remain private runtime data and must not be reintroduced as a guessed printed-key number.
 
 For state-changing features, distinguish three separate checks:
 
@@ -42,7 +42,7 @@ Do not treat (1) or (2) alone as proof of (3). When the integration has a post-w
 
 ## Current 0.31.0 preparation state
 
-The combined validation branch is now in **release-preparation documentation freeze**, not release authorization.
+The combined validation branch is in **release-preparation documentation freeze**, not release authorization.
 
 Already live-confirmed for the physical-key/read-only path:
 
@@ -51,11 +51,12 @@ Already live-confirmed for the physical-key/read-only path:
 - non-empty physical-key item fields;
 - live passage-history item schema;
 - selected-key `filters.key=<external_id>` behavior;
-- Home Assistant/Lovelace selected-key history with real passage rows.
+- Home Assistant/Lovelace selected-key history with real passage rows;
+- negative printed-number comparison: the tested physical marking does not match candidate server identifiers, while `external_id` still selects the correct updating key history.
 
-Reviewed design decision:
+Resolved design decision:
 
-- the `external_id` -> printed-key-number interpretation remains **Experimental by design** for the current candidate; it is not promoted to Confirmed and real values remain excluded from diagnostics/logs/public support data.
+- no physical-key number is exposed from provider identifiers; `external_id` stays private and is used only where its backend semantics are confirmed.
 
 Still unresolved before publication:
 
@@ -85,7 +86,7 @@ Before tagging, verify that:
 - the matching CHANGELOG section exists;
 - all documentation links/examples refer to the release being published;
 - no validation document claims **Confirmed** for an untested provider behavior;
-- any **Experimental** behavior is explicitly documented as such and accepted in the final release review, or removed/renamed;
+- any remaining **Experimental** behavior is explicitly documented and accepted in final release review, or removed/renamed;
 - all hard live-validation gates in the active release PR are resolved;
 - the release commit is the exact commit reviewed/tested for publication;
 - all release-facing versions/cache-bust values were bumped together only after explicit release-preparation approval;
