@@ -1,16 +1,12 @@
-"""Privacy-safe per-key passage history and validation frontend setup."""
+"""Privacy-safe per-key physical-key passage history service."""
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.components import frontend
-from homeassistant.components.http import StaticPathConfig
 from homeassistant.const import ATTR_DEVICE_ID
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
@@ -19,17 +15,10 @@ from homeassistant.helpers import config_validation as cv
 from .api import UfanetApiError
 from .const import DOMAIN
 
-_LOGGER = logging.getLogger(__name__)
-
 SERVICE_GET_PHYSICAL_KEY_PASSAGES = "get_physical_key_passages"
 KEY_HISTORY_PAGE_SIZE = 25
 MAX_KEY_HISTORY_PAGE = 1000
 KEY_REF_PATTERN = r"^[0-9a-f]{24}$"
-
-_FRONTEND_PATH = Path(__file__).parent / "frontend" / "ufanet-key-history-card.js"
-_FRONTEND_URL = "/ufanet_intercom/ufanet-key-history-card.js"
-_FRONTEND_MODULE_URL = f"{_FRONTEND_URL}?v=0.30.0"
-_FRONTEND_SETUP_KEY = f"{DOMAIN}_key_history_frontend_setup"
 
 GET_PHYSICAL_KEY_PASSAGES_SCHEMA = vol.Schema(
     {
@@ -123,6 +112,8 @@ def _parse_filtered_passage_response(
 
     total = _coerce_nonnegative_int(payload.get("count"))
     page_count = _coerce_nonnegative_int(payload.get("page_count"))
+    # Match the official Android PagingSource exactly: it requests page+1 while
+    # current_page < page_count.
     has_more = (
         current_page < page_count
         if page_count is not None
@@ -162,37 +153,8 @@ async def _async_fetch_filtered_passages(
     )
 
 
-async def _async_setup_frontend(hass: HomeAssistant) -> None:
-    """Serve and register the validation-only history frontend extension."""
-    try:
-        exists = await hass.async_add_executor_job(_FRONTEND_PATH.is_file)
-        if not exists:
-            _LOGGER.warning("Ufanet key-history frontend was not found at %s", _FRONTEND_PATH)
-            return
-
-        await hass.http.async_register_static_paths(
-            [StaticPathConfig(_FRONTEND_URL, str(_FRONTEND_PATH), False)]
-        )
-
-        # Reuse the same race-safe Lovelace resource registration helper as the
-        # main card. Import locally to avoid an import cycle during module load.
-        from . import _async_ensure_lovelace_module  # noqa: PLC0415
-
-        registered = await _async_ensure_lovelace_module(
-            hass,
-            _FRONTEND_MODULE_URL,
-        )
-        if not registered:
-            frontend.add_extra_js_url(hass, _FRONTEND_MODULE_URL)
-    except Exception as err:  # noqa: BLE001 - frontend must not break integration setup
-        _LOGGER.warning(
-            "Could not set up Ufanet key-history frontend: %s",
-            type(err).__name__,
-        )
-
-
 def async_setup_key_history(hass: HomeAssistant) -> None:
-    """Register per-key read-only history service and its Lovelace extension."""
+    """Register the per-key read-only history response service."""
     # Import locally because key_management calls this function after its own
     # helpers are defined. This preserves a single key_ref implementation.
     from .key_management import (  # noqa: PLC0415
@@ -252,7 +214,3 @@ def async_setup_key_history(hass: HomeAssistant) -> None:
             schema=GET_PHYSICAL_KEY_PASSAGES_SCHEMA,
             supports_response=SupportsResponse.ONLY,
         )
-
-    if not hass.data.get(_FRONTEND_SETUP_KEY):
-        hass.data[_FRONTEND_SETUP_KEY] = True
-        hass.async_create_task(_async_setup_frontend(hass))
