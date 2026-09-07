@@ -22,9 +22,9 @@ The validation branch contains:
 - FCM `reason=key_add` completion handling;
 - read-only key inventory;
 - `list_physical_keys`, `rename_physical_key`, and `get_physical_key_passages` services;
-- a validation-only **KEYS / КЛЮЧИ** Lovelace tab with key number, rename, and selected-key passage history.
+- a validation-only **KEYS / КЛЮЧИ** Lovelace tab with an experimental key-number field, rename, and selected-key passage history.
 
-New-key enrollment, `reason=key_add`, and rename remain **Observed** until their state-changing live tests are completed. Non-empty read-only inventory and passage history are now **Confirmed**.
+New-key enrollment, `reason=key_add`, and rename remain **Observed** until their state-changing live tests are completed. Non-empty read-only inventory and passage history are now **Confirmed**. The interpretation of `external_id` as the number printed on a physical key is **Experimental** until it is visually matched against a known key.
 
 ## Account features
 
@@ -70,7 +70,7 @@ Authorization: JWT <UFANET_ACCESS>
 
 The internal provider `id` remains implementation-only and is not published through entity state, events, diagnostics, or public service responses.
 
-`external_id` has a different role. The official Android client uses it as the physical-key identifier when filtering passage history, and the user can correlate that value with the number printed on the physical key. The validation branch therefore exposes the **value** as the explicit user-facing field `number`; the wire field name `external_id` is not exposed publicly.
+`external_id` has a confirmed runtime role: the official Android client uses it as the identifier in `filters.key` when requesting passage history for one selected key. The validation branch also exposes its **value** as an experimental user-facing field `number`. This is intentionally provisional: the project has not yet established that `external_id` equals the digits printed on the physical key. The raw wire field name `external_id` is not exposed through the public service/UI.
 
 ## Read-only inventory in Home Assistant
 
@@ -98,16 +98,16 @@ It refreshes the key coordinator/inventory first and returns, for the selected i
 count: 1
 keys:
   - key_ref: "<24-hex-opaque-ref>"
-    number: "<physical-key number>"
+    number: "<experimental key identifier>"
     name: "Dad"
     created_at: "<UTC ISO-8601>"
 ```
 
-`number` is the user-facing representation of the provider `external_id` value. The internal provider `id` is neither accepted nor returned.
+`number` is currently the experimental user-facing representation of the provider `external_id` value. Do not interpret it as the printed key number until that mapping is live-confirmed. The internal provider `id` is neither accepted nor returned.
 
 `key_ref` is a local opaque reference scoped to the ConfigEntry, selected SKUD, and internal provider ID. A ref from another intercom does not resolve for the selected device.
 
-Both the empty service path (`count: 0`, `keys: []`) and the non-empty inventory path have been exercised live. A separate visual gate remains to verify that the new `number` shown by the updated card matches the number printed on the real physical key.
+Both the empty service path (`count: 0`, `keys: []`) and the non-empty inventory path have been exercised live. The remaining visual gate is to compare the displayed experimental `number` with the marking on a known physical key.
 
 ## Starting physical-key enrollment
 
@@ -185,7 +185,7 @@ The validation branch automatically loads the packaged `ufanet-physical-keys-car
 Each physical-key row now shows:
 
 - user-facing name;
-- **key number** (`number`, sourced from provider `external_id`);
+- **experimental key number** (`number`, sourced from provider `external_id` but not yet proven to match the printed marking);
 - creation date;
 - **Rename** action.
 
@@ -281,18 +281,18 @@ Current validation functionality includes:
 - **Add physical key**;
 - FCM `key_add` + immediate inventory refresh;
 - `ufanet_intercom_key_enrollment`;
-- `list_physical_keys` with `key_ref`, `number`, `name`, `created_at`;
+- `list_physical_keys` with `key_ref`, experimental `number`, `name`, `created_at`;
 - validation-only `rename_physical_key` with fresh resolution and post-write verification;
 - `get_physical_key_passages` with per-key filtering through private `external_id`;
-- validation-only **KEYS** Lovelace tab with key number and passage history, with no delete action.
+- validation-only **KEYS** Lovelace tab with experimental number and passage history, with no delete action.
 
-Diagnostics exclude key names, key numbers, passage timestamps, internal provider IDs, and full history.
+Diagnostics exclude key names, key numbers/`external_id` values, passage timestamps, internal provider IDs, and full history.
 
 ## Required live validation before release
 
 The read-only key/history path is now live-confirmed. Release remains blocked by state-changing and safety tests, including:
 
-1. visually verify that the new **Key number** field matches the number printed on the real physical key;
+1. compare the experimental **Key number** field against the marking on a known physical key and either confirm the mapping or rename/remove the field before release;
 2. arm auto-collection from HA/card;
 3. present a new unregistered key within 60 seconds;
 4. capture the real `reason=key_add` wire shape;
