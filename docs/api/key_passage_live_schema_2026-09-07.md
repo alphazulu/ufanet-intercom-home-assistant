@@ -46,6 +46,8 @@ A direct comparison against the number printed on the tested physical key showed
 
 Therefore the project treats `external_id` as a confirmed private backend selector, **not** as a printed physical-key number. The former Experimental public `number` candidate has been removed from the validation service/UI.
 
-## Remaining live gates
+## Later state-changing validation
 
-The read-only inventory/history path and identifier-selection semantics are confirmed. This note does **not** confirm state-changing enrollment, real FCM `reason=key_add`, rename, or delete behavior. Those remain subject to the active PR #15 release gate.
+After this passage-schema investigation, controlled Home Assistant testing also confirmed the physical-key rename success path through `/api/v4/key/edit/`. Provider inventory read-back was observed to be eventually consistent, so the integration now uses one provider write followed by bounded read-only verification retries; that automatic verification path was live-tested successfully.
+
+This note still does **not** confirm new-key enrollment or a real FCM `reason=key_add` completion. Those remain the active PR #15 functional release gates. Physical-key deletion is destructive, unimplemented, and outside the current release scope.
