@@ -14,7 +14,8 @@ The read-only physical-key and passage-history contracts have been exercised aga
 - non-empty `/api/v4/key/skud/<id>/key/pass_history/` with two passages;
 - live passage-item schema `key:str`, `key_name:str`, `time_passage:int`;
 - filtering one key's passage history through `filters.key=<external_id>`;
-- Home Assistant/Lovelace rendering one key and loading two passage timestamps when that row is selected.
+- Home Assistant/Lovelace rendering one key and loading two passage timestamps when that row is selected;
+- controlled rename through `/api/v4/key/edit/`, including eventual-consistent read-back and automatic post-write verification retries.
 
 A direct physical comparison was also completed on 2026-09-07. The number printed on the tested key did **not** match the candidate identifier values returned by the key-list response. At the same time, using that key's `external_id` continued to return the correct, updating passage history. Therefore:
 
@@ -22,7 +23,7 @@ A direct physical comparison was also completed on 2026-09-07. The number printe
 - `external_id` is **not** the number printed on the tested physical key;
 - the previously experimental public `number` field was removed from the validation branch rather than shipping a misleading interpretation.
 
-New-key enrollment, `reason=key_add`, and rename remain **Observed** until their state-changing live tests are completed.
+New-key enrollment and the real `reason=key_add` completion remain **Observed** until their state-changing live tests are completed. Physical-key rename is now **Confirmed** for the tested success path.
 
 ## Account features
 
@@ -147,7 +148,7 @@ The official Android client uses:
 POST /api/v4/key/edit/
 ```
 
-with the internal provider identifier plus the requested name. **Observed in the Android client; the state-changing endpoint is not yet live-confirmed.**
+with the internal provider identifier plus the requested name. **Confirmed for the tested success path.** A controlled Home Assistant live test verified that the selected physical key's name actually changes on the provider side.
 
 The validation branch exposes:
 
@@ -163,17 +164,19 @@ key_ref: <opaque ref from list_physical_keys>
 new_name: "New name"
 ```
 
-Safety flow:
+Safety and verification flow:
 
 1. refresh inventory before mutation;
 2. resolve `key_ref` only within the selected intercom;
 3. reject blank names/control characters and apply a conservative local 128-character bound (not a claimed provider limit);
-4. call the observed edit endpoint internally with the resolved internal provider ID;
-5. refresh inventory again after POST;
-6. report success only if the same key is observed with the requested new name;
-7. skip provider POST when the normalized name is already unchanged.
+4. send the provider edit request exactly once with the resolved internal provider ID;
+5. perform bounded read-only inventory refresh retries after the POST because provider read-back is eventually consistent;
+6. report success only when the same key is observed with the requested new name;
+7. skip the provider POST when the normalized name is already unchanged.
 
-The internal provider ID is never accepted or returned by the service. If POST may have changed remote state but the verification refresh fails, Home Assistant reports an indeterminate result instead of falsely claiming success.
+Live testing showed that the first immediate read-back can still contain the previous name while a later refresh returns the new name. The automatic retry-based verification path was then exercised successfully without requiring a manual refresh. The implementation never retries the state-changing POST automatically.
+
+The internal provider ID is never accepted or returned by the service. If the POST may have changed remote state but verification cannot be completed within the bounded read-only retries, Home Assistant reports an indeterminate result instead of falsely claiming success. Provider-specific failure semantics for invalid/stale IDs, duplicate names, or server-side length limits are still not claimed without direct evidence.
 
 ## Lovelace KEYS tab
 
@@ -190,6 +193,8 @@ Provider IDs and the disproven physical-key-number candidate are not rendered. O
 **Add key** requires confirmation, shows the 60-second countdown, and refreshes inventory afterward. **Rename** requires confirmation and reports success only after backend `verified: true`. There is no delete action.
 
 Selecting a key row loads the **Passage history** section below the key list for that selected key.
+
+The non-empty list, selected-key passage history, backend-verified rename, repeated dashboard switching, normal reloads, and hard refreshes have all been live-tested on the validation branch without reproducing the former Lovelace **Configuration error**.
 
 ## Per-key passage-history service
 
@@ -278,26 +283,24 @@ Current validation functionality includes:
 - FCM `key_add` + immediate inventory refresh;
 - `ufanet_intercom_key_enrollment`;
 - `list_physical_keys` with only `key_ref`, `name`, `created_at`;
-- validation-only `rename_physical_key` with fresh resolution and post-write verification;
+- live-confirmed `rename_physical_key` with fresh resolution, one provider write and bounded post-write read-only verification;
 - `get_physical_key_passages` with per-key filtering through private `external_id`;
-- validation-only **KEYS** Lovelace tab with selected-key passage history and no delete action.
+- validation-branch **KEYS** Lovelace tab with selected-key passage history, live-confirmed rename and no delete action.
 
 Diagnostics exclude key names, provider identifiers, passage timestamps, and full history.
 
 ## Required live validation before release
 
-The read-only key/history path and the negative printed-number comparison are now live-confirmed. The physical-number question is therefore **resolved** and is no longer a release blocker: the integration does not expose a guessed number.
+The read-only key/history path, negative printed-number comparison, physical-key rename success path, notification block, and Lovelace resource-load regression are resolved. The Android notification block has no remaining hard release gate; the unavailable second-Ufanet-device live test was explicitly waived after targeted security review without waiving the cross-device safety invariant.
 
-Release remains blocked by state-changing and safety tests, including:
+The remaining hard functional release gates are exclusively the new physical-key enrollment path:
 
-1. arm auto-collection from HA/card;
+1. arm auto-collection from HA/card and verify the provider really enables enrollment mode;
 2. present a new unregistered key within 60 seconds;
-3. capture the real `reason=key_add` wire shape;
-4. verify prompt numeric Physical keys refresh after FCM completion;
-5. verify the newly registered key appears across all read-only surfaces;
-6. verify privacy-safe `ufanet_intercom_key_enrollment` result;
-7. live-test `rename_physical_key` plus post-write verification;
-8. inspect enrollment/rename error behavior;
-9. complete the remaining notification safety gates tracked in PR #15.
+3. capture the real `reason=key_add` wire shape using sanitized schema/status evidence only;
+4. verify the new key is actually registered and the numeric **Physical keys** sensor refreshes promptly after the FCM-triggered inventory update;
+5. verify the new key appears across the privacy-safe read-only surfaces without provider identifiers;
+6. verify the privacy-safe `ufanet_intercom_key_enrollment` success/error result;
+7. inspect real enrollment error behavior, including any observed HTTP 400/status semantics.
 
-Delete and BLE keys remain outside the current release scope.
+Delete and BLE keys remain outside the current release scope. iOS notification actions remain not live-tested and are not claimed as Confirmed.
