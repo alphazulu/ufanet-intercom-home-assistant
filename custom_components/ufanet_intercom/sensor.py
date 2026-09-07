@@ -7,16 +7,20 @@ from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .coordinator import (
-    UfanetCallCoordinator,
-    UfanetCoordinator,
-    UfanetKeyPassageCoordinator,
-)
+from .coordinator import UfanetCallCoordinator, UfanetCoordinator
 from .entity import device_info
+from .key_coordinator import UfanetKeyPassageCoordinator
+
+
+def _known_key_capable_ids(coordinator: Any) -> set[int]:
+    if bool(getattr(coordinator, "capability_known", False)):
+        return {int(value) for value in getattr(coordinator, "supported_skud_ids", set())}
+    data = getattr(coordinator, "data", None)
+    return {int(value) for value in data} if isinstance(data, dict) else set()
 
 
 async def async_setup_entry(
@@ -24,30 +28,49 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up last-call sensors."""
+    """Set up last-call and physical-key sensors."""
     runtime = hass.data[DOMAIN][entry.entry_id]
     coordinator: UfanetCoordinator = runtime["coordinator"]
     call_coordinator: UfanetCallCoordinator = runtime["call_coordinator"]
-
     passage_coordinator: UfanetKeyPassageCoordinator = runtime[
         "key_passage_coordinator"
     ]
 
-    entities: list[SensorEntity] = [
-        UfanetLastCallSensor(call_coordinator, skud)
-        for skud in coordinator.data.values()
-        if skud.get("cctv_number")
-    ]
-    for skud_id in passage_coordinator.data:
-        if (skud := coordinator.data.get(skud_id)) is None:
-            continue
-        entities.extend(
-            (
-                UfanetPhysicalKeyCountSensor(passage_coordinator, skud),
-                UfanetLastKeyPassageSensor(passage_coordinator, skud),
+    async_add_entities(
+        [
+            UfanetLastCallSensor(call_coordinator, skud)
+            for skud in coordinator.data.values()
+            if skud.get("cctv_number")
+        ]
+    )
+
+    added_key_ids: set[int] = set()
+
+    @callback
+    def _add_supported_key_sensors() -> None:
+        new_ids = [
+            skud_id
+            for skud_id in sorted(_known_key_capable_ids(passage_coordinator))
+            if skud_id in coordinator.data and skud_id not in added_key_ids
+        ]
+        if not new_ids:
+            return
+        added_key_ids.update(new_ids)
+        entities: list[SensorEntity] = []
+        for skud_id in new_ids:
+            skud = coordinator.data[skud_id]
+            entities.extend(
+                (
+                    UfanetPhysicalKeyCountSensor(passage_coordinator, skud),
+                    UfanetLastKeyPassageSensor(passage_coordinator, skud),
+                )
             )
-        )
-    async_add_entities(entities)
+        async_add_entities(entities)
+
+    _add_supported_key_sensors()
+    entry.async_on_unload(
+        passage_coordinator.async_add_listener(_add_supported_key_sensors)
+    )
 
 
 class UfanetLastCallSensor(SensorEntity):
@@ -132,9 +155,16 @@ class _UfanetKeyPassageSensor(SensorEntity):
 
     @property
     def available(self) -> bool:
-        """Return whether passage polling is healthy for this intercom."""
+        """Return whether key inventory is healthy for this intercom."""
+        supports_skud = getattr(self.coordinator, "supports_skud", None)
+        supported = (
+            supports_skud(self.skud_id)
+            if callable(supports_skud)
+            else self.skud_id in self.coordinator.data
+        )
         return (
             self.coordinator.last_update_success
+            and supported
             and self.skud_id in self.coordinator.data
         )
 
@@ -232,6 +262,14 @@ class UfanetLastKeyPassageSensor(_UfanetKeyPassageSensor):
         skud: dict[str, Any],
     ) -> None:
         super().__init__(coordinator, skud, "last_key_passage")
+
+    @property
+    def available(self) -> bool:
+        """Return whether passage history itself is healthy."""
+        if not super().available:
+            return False
+        state = self.coordinator.data.get(self.skud_id) or {}
+        return bool(state.get("history_healthy", True))
 
     @property
     def native_value(self) -> datetime | None:
