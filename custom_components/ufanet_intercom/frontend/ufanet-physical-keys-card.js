@@ -144,18 +144,12 @@
         name.className = "physical-key-name";
         name.textContent = String(item.name || "Физический ключ");
 
-        const number = document.createElement("div");
-        number.className = "physical-key-number";
-        number.textContent = `Номер ключа (эксп.): ${String(item.number || "—")}`;
-        number.title =
-          "Экспериментальное значение API; совпадение с маркировкой на физическом ключе пока не подтверждено";
-
         const meta = document.createElement("div");
         meta.className = "physical-key-meta";
         meta.textContent = `Добавлен: ${formatCreatedAt(item.created_at)}`;
         if (item.created_at) meta.title = String(item.created_at);
 
-        main.append(name, number, meta);
+        main.append(name, meta);
 
         const actions = document.createElement("div");
         actions.className = "physical-key-actions";
@@ -199,7 +193,6 @@
           (item) =>
             item &&
             typeof item.key_ref === "string" &&
-            typeof item.number === "string" &&
             typeof item.name === "string" &&
             typeof item.created_at === "string"
         );
@@ -402,7 +395,7 @@
             </div>
           </div>
           <div class="physical-key-note">
-            Поле «Номер ключа (эксп.)» выводит экспериментальное значение API для проверки; совпадение с маркировкой на физическом ключе пока не подтверждено. Внутренний служебный ID Ufanet не выводится; операции используют непрозрачный key_ref.
+            Показываются только пользовательское имя и дата добавления. Внутренние идентификаторы Ufanet не выводятся; операции используют непрозрачный key_ref.
           </div>
           <div id="physical-key-enrollment-status" class="physical-key-enrollment-status" hidden></div>
           <div id="physical-key-list" class="physical-key-list"></div>
@@ -473,13 +466,6 @@
           .physical-key-main { min-width: 0; }
           .physical-key-name {
             font-weight: 600;
-            overflow-wrap: anywhere;
-          }
-          .physical-key-number {
-            margin-top: 3px;
-            color: var(--primary-text-color);
-            font-size: 12px;
-            font-variant-numeric: tabular-nums;
             overflow-wrap: anywhere;
           }
           .physical-key-meta { margin-top: 3px; }
