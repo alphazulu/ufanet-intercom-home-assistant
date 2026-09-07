@@ -24,9 +24,16 @@ from custom_components.ufanet_intercom.key_management import (
 SKUD_ID = 154273
 
 
-def _key(key_id: int, name: str, devices=(SKUD_ID,), created_at: int = 1_700_000_000):
+def _key(
+    key_id: int,
+    name: str,
+    devices=(SKUD_ID,),
+    created_at: int = 1_700_000_000,
+    external_id: str | None = None,
+):
     return {
         "key_id": key_id,
+        "external_id": external_id or str(key_id),
         "name": name,
         "created_at": created_at,
         "devices": tuple(devices),
@@ -83,11 +90,22 @@ def test_physical_key_ref_is_stable_scoped_and_opaque() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_physical_keys_hides_provider_ids_and_filters_intercom(hass) -> None:
+async def test_list_physical_keys_exposes_user_number_but_hides_internal_provider_id(hass) -> None:
     _entry, device, api, coordinator = _install_runtime(hass)
     api.physical_key_inventory = (
-        _key(41, "Front door", created_at=1_700_000_100),
-        _key(42, "Other door", devices=(999999,), created_at=1_700_000_200),
+        _key(
+            41,
+            "Front door",
+            created_at=1_700_000_100,
+            external_id="001234567890",
+        ),
+        _key(
+            42,
+            "Other door",
+            devices=(999999,),
+            created_at=1_700_000_200,
+            external_id="009999999999",
+        ),
     )
 
     result = await hass.services.async_call(
@@ -99,6 +117,7 @@ async def test_list_physical_keys_hides_provider_ids_and_filters_intercom(hass) 
     )
 
     assert result["count"] == 1
+    assert result["keys"][0]["number"] == "001234567890"
     assert result["keys"][0]["name"] == "Front door"
     assert result["keys"][0]["created_at"] == "2023-11-14T22:15:00+00:00"
     key_ref = result["keys"][0]["key_ref"]
