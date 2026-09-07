@@ -148,7 +148,7 @@
         number.className = "physical-key-number";
         number.textContent = `Номер ключа (эксп.): ${String(item.number || "—")}`;
         number.title =
-          "Экспериментальное значение из Ufanet external_id; совпадение с маркировкой на физическом ключе пока не подтверждено";
+          "Экспериментальное значение API; совпадение с маркировкой на физическом ключе пока не подтверждено";
 
         const meta = document.createElement("div");
         meta.className = "physical-key-meta";
@@ -402,7 +402,7 @@
             </div>
           </div>
           <div class="physical-key-note">
-            Поле «Номер ключа (эксп.)» выводит значение Ufanet external_id для проверки; совпадение с маркировкой на физическом ключе пока не подтверждено. Внутренний служебный ID Ufanet не выводится; операции используют непрозрачный key_ref.
+            Поле «Номер ключа (эксп.)» выводит экспериментальное значение API для проверки; совпадение с маркировкой на физическом ключе пока не подтверждено. Внутренний служебный ID Ufanet не выводится; операции используют непрозрачный key_ref.
           </div>
           <div id="physical-key-enrollment-status" class="physical-key-enrollment-status" hidden></div>
           <div id="physical-key-list" class="physical-key-list"></div>
