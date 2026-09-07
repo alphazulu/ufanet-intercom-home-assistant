@@ -9,6 +9,8 @@ import pytest
 from custom_components.ufanet_intercom import (
     _ARCHIVE_CARD_MODULE_URL,
     _ARCHIVE_CARD_PATH,
+    _KEY_HISTORY_CARD_MODULE_URL,
+    _KEY_HISTORY_CARD_PATH,
     _PHYSICAL_KEYS_CARD_MODULE_URL,
     _PHYSICAL_KEYS_CARD_PATH,
     _async_ensure_lovelace_module,
@@ -75,17 +77,20 @@ async def test_packaged_card_check_runs_in_executor_and_falls_back_without_lovel
     assert hass.async_add_executor_job.await_args_list == [
         call(_path_is_file, _ARCHIVE_CARD_PATH),
         call(_path_is_file, _PHYSICAL_KEYS_CARD_PATH),
+        call(_path_is_file, _KEY_HISTORY_CARD_PATH),
     ]
     hass.http.async_register_static_paths.assert_awaited_once()
 
     static_paths = hass.http.async_register_static_paths.await_args.args[0]
-    assert len(static_paths) == 2
+    assert len(static_paths) == 3
     assert str(_ARCHIVE_CARD_PATH) in {item.path for item in static_paths}
     assert str(_PHYSICAL_KEYS_CARD_PATH) in {item.path for item in static_paths}
+    assert str(_KEY_HISTORY_CARD_PATH) in {item.path for item in static_paths}
 
     assert add_extra_js_url.call_args_list == [
         call(hass, _ARCHIVE_CARD_MODULE_URL),
         call(hass, _PHYSICAL_KEYS_CARD_MODULE_URL),
+        call(hass, _KEY_HISTORY_CARD_MODULE_URL),
     ]
 
 
@@ -118,10 +123,12 @@ async def test_storage_mode_registers_modules_before_dashboard_without_extra_js(
     assert resources.created == [
         {"res_type": "module", "url": _ARCHIVE_CARD_MODULE_URL},
         {"res_type": "module", "url": _PHYSICAL_KEYS_CARD_MODULE_URL},
+        {"res_type": "module", "url": _KEY_HISTORY_CARD_MODULE_URL},
     ]
     assert {item["url"] for item in resources.items} == {
         _ARCHIVE_CARD_MODULE_URL,
         _PHYSICAL_KEYS_CARD_MODULE_URL,
+        _KEY_HISTORY_CARD_MODULE_URL,
     }
     add_extra_js_url.assert_not_called()
 
