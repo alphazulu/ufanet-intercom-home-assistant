@@ -1,4 +1,4 @@
-"""Tests for read-only physical-key inventory parsing."""
+"""Tests for private physical-key inventory and live passage parsing."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ def api() -> UfanetApi:
 
 
 @pytest.mark.asyncio
-async def test_inventory_keeps_display_fields_and_drops_external_id(api: UfanetApi) -> None:
+async def test_inventory_keeps_external_id_private_for_android_history_filter(api: UfanetApi) -> None:
     api._async_ufanet_json = AsyncMock(  # type: ignore[method-assign]
         return_value={
             "data": {
@@ -48,15 +48,56 @@ async def test_inventory_keeps_display_fields_and_drops_external_id(api: UfanetA
     assert result == [
         {
             "key_id": 3321992,
+            "external_id": "7898795-ACCESS-SECRET",
             "name": "Папа",
             "created_at": 1_751_011_416,
             "devices": (128549, 7),
         }
     ]
     assert api.physical_key_inventory == tuple(result)
-    serialized = str(result) + str(api.physical_key_inventory)
-    assert "external_id" not in serialized
-    assert "7898795-ACCESS-SECRET" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_live_passage_parser_accepts_numeric_string_key_like_android_gson(api: UfanetApi) -> None:
+    api._async_ufanet_json = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "count": 2,
+            "current_page": 0,
+            "page_count": 0,
+            "page_size": 25,
+            "results": [
+                {"key": "7898795", "key_name": "Key", "time_passage": 1_700_000_100},
+                {"key": 7898796, "key_name": "Key 2", "time_passage": 1_700_000_200},
+            ],
+        }
+    )
+
+    result = await api.async_get_key_passage_history(154273)
+
+    api._async_ufanet_json.assert_awaited_once_with(  # type: ignore[attr-defined]
+        "POST",
+        "/api/v4/key/skud/154273/key/pass_history/",
+        json_body={"page": 0, "page_size": 25},
+    )
+    assert [item["key_id"] for item in result["results"]] == [7898795, 7898796]
+
+
+@pytest.mark.asyncio
+async def test_live_passage_parser_rejects_non_numeric_string_key(api: UfanetApi) -> None:
+    api._async_ufanet_json = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "count": 1,
+            "current_page": 0,
+            "page_count": 0,
+            "page_size": 25,
+            "results": [
+                {"key": "not-numeric", "key_name": "Key", "time_passage": 1_700_000_100}
+            ],
+        }
+    )
+
+    with pytest.raises(UfanetResponseError, match="invalid fields"):
+        await api.async_get_key_passage_history(154273)
 
 
 @pytest.mark.asyncio
@@ -82,11 +123,13 @@ async def test_inventory_rejects_duplicate_key_ids(api: UfanetApi) -> None:
 @pytest.mark.parametrize(
     "row",
     [
-        {"id": True, "name": "Key", "create_date": 1, "devices": ["7"]},
-        {"id": 1, "name": None, "create_date": 1, "devices": ["7"]},
-        {"id": 1, "name": "Key", "create_date": True, "devices": ["7"]},
-        {"id": 1, "name": "Key", "create_date": -1, "devices": ["7"]},
-        {"id": 1, "name": "Key", "create_date": 1, "devices": [False]},
+        {"id": True, "external_id": "x", "name": "Key", "create_date": 1, "devices": ["7"]},
+        {"id": 1, "external_id": None, "name": "Key", "create_date": 1, "devices": ["7"]},
+        {"id": 1, "external_id": "", "name": "Key", "create_date": 1, "devices": ["7"]},
+        {"id": 1, "external_id": "x", "name": None, "create_date": 1, "devices": ["7"]},
+        {"id": 1, "external_id": "x", "name": "Key", "create_date": True, "devices": ["7"]},
+        {"id": 1, "external_id": "x", "name": "Key", "create_date": -1, "devices": ["7"]},
+        {"id": 1, "external_id": "x", "name": "Key", "create_date": 1, "devices": [False]},
     ],
 )
 async def test_inventory_rejects_invalid_native_fields(
@@ -110,6 +153,7 @@ async def test_failed_inventory_refresh_does_not_retain_previous_metadata(
     api._physical_key_inventory = (  # noqa: SLF001
         {
             "key_id": 99,
+            "external_id": "private-old-external",
             "name": "Old private name",
             "created_at": 1_700_000_000,
             "devices": (7,),
