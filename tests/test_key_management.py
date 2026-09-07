@@ -11,6 +11,7 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.ufanet_intercom import key_management
 from custom_components.ufanet_intercom.const import (
     DOMAIN,
     SERVICE_LIST_PHYSICAL_KEYS,
@@ -176,6 +177,59 @@ async def test_rename_physical_key_uses_native_contract_and_verifies_refresh(has
 
 
 @pytest.mark.asyncio
+async def test_rename_retries_inventory_readback_without_reposting(
+    hass,
+    monkeypatch,
+) -> None:
+    """Provider propagation lag retries reads but never repeats the rename POST."""
+    entry, device, api, coordinator = _install_runtime(hass)
+    before = _key(41, "Old name")
+    after = _key(41, "New name")
+    api.physical_key_inventory = (before,)
+    calls = 0
+
+    # Keep the regression test fast while preserving the production retry count.
+    monkeypatch.setattr(
+        key_management,
+        "RENAME_VERIFY_DELAYS",
+        tuple(0.0 for _ in key_management.RENAME_VERIFY_DELAYS),
+    )
+
+    async def refresh():
+        nonlocal calls
+        calls += 1
+        # Call 1 is the pre-write ownership refresh. The first two post-write
+        # read-backs are stale; the third finally observes the renamed key.
+        if calls == 4:
+            api.physical_key_inventory = (after,)
+
+    coordinator.async_request_refresh.side_effect = refresh
+    key_ref = physical_key_ref(entry.entry_id, SKUD_ID, 41)
+
+    result = await hass.services.async_call(
+        DOMAIN,
+        SERVICE_RENAME_PHYSICAL_KEY,
+        {
+            "device_id": device.id,
+            "key_ref": key_ref,
+            "new_name": "New name",
+        },
+        blocking=True,
+        return_response=True,
+    )
+
+    api._async_ufanet_json.assert_awaited_once_with(
+        "POST",
+        "/api/v4/key/edit/",
+        json_body={"key_id": 41, "name": "New name"},
+    )
+    assert coordinator.async_request_refresh.await_count == 4
+    assert result["renamed"] is True
+    assert result["verified"] is True
+    assert result["name"] == "New name"
+
+
+@pytest.mark.asyncio
 async def test_rename_rejects_stale_or_wrong_intercom_ref_without_post(hass) -> None:
     entry, device, api, _coordinator = _install_runtime(hass)
     api.physical_key_inventory = (_key(41, "Old name"),)
@@ -243,10 +297,19 @@ async def test_rename_same_name_is_noop(hass) -> None:
 
 
 @pytest.mark.asyncio
-async def test_rename_requires_post_write_inventory_confirmation(hass) -> None:
+async def test_rename_requires_post_write_inventory_confirmation(
+    hass,
+    monkeypatch,
+) -> None:
     entry, device, api, coordinator = _install_runtime(hass)
     api.physical_key_inventory = (_key(41, "Old name"),)
     key_ref = physical_key_ref(entry.entry_id, SKUD_ID, 41)
+
+    monkeypatch.setattr(
+        key_management,
+        "RENAME_VERIFY_DELAYS",
+        tuple(0.0 for _ in key_management.RENAME_VERIFY_DELAYS),
+    )
 
     with pytest.raises(HomeAssistantError, match="did not confirm"):
         await hass.services.async_call(
@@ -262,4 +325,6 @@ async def test_rename_requires_post_write_inventory_confirmation(hass) -> None:
         )
 
     api._async_ufanet_json.assert_awaited_once()
-    assert coordinator.async_request_refresh.await_count == 2
+    assert coordinator.async_request_refresh.await_count == (
+        1 + len(key_management.RENAME_VERIFY_DELAYS)
+    )
