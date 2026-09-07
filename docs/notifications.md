@@ -60,9 +60,13 @@ The Open door action requests device authentication where supported. During Andr
 
 When an **Open door** button is selected, a real incoming-call notification contains a unique action identifier derived from the Home Assistant event context. Provider call UUIDs are not used in the Companion payload.
 
-The door action is enabled only when the selected button belongs to the same Home Assistant device as the selected Ufanet intercom. The same device-membership check is repeated immediately before `button.press`, so a stale or mismatched entity selection cannot be used to open another configured intercom.
+The incoming-call device trigger is itself scoped to the exact Home Assistant `device_id`. An event for another device does not start this automation.
 
-The blueprint runs in `restart` mode. A newer call therefore cancels the previous run, invalidates its action listener and replaces the live notification for the same intercom. The previous action ID is not accepted by the new run. Regression tests cover the state machine, but two sequential **real** calls remain a required live gate.
+Normal blueprint configuration offers only `button` entities from the `ufanet_intercom` integration. At runtime the door action is enabled only when that exact entity belongs to the same Home Assistant device as the selected Ufanet intercom. The same device-membership check is repeated immediately before `button.press`, so a stale, moved, or mismatched entity selection fails closed instead of opening another configured intercom.
+
+The selected Home Assistant button is already bound to its own Ufanet SKUD/relay in the integration. The phone does not provide a provider SKUD ID or door number to the physical-action path.
+
+The blueprint runs in `restart` mode. A newer call cancels the previous run, invalidates its action listener and replaces the live notification for the same intercom. The previous action ID is not accepted by the new run. This behavior is covered by automated tests and has also been live-confirmed with two sequential real calls.
 
 The Open door action is accepted only for the configured timeout. After either a successful `button.press` dispatch or timeout, the notification is replaced without the Open door action. The success message deliberately says that the open command was **sent**; it does not claim that the physical door state was independently verified.
 
@@ -78,7 +82,7 @@ This is intentional: `ufanet_intercom_call` publishes only sanitized call metada
 
 ## Live validation on the combined validation branch
 
-The following has already been confirmed on a real Home Assistant installation with the Android Companion app:
+The following has been confirmed on a real Home Assistant installation with the Android Companion app:
 
 - manual notification delivery with the cached last-call image;
 - synthetic `ufanet_intercom_call` delivery through the integration device trigger;
@@ -87,21 +91,38 @@ The following has already been confirmed on a real Home Assistant installation w
 - presence of the Open door action on the real call;
 - successful dispatch of the selected Ufanet `button.press` from the notification action and physical door opening;
 - **View camera** opens More Info for the selected live `camera.*` entity directly;
-- after the action timeout, the existing notification is updated **in place** under the same stable tag, no second notification is created, Open door disappears, and View camera remains.
+- after the action timeout, the existing notification is updated in place under the same stable tag, no second notification is created, Open door disappears, and View camera remains;
+- after a successful **Open door** tap, the same notification is replaced without the door action and reports that the command was sent;
+- a second real call supersedes the first pending notification/action and the old action is no longer accepted;
+- a fresh real-call notification displays the expected Home Assistant device/location metadata and local call time.
 
 Android payload issues found during live testing were fixed: bare automation `context.id` was replaced with the actual event context, and action-specific boolean values that the FCM data channel requires as strings were corrected.
 
-## Required live gates before release
+## Cross-device security review and live-test waiver
 
-Before the combined validation work can be treated as release-ready, real-world testing still needs to confirm:
+A second Ufanet device is not currently available for the literal negative live test "configure another Ufanet door button and prove it is never exposed/executed".
 
-1. a second real call replaces the first pending notification and the old action is no longer accepted;
-2. after a successful **Open door** tap, the same notification is immediately replaced without the door action and shows the command-sent status;
-3. a door button from another Ufanet device is never exposed or executed;
-4. a fresh real-call notification shows the expected Home Assistant device name, address, porch, flat and local call time;
-5. iOS needs a separate real-device test only if it is later going to be described as live-tested; this documentation currently makes no such claim.
+A targeted code/security review was therefore completed and recorded in [`notification_cross_device_security_review_2026-09-07.md`](notification_cross_device_security_review_2026-09-07.md).
 
-These items do not block unrelated development, but they do block final live-validation of the notification feature for release unless explicitly reviewed and waived.
+The review confirmed layered isolation:
+
+1. the incoming-call device trigger filters the exact Home Assistant `device_id`;
+2. the blueprint input selector is narrowed to Ufanet `button` entities;
+3. the selected button must belong to `device_entities(intercom_device_id)` before **Open door** is rendered;
+4. the same membership test is repeated immediately before `button.press` in both execution paths;
+5. each call uses a unique action ID and `mode: restart` invalidates the previous listener;
+6. manual runs never expose a physical action;
+7. the button entity itself is bound to its own SKUD/relay and the phone supplies no provider target identifier.
+
+**Disposition: the missing second-device live test is waived; the safety invariant is not waived.** The project does not claim that a real two-Ufanet-device test was performed. The waiver is based on code-path isolation, automated device-filter tests, live validation of the surrounding action lifecycle, and the lack of the required second hardware/account topology.
+
+This waiver uses the normal trusted-Home-Assistant-administrator threat model. It does not claim iOS live validation and does not promote malformed/ambiguous provider call-routing behavior to multi-device live-confirmed semantics.
+
+## Notification release status
+
+All notification release gates for the Android path are now either live-confirmed or explicitly waived with the review above. Notification functionality therefore has no remaining hard release blocker of its own.
+
+The overall 0.31.0 validation branch is still **not release-ready** because the new physical-key enrollment / real `reason=key_add` flow remains pending.
 
 ## Troubleshooting
 
