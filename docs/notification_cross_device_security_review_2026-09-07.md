@@ -8,6 +8,8 @@ This review covers the remaining notification release gate in PR #15:
 
 The review is specifically about **cross-device relay selection/execution after a call has been associated with a Home Assistant Ufanet device**. It does not claim a live multi-device test, does not claim iOS live validation, and does not change the trust model for a Home Assistant administrator who can intentionally edit automations/entity-registry state.
 
+The project owner explicitly approved performing this targeted review and using a documented waiver for the unavailable second-device live test if the review found the implementation sufficiently isolated. The waiver below records that decision; it does not replace or weaken the runtime guards.
+
 ## Reviewed code paths
 
 The review covered:
@@ -101,7 +103,7 @@ The current test suite covers the relevant structure and routing:
 - `mode: restart` invalidates the old listener;
 - manual runs do not expose the door action.
 
-The exact branch head used for this review must still pass the repository's normal **Tests**, **HACS and Hassfest validation**, and **Release self-check** before release-candidate promotion.
+The exact branch head used for release-candidate promotion must pass the repository's normal **Tests**, **HACS and Hassfest validation**, and **Release self-check**.
 
 ## Live evidence already available
 
@@ -124,11 +126,11 @@ The review assumes the normal trusted-Home-Assistant-administrator model. An adm
 
 Call-history rows observed in the supported provider flow include `camera_number`, which the integration uses to associate calls with Ufanet devices. This review does not promote malformed/ambiguous provider call-routing behavior to live-confirmed multi-device semantics; the waiver is narrowly for **cross-device door-button selection/execution** once Home Assistant has associated the call with a device.
 
-## Waiver rationale
+## Waiver decision
 
-**Recommended disposition: WAIVE THE LIVE MULTI-DEVICE TEST ONLY. Do not waive the safety invariant.**
+**WAIVED: the unavailable live multi-device test only. The cross-device safety invariant itself is not waived.**
 
-Reasoning:
+Rationale:
 
 1. The missing test requires hardware/account topology that is not currently available.
 2. Cross-device isolation is implemented in multiple independent layers rather than one UI-only selector.
@@ -136,5 +138,6 @@ Reasoning:
 4. Existing automated tests prove exact device-trigger filtering and guard structure.
 5. Adjacent real-world action lifecycle behavior has already been exercised successfully.
 6. No provider identifier from the phone is accepted as the physical-action target.
+7. The project owner explicitly approved this review/waiver path on 2026-09-07.
 
-With this waiver recorded, the notification block can be considered sufficiently validated for the planned 0.31.0 candidate **without claiming a live second-device test**. The remaining hard release blockers are the new physical-key enrollment / real `reason=key_add` validation gates tracked in PR #15.
+With this waiver recorded, the notification block is considered sufficiently validated for the planned 0.31.0 candidate **without claiming a live second-device test**. The remaining hard release blockers are the new physical-key enrollment / real `reason=key_add` validation gates tracked in PR #15.
