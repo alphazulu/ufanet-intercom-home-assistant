@@ -30,8 +30,8 @@
 Ветка `codex/combined-validation` содержит ещё не выпущенные изменения уведомлений и
 регистрации/управления физическими ключами. Сейчас она подготавливается как основа
 будущего релиза **0.31.0**, но по-прежнему остаётся **validation-only**: её нельзя
-сливать в `main`, тегировать или публиковать, пока hard live-gates в PR #15 не будут
-закрыты либо явно рассмотрены и waived.
+сливать в `main`, тегировать или публиковать, пока оставшиеся hard live-gates в PR #15
+не будут закрыты либо явно рассмотрены и waived.
 
 Установленная версия интеграции намеренно остаётся `0.30.0` до утверждения точного
 release-candidate commit, после чего все release-facing версии и cache-bust будут
@@ -44,6 +44,10 @@ release-candidate commit, после чего все release-facing версии
 - action **«Открыть дверь»** физически открыл настроенную дверь;
 - **«Открыть камеру»** открыл More Info выбранной live-камеры;
 - timeout обновил существующее уведомление на месте и удалил устаревшую кнопку открытия;
+- успешный **«Открыть дверь»** заменил то же уведомление без дубля и устаревшего door action;
+- второй реальный звонок заменил первый pending notification/action;
+- metadata свежего real-call notification соответствует ожидаемым device/location/local time;
+- cross-device runtime guards отдельно проверены код-ревью; недоступный отрицательный live-тест со вторым Ufanet device явно waived, но safety invariant сохранён;
 - combined-сборка с notification/physical-key изменениями загружается и работает без замеченных регрессий;
 - capability discovery физических ключей;
 - пустой и непустой inventory физических ключей;
@@ -51,18 +55,24 @@ release-candidate commit, после чего все release-facing версии
 - непустая история проходов и live-схема элемента `key:str`, `key_name:str`, `time_passage:int`;
 - фильтрация истории выбранного ключа через `filters.key=<external_id>`;
 - Home Assistant/Lovelace отображает один реальный ключ, а выбор строки загружает его реальные passage timestamps;
-- прямое сравнение показало, что номер, нанесённый на физический ключ, **не совпадает** с кандидатами-идентификаторами из ответа сервера, при этом `external_id` продолжает выбирать правильную и обновляющуюся историю этого же ключа.
+- прямое сравнение показало, что номер, нанесённый на физический ключ, **не совпадает** с кандидатами-идентификаторами из ответа сервера, при этом `external_id` продолжает выбирать правильную и обновляющуюся историю этого же ключа;
+- controlled rename физического ключа через `/api/v4/key/edit/`;
+- eventual-consistent read-back rename с одним provider write и ограниченными read-only verification retries;
+- automatic rename verification без ручного refresh;
+- многократные переключения dashboard, обычные reload и hard refresh без повторения прежней Lovelace **«Ошибка конфигурации»**.
 
-Последний тест закрывает вопрос с номером: `external_id` полезен как внутренний
+Тест номера закрывает вопрос с идентификатором: `external_id` полезен как внутренний
 per-key идентификатор истории, но **не является** номером, нанесённым на проверенный
 физический ключ. Поэтому ранее экспериментальное публичное поле `number` удалено из
 `list_physical_keys` и вкладки **КЛЮЧИ**. Provider identifiers остаются только
 внутренними runtime-данными.
 
-До релиза обязательны оставшиеся real-call проверки гонок/несовпадений/metadata,
-controlled live rename существующего ключа, полная регистрация **нового
-незарегистрированного ключа** с реальным `reason=key_add` и быстрым inventory
-refresh, а также проверка enrollment/rename error behavior. Подробности:
+Android notification-блок и success path переименования ключа больше не имеют hard
+release gate. Оставшийся функциональный blocker — регистрация **нового
+незарегистрированного физического ключа**: реальный `auto_collect/enable`, физическая
+регистрация, настоящий `reason=key_add`, FCM-triggered inventory refresh,
+privacy-safe enrollment event и live enrollment error semantics. iOS notification
+actions не live-проверены и не объявляются Confirmed. Подробности:
 [уведомления Home Assistant](docs/notifications_RU.md),
 [физические ключи/проходы](docs/api/keys_RU.md) и
 [черновик release notes 0.31.0](docs/releases/0.31.0-draft.md).
@@ -204,9 +214,13 @@ Home Assistant device. Принадлежность проверяется по�
 URI панели. Одно Ufanet device может содержать live и archive camera, поэтому live
 entity нужно выбирать явно.
 
-Android live-проверен. Payload соответствует общей action-схеме Android/iOS
-Companion, но iOS action delivery на реальном устройстве пока не проверялся и не
-объявляется live-confirmed. Подробная модель безопасности и оставшиеся gates:
+Android live-проверен по полному текущему release-validation action lifecycle,
+включая замену pending action вторым звонком и post-open replacement. Единственный
+не выполненный notification case — отрицательный тест, требующий второго Ufanet
+device; этот live-тест явно waived после задокументированного targeted security
+review без отмены same-device/cross-device runtime guards. Payload соответствует
+общей action-схеме Android/iOS Companion, но iOS action delivery на реальном
+устройстве пока не проверялся и не объявляется live-confirmed. Подробности:
 [docs/notifications_RU.md](docs/notifications_RU.md).
 
 ## Физические ключи и проходы
@@ -224,7 +238,7 @@ passage-history health отслеживаются отдельно: времен
 защищает от дублей после reload. Публичный passage event содержит только `key_name`
 и `occurred_at`; private provider identifiers и полная история не публикуются.
 
-Read-only key/history flow теперь live-подтверждён на непустом аккаунте:
+Read-only key/history flow live-подтверждён на непустом аккаунте:
 
 - `/api/v4/key/list/` вернул реальный ключ с `id`, `external_id`, `name`, `create_date`, `devices`;
 - `/api/v4/key/skud/<id>/key/pass_history/` вернул реальные проходы;
@@ -233,7 +247,7 @@ Read-only key/history flow теперь live-подтверждён на неп�
 - выбор ключа в Lovelace загрузил его passage times в нижней части вкладки;
 - физический номер на этом ключе не совпал с кандидатами-идентификаторами сервера, но `external_id` продолжил выбирать правильную обновляющуюся историю.
 
-Для управления `ufanet_intercom.list_physical_keys` теперь возвращает только opaque
+Для управления `ufanet_intercom.list_physical_keys` возвращает только opaque
 `key_ref`, `name` и `created_at`. И provider `id`, и `external_id` остаются
 внутренними. Поле физического номера не публикуется, поскольку live-тест опроверг
 эту интерпретацию.
@@ -252,10 +266,12 @@ validation**.
 
 `ufanet_intercom.rename_physical_key` принимает только `key_ref` и новое имя. Перед
 изменением перечитывается свежий inventory, ref разрешается только внутри выбранного
-домофона, затем вызывается Android-observed edit contract и выполняется второй
-refresh. Успех возвращается только если новое имя реально видно после read-back.
-Сам provider rename endpoint остаётся **Observed / pending live validation**, даже
-при наличии safety/read-back реализации и зелёного CI.
+домофона, а provider edit request отправляется один раз. Controlled live-тест
+подтвердил, что `/api/v4/key/edit/` действительно меняет имя выбранного ключа. Так
+как inventory Ufanet eventual-consistent, сервис выполняет ограниченные read-only
+refresh retries и возвращает success только после наблюдения нового имени; этот
+automatic verification path также live-проверен. State-changing POST автоматически
+не повторяется.
 
 Вкладка **КЛЮЧИ** использует эти response-services. **«Добавить ключ»** вызывает
 только same-device HA enrollment button и показывает 60-секундный countdown.
@@ -289,7 +305,7 @@ true`. Клик по строке ключа загружает privacy-safe и�
 - Открытие двери — реальное физическое действие; карточка/notification требуют явного действия пользователя, а notification добавляет same-device guards.
 - Запуск physical-key enrollment изменяет состояние контроля доступа и не должен использоваться как health check или автоматическое действие.
 - Provider identifiers физических ключей, включая `external_id`, остаются private runtime data и не попадают в public service responses, sensor attributes, events или diagnostics.
-- Публичное управление физическими ключами использует intercom-scoped opaque `key_ref`; rename перечитывает inventory до изменения и проверяет результат повторным refresh после POST.
+- Публичное управление физическими ключами использует intercom-scoped opaque `key_ref`; rename перечитывает inventory до изменения, отправляет один provider write и подтверждает результат ограниченными read-only refresh retries.
 - Tokenized call-media URL остаются внутренними runtime-данными; image entity хранит только созданный JPEG.
 - Управление FCM-сессиями использует opaque refs вместо raw provider device IDs и защищает доказанно принадлежащие HA регистрации.
 - Motion provider cursor хранится только в private storage и наружу выводятся лишь нормализованные timestamps.
