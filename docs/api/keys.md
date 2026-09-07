@@ -6,7 +6,7 @@ This page documents the physical-key and passage-event API used by the official 
 
 ## Status
 
-The read-only physical-key and passage-history contracts have now been exercised against a real non-empty account. Confirmed behavior includes:
+The read-only physical-key and passage-history contracts have been exercised against a real non-empty account. Confirmed behavior includes:
 
 - account feature `keys`;
 - `has_key_recording_support=true` for a real intercom;
@@ -16,15 +16,13 @@ The read-only physical-key and passage-history contracts have now been exercised
 - filtering one key's passage history through `filters.key=<external_id>`;
 - Home Assistant/Lovelace rendering one key and loading two passage timestamps when that row is selected.
 
-The validation branch contains:
+A direct physical comparison was also completed on 2026-09-07. The number printed on the tested key did **not** match the candidate identifier values returned by the key-list response. At the same time, using that key's `external_id` continued to return the correct, updating passage history. Therefore:
 
-- native 60-second physical-key enrollment;
-- FCM `reason=key_add` completion handling;
-- read-only key inventory;
-- `list_physical_keys`, `rename_physical_key`, and `get_physical_key_passages` services;
-- a validation-only **KEYS / КЛЮЧИ** Lovelace tab with an Experimental key-number field, rename, and selected-key passage history.
+- `external_id` is **Confirmed** as a backend per-key identifier used for passage-history filtering;
+- `external_id` is **not** the number printed on the tested physical key;
+- the previously experimental public `number` field was removed from the validation branch rather than shipping a misleading interpretation.
 
-New-key enrollment, `reason=key_add`, and rename remain **Observed** until their state-changing live tests are completed. Non-empty read-only inventory and passage history are now **Confirmed**. The interpretation of `external_id` as the number printed on a physical key remains **Experimental**; on 2026-09-07 the user explicitly chose to keep that provisional field for the current release work rather than claim an unproven mapping.
+New-key enrollment, `reason=key_add`, and rename remain **Observed** until their state-changing live tests are completed.
 
 ## Account features
 
@@ -68,13 +66,13 @@ Authorization: JWT <UFANET_ACCESS>
 - `create_date`;
 - `devices`.
 
-The internal provider `id` remains implementation-only and is not published through entity state, events, diagnostics, or public service responses.
+Both provider `id` and `external_id` remain implementation-only. The live comparison showed that the printed physical-key number is not represented by the tested identifier values returned by this response.
 
-`external_id` has a confirmed runtime role: the official Android client uses it as the identifier in `filters.key` when requesting passage history for one selected key. The validation branch also exposes its **value** as an Experimental user-facing field `number`. The project does not claim that `external_id` equals the digits printed on the physical key. The raw wire field name `external_id` is not exposed through the public service/UI.
+`external_id` still has an important confirmed runtime role: the official Android client uses it as the identifier in `filters.key` when requesting passage history for one selected key, and live testing confirmed that the resulting history belongs to the expected physical key and updates correctly.
 
 ## Read-only inventory in Home Assistant
 
-The **Physical keys** sensor remains numeric. Its existing `keys` attribute stays minimal:
+The **Physical keys** sensor remains numeric. Its `keys` attribute stays minimal:
 
 ```yaml
 keys:
@@ -82,7 +80,7 @@ keys:
     created_at: "2025-06-27T06:03:36+00:00"
 ```
 
-Rows are filtered by `devices`, sorted newest first, and contain no internal provider ID. Both the empty (`0`, `[]`) path and a non-empty live path with one real key have been validated.
+Rows are filtered by `devices`, sorted newest first, and contain no provider identifiers. Both the empty (`0`, `[]`) path and a non-empty live path with one real key have been validated.
 
 ## List surface used by Lovelace and management actions
 
@@ -98,16 +96,15 @@ It refreshes the key coordinator/inventory first and returns, for the selected i
 count: 1
 keys:
   - key_ref: "<24-hex-opaque-ref>"
-    number: "<experimental key identifier>"
     name: "Dad"
     created_at: "<UTC ISO-8601>"
 ```
 
-`number` is the Experimental user-facing representation of the provider `external_id` value. It is intentionally not documented as the printed key number. The internal provider `id` is neither accepted nor returned.
+No provider `id`, `external_id`, or guessed physical-key number is returned.
 
 `key_ref` is a local opaque reference scoped to the ConfigEntry, selected SKUD, and internal provider ID. A ref from another intercom does not resolve for the selected device.
 
-Both the empty service path (`count: 0`, `keys: []`) and the non-empty inventory path have been exercised live. A future comparison against a known physical key may promote or refine the Experimental interpretation without changing the confirmed history-filtering role of `external_id`.
+Both the empty service path (`count: 0`, `keys: []`) and the non-empty inventory path have been exercised live.
 
 ## Starting physical-key enrollment
 
@@ -182,14 +179,13 @@ The internal provider ID is never accepted or returned by the service. If POST m
 
 The validation branch automatically loads the packaged physical-key extensions and adds **KEYS / КЛЮЧИ** to the existing card.
 
-Each physical-key row now shows:
+Each physical-key row shows only:
 
 - user-facing name;
-- **Experimental key number** (`number`, sourced from provider `external_id` but not claimed to match the printed marking);
 - creation date;
 - **Rename** action.
 
-The current Russian UI labels this field **`Номер ключа (эксп.)`** and explains that correspondence to physical-key marking is not confirmed. The internal provider ID is never rendered. Opaque `key_ref` is used only for Home Assistant service calls and is not shown to the user.
+Provider IDs and the disproven physical-key-number candidate are not rendered. Opaque `key_ref` is used only for Home Assistant service calls and is not shown to the user.
 
 **Add key** requires confirmation, shows the 60-second countdown, and refreshes inventory afterward. **Rename** requires confirmation and reports success only after backend `verified: true`. There is no delete action.
 
@@ -227,7 +223,7 @@ passages:
   - occurred_at: "<UTC ISO-8601>"
 ```
 
-The live API confirmed that `filters.key=<external_id>` returns the two passages associated with the selected key. The frontend path was also exercised end to end: selecting the real key rendered its two passage times below the key list.
+The live API confirmed that `filters.key=<external_id>` returns the passages associated with the selected physical key. The frontend path was also exercised end to end: selecting the real key rendered its passage times below the key list, and subsequent history updates continued to correlate to that same key.
 
 ## Passage-history wire contract
 
@@ -281,28 +277,27 @@ Current validation functionality includes:
 - **Add physical key**;
 - FCM `key_add` + immediate inventory refresh;
 - `ufanet_intercom_key_enrollment`;
-- `list_physical_keys` with `key_ref`, Experimental `number`, `name`, `created_at`;
+- `list_physical_keys` with only `key_ref`, `name`, `created_at`;
 - validation-only `rename_physical_key` with fresh resolution and post-write verification;
 - `get_physical_key_passages` with per-key filtering through private `external_id`;
-- validation-only **KEYS** Lovelace tab with Experimental number and passage history, with no delete action.
+- validation-only **KEYS** Lovelace tab with selected-key passage history and no delete action.
 
-Diagnostics exclude key names, key number/`external_id` values, passage timestamps, internal provider IDs, and full history.
+Diagnostics exclude key names, provider identifiers, passage timestamps, and full history.
 
 ## Required live validation before release
 
-The read-only key/history path is now live-confirmed. The Experimental number interpretation has been explicitly reviewed and accepted as Experimental for the current candidate; it must remain visibly labeled and must not be described as Confirmed.
+The read-only key/history path and the negative printed-number comparison are now live-confirmed. The physical-number question is therefore **resolved** and is no longer a release blocker: the integration does not expose a guessed number.
 
 Release remains blocked by state-changing and safety tests, including:
 
-1. smoke-test that the KEYS UI visibly labels `number` as Experimental and does not expose internal provider IDs;
-2. arm auto-collection from HA/card;
-3. present a new unregistered key within 60 seconds;
-4. capture the real `reason=key_add` wire shape;
-5. verify prompt numeric Physical keys refresh after FCM completion;
-6. verify the newly registered key appears across all read-only surfaces;
-7. verify privacy-safe `ufanet_intercom_key_enrollment` result;
-8. live-test `rename_physical_key` plus post-write verification;
-9. inspect enrollment/rename error behavior;
-10. complete the remaining notification safety gates tracked in PR #15.
+1. arm auto-collection from HA/card;
+2. present a new unregistered key within 60 seconds;
+3. capture the real `reason=key_add` wire shape;
+4. verify prompt numeric Physical keys refresh after FCM completion;
+5. verify the newly registered key appears across all read-only surfaces;
+6. verify privacy-safe `ufanet_intercom_key_enrollment` result;
+7. live-test `rename_physical_key` plus post-write verification;
+8. inspect enrollment/rename error behavior;
+9. complete the remaining notification safety gates tracked in PR #15.
 
 Delete and BLE keys remain outside the current release scope.
