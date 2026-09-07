@@ -1,8 +1,9 @@
 """Privacy-safe schema probe for Ufanet physical-key passage history.
 
-This probe intentionally never prints provider key IDs, key names, passage times,
-raw response bodies, access tokens or credentials. It compares the unfiltered
-history request with the official Android client's single-key filtered request.
+This probe intentionally never prints provider key IDs, external IDs, key names,
+passage times, raw response bodies, access tokens or credentials. It compares the
+unfiltered history request with the official Android client's single-key filter,
+which uses SkudKey.external_id rather than the internal key id.
 """
 
 from __future__ import annotations
@@ -149,7 +150,8 @@ def _safe_envelope_summary(response: SafeResponse) -> str:
     )
 
 
-def _strict_contract_result(response: SafeResponse) -> str:
+def _android_compatible_contract(response: SafeResponse) -> str:
+    """Validate the shape using Gson-compatible numeric-string coercion."""
     payload = response.payload
     if response.status >= 400:
         return f"http_error_{response.status}"
@@ -165,8 +167,15 @@ def _strict_contract_result(response: SafeResponse) -> str:
     for item in results:
         if not isinstance(item, dict):
             return "item_not_dict"
-        if not isinstance(item.get("key"), int) or isinstance(item.get("key"), bool):
-            return f"invalid_key_{_type_name(item.get('key'))}"
+        key_value = item.get("key")
+        if isinstance(key_value, bool):
+            return "invalid_key_bool"
+        if isinstance(key_value, int):
+            pass
+        elif isinstance(key_value, str) and key_value.strip().isdigit():
+            pass
+        else:
+            return f"invalid_key_{_type_name(key_value)}"
         if not isinstance(item.get("key_name"), str):
             return f"invalid_key_name_{_type_name(item.get('key_name'))}"
         timestamp = item.get("time_passage")
@@ -204,8 +213,15 @@ def _extract_keys(payload: Any) -> list[dict[str, Any]]:
         if not isinstance(item, dict):
             continue
         key_id = item.get("id")
+        external_id = item.get("external_id")
         devices = item.get("devices")
-        if not isinstance(key_id, int) or isinstance(key_id, bool) or not isinstance(devices, list):
+        if (
+            not isinstance(key_id, int)
+            or isinstance(key_id, bool)
+            or not isinstance(external_id, str)
+            or not external_id
+            or not isinstance(devices, list)
+        ):
             continue
         normalized_devices: list[int] = []
         for raw in devices:
@@ -213,7 +229,13 @@ def _extract_keys(payload: Any) -> list[dict[str, Any]]:
                 normalized_devices.append(int(raw))
             except (TypeError, ValueError):
                 pass
-        safe.append({"key_id": key_id, "devices": tuple(normalized_devices)})
+        safe.append(
+            {
+                "key_id": key_id,
+                "external_id": external_id,
+                "devices": tuple(normalized_devices),
+            }
+        )
     return safe
 
 
@@ -291,7 +313,10 @@ async def run(args: argparse.Namespace) -> int:
             json_body={"page": 0, "page_size": PAGE_SIZE},
         )
         print(f"[RESULT] unfiltered shape: {_safe_envelope_summary(unfiltered)}")
-        print(f"[RESULT] unfiltered strict_contract={_strict_contract_result(unfiltered)}")
+        print(
+            "[RESULT] unfiltered android_compatible_contract="
+            f"{_android_compatible_contract(unfiltered)}"
+        )
 
         filtered = await _request(
             session,
@@ -302,11 +327,17 @@ async def run(args: argparse.Namespace) -> int:
             json_body={
                 "page": 0,
                 "page_size": PAGE_SIZE,
-                "filters": {"key": str(int(target_key['key_id']))},
+                "filters": {"key": target_key["external_id"]},
             },
         )
-        print(f"[RESULT] single-key filtered shape: {_safe_envelope_summary(filtered)}")
-        print(f"[RESULT] single-key strict_contract={_strict_contract_result(filtered)}")
+        print(
+            "[RESULT] single-key external-id filtered shape: "
+            f"{_safe_envelope_summary(filtered)}"
+        )
+        print(
+            "[RESULT] single-key external-id android_compatible_contract="
+            f"{_android_compatible_contract(filtered)}"
+        )
 
         print("[OK] Privacy-safe key passage schema audit completed")
         return 0
