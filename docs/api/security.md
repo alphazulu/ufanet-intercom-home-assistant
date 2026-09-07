@@ -33,46 +33,28 @@ Applications should:
 - never use the endpoint for health checking;
 - distinguish viewing video from controlling access.
 
-The validation-branch Companion **Open door** action follows the same boundary: it
-is exposed only for a real call, requires an explicit tap, uses a unique local
-action ID, validates that the button belongs to the same Home Assistant device
-both when the notification is built and immediately before `button.press`, and is
-removed after command dispatch or timeout. A manual blueprint run cannot open the
-door.
+The validation-branch Companion **Open door** action follows the same boundary: it is exposed only for a real call, requires an explicit tap, uses a unique local action ID, validates that the button belongs to the same Home Assistant device both when the notification is built and immediately before `button.press`, and is removed after command dispatch or timeout. A manual blueprint run cannot open the door.
 
 ## Physical-key enrollment and management
 
-Calling `/api/v4/key/skud/<SKUD_ID>/auto_collect/enable/` changes access-control
-state: it arms a 60-second window in which a new physical key can be registered by
-presenting it to the intercom reader. It is not a read-only health check and must
-not be started automatically.
+Calling `/api/v4/key/skud/<SKUD_ID>/auto_collect/enable/` changes access-control state: it arms a 60-second window in which a new physical key can be registered by presenting it to the intercom reader. It is not a read-only health check and must not be started automatically.
 
-Home Assistant creates **Add physical key** only for an intercom that explicitly
-advertises `has_key_recording_support`, and the button is unavailable for an
-`is_blocked` device. A successful HTTP response proves only that enrollment mode
-was armed, not that a key was actually registered.
+Home Assistant creates **Add physical key** only for an intercom that explicitly advertises `has_key_recording_support`, and the button is unavailable for an `is_blocked` device. A successful HTTP response proves only that enrollment mode was armed, not that a key was actually registered.
 
-FCM completion `reason=key_add` is handled with privacy minimization: provider
-`key_id`, notification `title`/`body`, and the raw payload are not published. The
-public event contains only the result, receipt time, and whether inventory refresh
-succeeded. Because the observed `key_add` payload has no `skud_id`, the integration
-deliberately does not guess the target intercom.
+FCM completion `reason=key_add` is handled with privacy minimization: provider `key_id`, notification `title`/`body`, and the raw payload are not published. The public event contains only the result, receipt time, and whether inventory refresh succeeded. Because the observed `key_add` payload has no `skud_id`, the integration deliberately does not guess the target intercom.
 
-Provider physical-key `external_id` is discarded during response normalization.
-Provider `key_id` remains private runtime data and is never accepted through the
-public key-management services. `list_physical_keys` instead returns an opaque
-ConfigEntry/intercom-scoped `key_ref`. The validation-only `rename_physical_key`
-service refreshes inventory before resolving that ref, resolves it only for the
-selected intercom, then refreshes again after the Android-observed `/api/v4/key/edit/`
-POST and reports verified success only when the requested new name is observed.
-If the write may have succeeded but verification cannot be completed, the service
-reports an indeterminate error instead of claiming success.
+Physical-key identifiers have two different roles:
 
-Renaming a key changes user-visible access metadata and remains **Observed** until a
-real key is used for live validation. Deleting a key is a destructive access-control
-operation. The observed delete endpoint must not be added to a production UI
-without live endpoint validation, strict verification that the key belongs to the
-selected intercom, and a separate explicit user confirmation.
+- provider `id` / internal `key_id` is implementation-only and must never be accepted from or returned to the browser-facing management surface;
+- provider `external_id` is retained privately because the official Android client uses it for per-key passage filtering. Its **value** may be returned to the authenticated Home Assistant user as the explicit user-facing field `number`, allowing the owner to correlate the integration row with the number printed on the physical key. The raw wire field name `external_id` is not exposed publicly.
+
+A real key number is access metadata, not a credential, but it should still be kept out of downloadable diagnostics, logs, public support bundles, public issue screenshots, events, and repository examples. Public examples must use placeholders rather than real key numbers.
+
+`list_physical_keys` returns an opaque ConfigEntry/intercom-scoped `key_ref`, plus the user-facing `number`, name and creation time. The validation-only `rename_physical_key` service refreshes inventory before resolving that ref, resolves it only for the selected intercom, then refreshes again after the Android-observed `/api/v4/key/edit/` POST and reports verified success only when the requested new name is observed. If the write may have succeeded but verification cannot be completed, the service reports an indeterminate error instead of claiming success.
+
+`get_physical_key_passages` uses the same public `key_ref`; the integration resolves it against fresh inventory and uses the private `external_id` internally in `filters.key`. The service returns normalized passage timestamps but no internal provider ID or raw wire identifier.
+
+Renaming a key changes user-visible access metadata and remains **Observed** until a real controlled rename is live-validated. Deleting a key is a destructive access-control operation. The observed delete endpoint must not be added to a production UI without live endpoint validation, strict verification that the key belongs to the selected intercom, and a separate explicit user confirmation.
 
 ## Guest-access side effects
 
@@ -92,6 +74,8 @@ Recommended redaction rules:
 - never include raw JWTs/tokens;
 - avoid exact private addresses and apartment information unless explicitly required by the user;
 - avoid tokenized URLs;
+- never include internal physical-key provider IDs;
+- omit real physical-key numbers from diagnostics/support bundles even though the authenticated KEYS UI intentionally shows them to the owner;
 - replace exact camera identifiers with a short irreversible hash when practical;
 - report token presence/expiry rather than token value.
 
@@ -109,6 +93,7 @@ All examples in this repository must use placeholders such as:
 <CAMERA_NUMBER>
 <SKUD_ID>
 <CALL_UUID>
+<KEY_NUMBER>
 <TEMP_GUEST_TOKEN>
 ```
 
