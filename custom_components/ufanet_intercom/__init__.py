@@ -39,11 +39,7 @@ from .const import (
     EVENT_MOTION_ANALYTICS,
     FCM_FALLBACK_SCAN_INTERVAL_SECONDS,
 )
-from .coordinator import (
-    UfanetCallCoordinator,
-    UfanetCoordinator,
-    UfanetKeyPassageCoordinator,
-)
+from .coordinator import UfanetCallCoordinator, UfanetCoordinator
 from .entity import device_name
 from .fcm import (
     async_remove_stored_fcm_registration,
@@ -53,6 +49,7 @@ from .fcm_key import UfanetFcmManager
 from .firebase_config import UfanetFirebaseConfigError, async_load_firebase_config
 from .guest_store import UfanetGuestInviteStore
 from .image_status import UfanetLastCallImageStatusManager
+from .key_coordinator import UfanetKeyPassageCoordinator
 from .key_inventory import UfanetApi
 from .key_management import async_setup_key_services
 from .options import effective_options
