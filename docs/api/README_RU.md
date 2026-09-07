@@ -13,9 +13,12 @@
 - **Confirmed** — реально успешно проверено на существующей учётной записи/устройстве.
 - **Observed** — наблюдалось в реальном ответе или коде приложения, но не проверялось исчерпывающе.
 - **Inferred** — выведено из клиентского кода или окружающего поведения и требует дополнительной проверки.
+- **Experimental** — намеренно выведено пользователю для controlled validation, но точная семантика ещё не доказана.
 - **Not supported** — конкретный вариант был проверен и в тестируемом виде не работает.
 
 По мере новых тестов статус следует повышать до **Confirmed** только при наличии прямого подтверждения. Наличие production/validation-кода и зелёный CI сами по себе не повышают evidence label state-changing endpoint.
+
+Текущий пример: wire-поле физического ключа `external_id` **Confirmed** как selector, который Android-клиент использует для per-key истории проходов, но его интерпретация как номера, нанесённого на сам ключ, пока остаётся **Experimental**.
 
 ## Архитектура
 
@@ -27,7 +30,7 @@
    - история звонков;
    - гостевой и совместный доступ;
    - регистрация FCM и управление безопасностью авторизованных сессий;
-   - capability/read-only физические ключи и validation-only enrollment/rename flow с privacy-safe Home Assistant surface.
+   - Confirmed capability/непустой inventory/history физических ключей, selected-key фильтрация истории и validation-only enrollment/rename flow с privacy-safe Home Assistant surface.
 2. **Управляющий API UCAMS** — `https://cloud.ucams.ru`
    - обмен JWT Ufanet на bearer-токен UCAMS;
    - получение метаданных камеры, live/archive токенов и медиасервера;
@@ -68,7 +71,7 @@ UCAMS bearer token
 - [Аналитические события камер UCAMS](analytics_RU.md)
 - [Видеоархив](archive_RU.md)
 - [Звонки и история](calls_RU.md)
-- [Физические ключи и журнал проходов](keys_RU.md) — capability/list/passages, validation-only enrollment/FCM completion/opaque-ref rename и отдельный release gate.
+- [Физические ключи и журнал проходов](keys_RU.md) — Confirmed непустой inventory/history, Experimental интерпретация номера ключа, validation-only enrollment/FCM completion/opaque-ref rename и отдельный release gate.
 - [FCM / push-уведомления](fcm_RU.md)
 - [Гостевой и совместный доступ](guests_RU.md)
 - [Наблюдаемые модели данных](models_RU.md)
@@ -99,4 +102,4 @@ State-changing примеры (открытие двери, enrollment/rename/de
 
 В одном изменении обновляйте и подробную страницу, и [STATUS_RU.md](STATUS_RU.md).
 
-Никогда не добавляйте в репозиторий реальные пароли, JWT, refresh tokens, гостевые токены, URL с токенами, точные частные адреса, provider physical-key IDs/`external_id`, идентификаторы камер/событий из live-аккаунта, сырую историю событий и другие секреты конкретной учётной записи.
+Никогда не добавляйте в репозиторий реальные пароли, JWT, refresh tokens, гостевые токены, URL с токенами, точные частные адреса, реальные provider physical-key IDs или значения `external_id`/номеров ключей, идентификаторы камер/событий из live-аккаунта, сырую историю событий и другие секреты конкретной учётной записи.
