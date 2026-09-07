@@ -419,3 +419,32 @@ rename_physical_key:
       required: true
       selector:
         text:
+
+get_physical_key_passages:
+  name: Get physical key passage history
+  description: Return one privacy-safe page of passage times for a physical key selected by opaque key_ref. Provider key IDs, provider key names and raw response fields are never returned.
+  fields:
+    device_id:
+      name: Intercom
+      description: Ufanet Intercom device to which the selected key is assigned.
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    key_ref:
+      name: Key reference
+      description: Opaque key_ref returned by List physical keys. Raw provider key IDs are not accepted.
+      required: true
+      selector:
+        text:
+    page:
+      name: Page
+      description: Zero-based passage-history page. The validation UI requests 25 rows per page.
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1000
+          step: 1
+          mode: box
