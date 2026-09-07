@@ -72,11 +72,12 @@ def public_physical_keys(
     skud_id: int,
     inventory: tuple[PhysicalKeyInventoryItem, ...] | list[PhysicalKeyInventoryItem],
 ) -> list[dict[str, Any]]:
-    """Return one intercom's user-facing key inventory without internal provider IDs.
+    """Return one intercom's user-facing key inventory without provider IDs.
 
-    ``external_id`` is the physical key number used by the official client for
-    passage-history filtering. It is intentionally renamed to the user-facing
-    ``number`` field. The internal provider ``key_id`` remains private.
+    The provider ``external_id`` remains private runtime data. Live validation
+    confirmed that it selects the correct key's passage history, but it does not
+    match the number printed on the tested physical key. Public selection therefore
+    uses only the opaque ``key_ref`` handle.
     """
     rows: list[dict[str, Any]] = []
     seen_refs: set[str] = set()
@@ -88,15 +89,13 @@ def public_physical_keys(
             raise ValueError("physical-key reference collision")
         seen_refs.add(ref)
 
-        row: dict[str, Any] = {
-            "key_ref": ref,
-            "name": item["name"],
-            "created_at": _key_created_at_iso(int(item["created_at"])),
-        }
-        number = item.get("external_id")
-        if isinstance(number, str) and number:
-            row["number"] = number
-        rows.append(row)
+        rows.append(
+            {
+                "key_ref": ref,
+                "name": item["name"],
+                "created_at": _key_created_at_iso(int(item["created_at"])),
+            }
+        )
 
     rows.sort(key=lambda item: item["created_at"], reverse=True)
     return rows
@@ -195,7 +194,7 @@ def async_setup_key_services(hass: HomeAssistant) -> None:
     """Register physical-key services once during integration-level setup."""
 
     async def async_list_physical_keys(call: ServiceCall) -> ServiceResponse:
-        """Return a fresh key inventory for one intercom without internal provider IDs."""
+        """Return a fresh key inventory for one intercom without provider IDs."""
         _runtime, entry, skud_id, _api, _coordinator, inventory = (
             await _async_fresh_key_inventory(hass, call.data[ATTR_DEVICE_ID])
         )
