@@ -41,6 +41,8 @@ Endpoint открытия двери выполняет реальное дей�
 
 Action **«Открыть дверь»** в Companion notification validation-ветки следует тем же правилам: он появляется только у реального звонка, требует явного tap, использует уникальный локальный action ID, проверяет принадлежность button тому же Home Assistant device как при построении уведомления, так и непосредственно перед `button.press`, и удаляется после успешной отправки команды либо timeout. Ручной запуск blueprint не предоставляет путь к физическому открытию двери.
 
+Недоступный отрицательный live-тест со вторым Ufanet device был явно waived после targeted security/code review. Waiver относится только к отсутствующему live-тесту и не отменяет cross-device safety invariant или same-device runtime guards. iOS action delivery остаётся не live-проверенным.
+
 ## Регистрация и управление физическими ключами
 
 Запуск `/api/v4/key/skud/<SKUD_ID>/auto_collect/enable/` меняет состояние системы контроля доступа: на 60 секунд включается режим, в котором новый физический ключ может быть зарегистрирован при прикладывании к считывателю. Это не read-only health check и не должно запускаться автоматически.
@@ -49,11 +51,13 @@ Home Assistant создаёт кнопку **«Добавить физическ
 
 FCM completion `reason=key_add` обрабатывается privacy-safe: provider `key_id`, notification `title`/`body` и raw payload не публикуются. Публичное событие содержит только result, время получения и признак успешного refresh inventory. Так как наблюдаемый `key_add` не содержит `skud_id`, интеграция намеренно не угадывает целевой домофон.
 
-`list_physical_keys` возвращает opaque `key_ref`, привязанный к ConfigEntry и выбранному домофону, а также только имя и дату добавления. Provider identifiers в ответ не попадают. Validation-only `rename_physical_key` перед изменением перечитывает inventory, разрешает `key_ref` только внутри выбранного домофона, затем после Android-observed `/api/v4/key/edit/` делает второй refresh и сообщает verified success только если в свежем inventory видно запрошенное новое имя. Если POST мог изменить состояние, но verification невозможна, сервис возвращает неопределённую ошибку, а не ложный успех.
+`list_physical_keys` возвращает opaque `key_ref`, привязанный к ConfigEntry и выбранному домофону, а также только имя и дату добавления. Provider identifiers в ответ не попадают.
+
+`rename_physical_key` перед изменением перечитывает inventory, разрешает `key_ref` только внутри выбранного домофона, отправляет provider edit request ровно один раз и затем выполняет ограниченные read-only refresh retries. Controlled live-тест подтвердил, что provider действительно меняет имя выбранного ключа, а inventory read-back обновляется eventual-consistently: первый немедленный read может ещё показывать старое имя, а более поздний refresh — новое. Сервис сообщает verified success только после наблюдения нового имени; если verification остаётся невозможна, возвращается неопределённый результат без автоматического повторного state-changing POST.
 
 `get_physical_key_passages` также принимает только `key_ref`: интеграция разрешает его по свежему inventory и внутренне использует private `external_id` в `filters.key`. Наружу сервис возвращает нормализованные времена проходов без provider identifiers или raw wire fields.
 
-Переименование ключа меняет пользовательскую metadata и остаётся **Observed** до controlled live-проверки. Удаление ключа является destructive access-control операцией. Наблюдаемый delete endpoint не должен появляться в production UI без live-проверки, строгой привязки ключа к выбранному домофону и отдельного явного подтверждения пользователя.
+Переименование ключа теперь **Confirmed для проверенного success path**. Provider-specific rename failure semantics, которые отдельно не наблюдались, не выводятся из успешного теста. Удаление ключа является destructive access-control операцией. Наблюдаемый delete endpoint не должен появляться в production UI без live-проверки, строгой привязки ключа к выбранному домофону и отдельного явного подтверждения пользователя.
 
 ## Изменение гостевых прав
 
