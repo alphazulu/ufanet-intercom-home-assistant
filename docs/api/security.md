@@ -35,6 +35,8 @@ Applications should:
 
 The validation-branch Companion **Open door** action follows the same boundary: it is exposed only for a real call, requires an explicit tap, uses a unique local action ID, validates that the button belongs to the same Home Assistant device both when the notification is built and immediately before `button.press`, and is removed after command dispatch or timeout. A manual blueprint run cannot open the door.
 
+The unavailable negative test with a second Ufanet device was explicitly waived after a targeted security/code review. That waiver applies only to the missing live test, not to the cross-device safety invariant or any of the same-device execution guards. iOS action delivery remains not live-tested.
+
 ## Physical-key enrollment and management
 
 Calling `/api/v4/key/skud/<SKUD_ID>/auto_collect/enable/` changes access-control state: it arms a 60-second window in which a new physical key can be registered by presenting it to the intercom reader. It is not a read-only health check and must not be started automatically.
@@ -48,13 +50,15 @@ Physical-key identifiers have two different private runtime roles:
 - provider `id` / internal `key_id` is implementation-only and must never be accepted from or returned to the browser-facing management surface;
 - provider `external_id` is retained privately because the official Android client uses it for per-key passage filtering. Live testing confirmed that it selects the correct updating history for the tested physical key, but direct comparison also showed that it does **not** match the number printed on that key.
 
-Because the printed-number interpretation was disproved, neither provider identifier is exposed as a user-facing physical-key number. `list_physical_keys` returns only an opaque ConfigEntry/intercom-scoped `key_ref`, name and creation time. The validation-only `rename_physical_key` service refreshes inventory before resolving that ref, resolves it only for the selected intercom, then refreshes again after the Android-observed `/api/v4/key/edit/` POST and reports verified success only when the requested new name is observed. If the write may have succeeded but verification cannot be completed, the service reports an indeterminate error instead of claiming success.
+Because the printed-number interpretation was disproved, neither provider identifier is exposed as a user-facing physical-key number. `list_physical_keys` returns only an opaque ConfigEntry/intercom-scoped `key_ref`, name and creation time.
+
+`rename_physical_key` refreshes inventory before resolving that ref, resolves it only for the selected intercom, sends the provider edit request once, then performs bounded read-only refresh retries. Controlled live testing confirmed that the provider really changes the selected key name and that inventory read-back is eventually consistent: the first immediate read can still show the previous name while a later refresh shows the requested name. The service reports verified success only when that post-write state is observed; if verification remains impossible, it returns an indeterminate result rather than retrying the state-changing POST.
 
 `get_physical_key_passages` uses the same public `key_ref`; the integration resolves it against fresh inventory and uses the private `external_id` internally in `filters.key`. The service returns normalized passage timestamps but no provider identifier or raw wire field.
 
 Provider key identifiers are access metadata and must be kept out of downloadable diagnostics, logs, public support bundles, public issue screenshots, events, and repository examples.
 
-Renaming a key changes user-visible access metadata and remains **Observed** until a real controlled rename is live-validated. Deleting a key is a destructive access-control operation. The observed delete endpoint must not be added to a production UI without live endpoint validation, strict verification that the key belongs to the selected intercom, and a separate explicit user confirmation.
+Physical-key rename is **Confirmed for the tested success path**. Provider-specific rename failure semantics that have not been observed directly remain undocumented rather than inferred. Deleting a key is a destructive access-control operation. The observed delete endpoint must not be added to a production UI without live endpoint validation, strict verification that the key belongs to the selected intercom, and a separate explicit user confirmation.
 
 ## Guest-access side effects
 
