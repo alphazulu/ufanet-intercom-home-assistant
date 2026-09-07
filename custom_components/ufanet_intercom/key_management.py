@@ -294,3 +294,9 @@ def async_setup_key_services(hass: HomeAssistant) -> None:
             schema=RENAME_PHYSICAL_KEY_SCHEMA,
             supports_response=SupportsResponse.ONLY,
         )
+
+    # Register the validation-only per-key passage history layer after the
+    # inventory/ref helpers above are available. Local import avoids a cycle.
+    from .key_history import async_setup_key_history  # noqa: PLC0415
+
+    async_setup_key_history(hass)
