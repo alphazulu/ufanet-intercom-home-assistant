@@ -6,15 +6,15 @@
 
 ## Статус
 
-Read-only контракты физических ключей и истории проходов проверены на реальной учётной записи. Подтверждены:
+Read-only контракты физических ключей и истории проходов проверены на реальной учётной записи с непустыми данными. Подтверждены:
 
 - account feature `keys`;
 - `has_key_recording_support=true` для реального домофона;
-- непустой `/api/v4/key/list/` с одним ключом;
+- непустой `/api/v4/key/list/` с одним зарегистрированным ключом;
 - непустой `/api/v4/key/skud/<id>/key/pass_history/` с двумя проходами;
 - live-схема passage item: `key:str`, `key_name:str`, `time_passage:int`;
-- фильтрация истории конкретного ключа через `filters.key=<external_id>`;
-- Home Assistant/Lovelace: один ключ отображается, выбор строки загружает его два прохода.
+- фильтрация истории выбранного ключа через `filters.key=<external_id>`;
+- Home Assistant/Lovelace: один реальный ключ отображается, выбор строки загружает два passage timestamp.
 
 В validation-ветке подготовлены:
 
@@ -22,9 +22,9 @@ Read-only контракты физических ключей и истории
 - обработка FCM `reason=key_add`;
 - read-only inventory ключей;
 - privacy-safe сервисы `list_physical_keys`, `rename_physical_key` и `get_physical_key_passages`;
-- Lovelace-вкладка **КЛЮЧИ** со списком, номером ключа, переименованием и историей проходов.
+- Lovelace-вкладка **КЛЮЧИ** с Experimental полем номера, переименованием и историей выбранного ключа.
 
-Wire-контракты регистрации нового ключа, `reason=key_add` и переименования остаются **Observed**, пока не выполнены соответствующие state-changing live-тесты. Read-only inventory/history теперь **Confirmed** на непустом реальном наборе данных.
+Wire-контракты регистрации нового ключа, `reason=key_add` и переименования остаются **Observed**, пока не выполнены соответствующие state-changing live-тесты. Read-only inventory/history теперь **Confirmed** на непустом реальном наборе данных. Интерпретация `external_id` как номера, нанесённого на физический ключ, остаётся **Experimental** до сравнения с заведомо известным ключом.
 
 ## Возможности аккаунта
 
@@ -70,7 +70,7 @@ Authorization: JWT <UFANET_ACCESS>
 
 Внутренний provider `id` остаётся служебным и не публикуется в entity state, событиях, diagnostics или публичных service responses.
 
-`external_id` имеет другое назначение: официальный Android-клиент использует его как идентификатор физического ключа при фильтрации истории проходов. Пользователь также сопоставляет это значение с номером, нанесённым на сам физический ключ. Поэтому validation-ветка публикует **значение** `external_id` в явно пользовательском поле `number`. Имя wire-поля `external_id` наружу не переносится.
+У `external_id` подтверждена другая роль: официальный Android-клиент использует его в `filters.key` при запросе истории проходов одного выбранного ключа. Validation-ветка также выводит **значение** этого поля как экспериментальный пользовательский `number`. Это намеренно предварительная интерпретация: проект пока не установил, что `external_id` совпадает с цифрами, нанесёнными на физический ключ. Wire-имя `external_id` через публичный service/UI не выводится.
 
 ## Read-only inventory в Home Assistant
 
@@ -98,16 +98,16 @@ ufanet_intercom.list_physical_keys
 count: 1
 keys:
   - key_ref: "<24-hex-opaque-ref>"
-    number: "<номер физического ключа>"
+    number: "<experimental key identifier>"
     name: "Папа"
     created_at: "<UTC ISO-8601>"
 ```
 
-`number` — пользовательское представление значения provider `external_id`. Внутренний provider `id` не принимается и не возвращается.
+`number` сейчас является Experimental-представлением значения provider `external_id`. До live-подтверждения нельзя трактовать его как номер, нанесённый на брелок. Внутренний provider `id` не принимается и не возвращается.
 
 `key_ref` — локальная непрозрачная ссылка, зависящая от ConfigEntry, выбранного SKUD и внутреннего provider ID. Ссылка другого домофона не разрешается для выбранного устройства.
 
-Пустой response-service path (`count: 0`, `keys: []`) и непустой inventory path с одним ключом уже live-проверены. Отдельный visual gate для совпадения `number` с номером, нанесённым на физический ключ, остаётся до проверки обновлённой карточки.
+Пустой response-service path (`count: 0`, `keys: []`) и непустой inventory path с одним ключом уже live-проверены. Оставшийся visual gate — сравнить Experimental `number` с маркировкой заведомо известного физического ключа.
 
 ## Запуск регистрации физического ключа
 
@@ -180,12 +180,12 @@ new_name: "Новое имя"
 
 ## Lovelace-вкладка КЛЮЧИ
 
-Validation-ветка автоматически загружает packaged frontend extension `ufanet-physical-keys-card.js`. Он добавляет вкладку **КЛЮЧИ** к существующей карточке.
+Validation-ветка автоматически загружает packaged frontend extensions и добавляет вкладку **КЛЮЧИ** к существующей карточке.
 
 Строка физического ключа показывает:
 
 - пользовательское имя;
-- **номер ключа** (`number`, полученный из provider `external_id`);
+- **«Номер ключа (эксп.)»** — Experimental `number`, полученный из provider `external_id`, но пока не доказанный как физическая маркировка ключа;
 - дату добавления;
 - действие **Переименовать**.
 
@@ -281,18 +281,18 @@ Android-клиент содержит destructive delete-запрос для в�
 - **Добавить физический ключ**;
 - FCM `key_add` + немедленный inventory refresh;
 - `ufanet_intercom_key_enrollment`;
-- `list_physical_keys` с `key_ref`, `number`, `name`, `created_at`;
+- `list_physical_keys` с `key_ref`, Experimental `number`, `name`, `created_at`;
 - validation-only `rename_physical_key` с fresh-resolution и post-write verification;
 - `get_physical_key_passages` с per-key фильтрацией по приватному `external_id`;
-- Lovelace-вкладку **КЛЮЧИ** с номером ключа и историей проходов, без delete action.
+- Lovelace-вкладку **КЛЮЧИ** с Experimental номером и историей проходов, без delete action.
 
-Diagnostics не содержат имён ключей, номеров ключей, времени проходов, внутренних provider IDs или полной истории.
+Diagnostics не содержат имён ключей, значений Experimental number/`external_id`, времени проходов, внутренних provider IDs или полной истории.
 
 ## Обязательная live-проверка до релиза
 
 Read-only key/history path уже live-подтверждён. Релиз блока всё ещё заблокирован state-changing и safety-проверками, включая:
 
-1. визуально подтвердить, что новое поле **Номер ключа** совпадает с номером, нанесённым на реальный физический ключ;
+1. сравнить Experimental **«Номер ключа (эксп.)»** с маркировкой заведомо известного физического ключа и либо подтвердить mapping, либо перед релизом переименовать/удалить поле;
 2. запуск auto-collect кнопкой HA/карточки;
 3. приложение нового незарегистрированного ключа в пределах 60 секунд;
 4. реальный `reason=key_add` и его wire-схема;
