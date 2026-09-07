@@ -5,7 +5,7 @@
 3. Run the automated tests with `pytest -vv` after installing `requirements_test.txt`.
 4. Keep all Ufanet/UCAMS network traffic mocked in unit tests; tests must never require a real account or perform physical/state-changing actions.
 5. Keep physical actions such as door opening and physical-key enrollment behind an explicit user action/confirmation.
-6. Preserve fresh provider-state validation before destructive or identity-sensitive operations. Public physical-key management must use opaque refs rather than accepting raw provider key IDs, and rename must verify the post-write inventory before claiming success.
+6. Preserve fresh provider-state validation before destructive or identity-sensitive operations. Public physical-key management must use opaque refs rather than accepting raw provider key IDs. Rename must issue at most one provider write for one user action and verify eventual-consistent post-write inventory with bounded read-only retries before claiming success.
 7. Do not implement physical-key deletion merely because the endpoint is present in the Android client. It is destructive and requires a separately reviewed confirmation/ownership model and controlled live validation.
 8. Preserve response-service validation before destructive guest-access/FCM-session operations.
 9. If frontend code changes, bump the integration/card/cache-bust version together only during an approved release-preparation step on the exact release candidate.
@@ -26,6 +26,15 @@ Coverage is collected in CI for the API client and config flow. The suite covers
 
 ## Validation-only development / release preparation
 
-The active combined validation PR intentionally keeps the published version at `0.30.0` while documentation and draft 0.31.0 release notes are prepared. Do not merge/tag/release or bump release-facing versions until the hard live gates are complete or explicitly reviewed/waived and the user separately approves release preparation on the exact candidate.
+The active combined validation PR intentionally keeps the published version at `0.30.0` while documentation and draft 0.31.0 release notes are prepared. Do not merge/tag/release or bump release-facing versions until the remaining hard live gates are complete or explicitly reviewed/waived and the user separately approves release preparation on the exact candidate.
+
+Current evidence handoff:
+
+- Android notification validation is complete for the planned candidate; the unavailable second-Ufanet-device negative live test is explicitly waived after targeted security review, while the cross-device safety invariant remains mandatory;
+- physical-key capability, non-empty inventory/history, selected-key filtering and the negative printed-number result are live-confirmed;
+- physical-key rename is live-confirmed, including eventual-consistent provider read-back and automatic bounded read-only verification retries after one provider write;
+- the remaining hard functional blocker is new-key enrollment: real `auto_collect/enable`, physical registration, real `reason=key_add`, FCM-triggered inventory/event refresh and live enrollment error semantics;
+- physical-key delete remains unimplemented and outside the current release scope;
+- iOS notification actions remain not live-tested.
 
 Documentation preparation is not release authorization. Read the active PR handoff/checklist before continuing work from a new branch or conversation, and inspect **Tests**, **HACS and Hassfest validation**, and **Release self-check** after every final branch change.
