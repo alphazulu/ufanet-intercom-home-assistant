@@ -59,20 +59,36 @@ def _coerce_positive_timestamp(value: Any) -> int | None:
     return parsed
 
 
+def _same_external_key(value: Any, expected_external_id: str) -> bool:
+    """Compare a live passage ``key`` with the selected private external ID.
+
+    The live server currently emits ``key`` as a JSON string, while the Android
+    DTO declares an integer and Gson coerces numeric strings. Compare exact text
+    first and then canonical decimal form for the same compatibility behavior.
+    """
+    if isinstance(value, bool) or value is None:
+        return False
+    if isinstance(value, (str, int)):
+        observed = str(value).strip()
+    else:
+        return False
+
+    expected = expected_external_id.strip()
+    if observed == expected:
+        return True
+    if observed.isdigit() and expected.isdigit():
+        return int(observed) == int(expected)
+    return False
+
+
 def _parse_filtered_passage_response(
     payload: Any,
     *,
-    expected_key_id: int,
+    expected_external_id: str,
     requested_page: int,
     page_size: int = KEY_HISTORY_PAGE_SIZE,
 ) -> dict[str, Any]:
-    """Normalize one key-filtered page without exposing provider identifiers.
-
-    The official Android client models ``key``, ``key_name`` and ``time_passage``.
-    HA deliberately ignores the provider key name in passage rows because the
-    selected key was already resolved from a fresh inventory snapshot. The raw
-    ``key`` field is used only to verify that the provider respected the filter.
-    """
+    """Normalize one external-ID-filtered page without exposing identifiers."""
     if not isinstance(payload, dict):
         raise ValueError("unexpected response envelope")
 
@@ -85,8 +101,7 @@ def _parse_filtered_passage_response(
         if not isinstance(item, dict):
             raise ValueError("response contains an invalid passage item")
 
-        raw_key_id = _coerce_nonnegative_int(item.get("key"))
-        if raw_key_id is None or raw_key_id != int(expected_key_id):
+        if not _same_external_key(item.get("key"), expected_external_id):
             raise ValueError("provider key filter was not respected")
 
         timestamp = _coerce_positive_timestamp(item.get("time_passage"))
@@ -112,7 +127,7 @@ def _parse_filtered_passage_response(
 
     total = _coerce_nonnegative_int(payload.get("count"))
     page_count = _coerce_nonnegative_int(payload.get("page_count"))
-    # Match the official Android PagingSource exactly: it requests page+1 while
+    # Match the official Android PagingSource: request page+1 while
     # current_page < page_count.
     has_more = (
         current_page < page_count
@@ -133,22 +148,25 @@ async def _async_fetch_filtered_passages(
     api: Any,
     *,
     skud_id: int,
-    key_id: int,
+    external_id: str,
     page: int,
 ) -> dict[str, Any]:
-    """Fetch one Android-observed key-filtered passage page."""
+    """Fetch one page using the Android-observed ``external_id`` filter."""
+    if not isinstance(external_id, str) or not external_id:
+        raise ValueError("physical key has no private external identifier")
+
     payload = await api._async_ufanet_json(  # noqa: SLF001 - package-internal transport
         "POST",
         f"/api/v4/key/skud/{int(skud_id)}/key/pass_history/",
         json_body={
             "page": int(page),
             "page_size": KEY_HISTORY_PAGE_SIZE,
-            "filters": {"key": str(int(key_id))},
+            "filters": {"key": external_id},
         },
     )
     return _parse_filtered_passage_response(
         payload,
-        expected_key_id=int(key_id),
+        expected_external_id=external_id,
         requested_page=int(page),
     )
 
@@ -189,12 +207,12 @@ def async_setup_key_history(hass: HomeAssistant) -> None:
             normalized = await _async_fetch_filtered_passages(
                 api,
                 skud_id=skud_id,
-                key_id=int(target["key_id"]),
+                external_id=target["external_id"],
                 page=requested_page,
             )
         except UfanetApiError as err:
             raise HomeAssistantError("Ufanet physical-key passage request failed") from err
-        except (TypeError, ValueError, OverflowError, OSError) as err:
+        except (KeyError, TypeError, ValueError, OverflowError, OSError) as err:
             raise HomeAssistantError(
                 "Ufanet physical-key passage response has an unexpected schema"
             ) from err
