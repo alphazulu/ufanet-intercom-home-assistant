@@ -28,10 +28,10 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 ## Current validation / 0.31.0 preparation
 
 The `codex/combined-validation` branch contains unreleased notification-action and
-physical-key enrollment/management work. The branch is now being prepared as the
-basis for a future **0.31.0** release, but it remains **validation-only**: it must
-not be merged, tagged or published until the hard live-validation gates in PR #15
-are completed or explicitly reviewed/waived.
+physical-key enrollment/management work. The branch is being prepared as the basis
+for a future **0.31.0** release, but it remains **validation-only**: it must not be
+merged, tagged or published until the hard live-validation gates in PR #15 are
+completed or explicitly reviewed/waived.
 
 The installed integration version intentionally remains `0.30.0` until the exact
 release-candidate commit is approved for the synchronized version/cache-bust bump.
@@ -49,20 +49,18 @@ Already live-validated on the development Home Assistant installation:
 - non-empty `/api/v4/key/list/` item fields (`id`, `external_id`, `name`, `create_date`, `devices`);
 - non-empty passage history with live item schema `key:str`, `key_name:str`, `time_passage:int`;
 - selected-key history filtering through `filters.key=<external_id>`;
-- Home Assistant/Lovelace rendering one real key and two passage timestamps after selecting that key.
+- Home Assistant/Lovelace rendering one real key and passage timestamps after selecting that key;
+- a direct comparison showing that the printed physical-key number does **not** match the candidate identifier values returned by the server, while `external_id` still selects the correct updating history for that same key.
 
-The **number** shown in the KEYS tab is deliberately **Experimental**. It is derived
-from the provider value used for selected-key history, but correspondence to the
-digits printed on a known physical key has not been proven. On 2026-09-07 the user
-explicitly chose to keep this candidate Experimental for the current release work.
-The card labels it `Номер ключа (эксп.)`, documentation does not claim the mapping
-as Confirmed, and real values stay out of diagnostics/logs/events/public support data.
+That last test resolves the key-number question: `external_id` is useful internally
+for per-key history, but it is **not** the printed number of the tested physical key.
+The previously experimental public `number` field has therefore been removed from
+`list_physical_keys` and the KEYS UI. Provider identifiers remain private runtime data.
 
 Still mandatory before release: the remaining real-call race/mismatch/metadata
 checks, controlled live key rename, full registration of a **new unregistered
 physical key** including the real `reason=key_add` push and immediate inventory
-refresh, enrollment/rename error behavior, plus a final smoke check that the
-Experimental label remains visible and no internal provider ID is exposed. See
+refresh, and enrollment/rename error behavior. See
 [Home Assistant call notifications](docs/notifications.md),
 [Physical keys and passage history](docs/api/keys.md), and the
 [draft 0.31.0 release notes](docs/releases/0.31.0-draft.md).
@@ -134,7 +132,7 @@ The validation card contains six tabs:
 - **АРХИВ** — timeline, call/motion markers, MP4 export and export media library.
 - **ГОСТИ** — shared invitations, accepted guest access, temporary keys and revoke actions.
 - **УСТРОЙСТВА** — authorized Ufanet sessions, Home Assistant ownership protection, targeted revocation and guarded bulk revocation.
-- **KEYS / КЛЮЧИ** — fresh physical-key inventory, Experimental key-number candidate, selected-key passage history, explicit 60-second new-key enrollment and rename through opaque `key_ref`; key deletion is absent.
+- **KEYS / КЛЮЧИ** — fresh physical-key inventory, selected-key passage history, explicit 60-second new-key enrollment and rename through opaque `key_ref`; provider IDs and a guessed printed-key number are not exposed, and key deletion is absent.
 - **ДИАГНОСТИКА** — token-free runtime health, polling, FCM authorization state, UCAMS/archive status and autosave state.
 
 The **KEYS** tab is provided by packaged validation extensions. The integration
@@ -228,15 +226,15 @@ not exposed.
 Read-only key and passage behavior is now live-confirmed on a non-empty account:
 
 - `/api/v4/key/list/` returned a real key with `id`, `external_id`, `name`, `create_date`, and `devices`;
-- `/api/v4/key/skud/<id>/key/pass_history/` returned two real passage rows;
+- `/api/v4/key/skud/<id>/key/pass_history/` returned real passage rows;
 - live passage `key` is a numeric JSON string;
 - Android-compatible selected-key filtering uses `filters.key=<external_id>`;
-- selecting the key in Lovelace loaded its two passage times below the list.
+- selecting the key in Lovelace loaded its passage times below the list;
+- the printed number on that physical key did not match the candidate server identifier values, while its `external_id` continued to select the correct updating history.
 
-For management, `ufanet_intercom.list_physical_keys` returns an opaque `key_ref`,
-Experimental `number`, `name`, and `created_at`. The provider `id` is never exposed.
-The `number` value is intentionally retained as Experimental for this candidate; it
-is **not claimed** to match the marking on the physical key.
+For management, `ufanet_intercom.list_physical_keys` returns only an opaque `key_ref`,
+`name`, and `created_at`. Both provider `id` and `external_id` remain private. No
+printed-number field is exposed because live testing disproved that interpretation.
 
 The validation branch also adds **Add physical key** (`mdi:key-plus`) only for
 supported intercoms. It mirrors the Android-observed 60-second
@@ -288,8 +286,7 @@ supports open/download/delete plus configured retention/size cleanup.
 - Generated guest links are access capabilities and should be treated as temporary credentials.
 - Opening the door is a real physical action; the card/notification require explicit user interaction and notification actions add same-device guards.
 - Starting physical-key enrollment changes access-control state and must not be used as a health check or automatic action.
-- Internal provider physical-key IDs remain private and are not exposed in sensor attributes/events/diagnostics.
-- The Experimental key-number candidate is visible only to the authenticated Home Assistant user; real values are excluded from diagnostics, logs, public support bundles, events and repository examples.
+- Provider physical-key IDs, including `external_id`, remain private and are not exposed in public service responses, sensor attributes, events or diagnostics.
 - Public physical-key management uses only an intercom-scoped opaque `key_ref`; rename refreshes inventory before mutation and verifies the result with a second refresh after POST.
 - Tokenized call-media URLs remain internal runtime data; only the generated last-call JPEG is cached for the image entity.
 - Authorized-session management exposes opaque refs rather than raw provider FCM device IDs and protects locally provable Home Assistant registrations.
