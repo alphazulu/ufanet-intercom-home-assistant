@@ -23,12 +23,12 @@ This table is a compact index of what has actually been tested by the project. T
 | Capabilities | `GET /api/v4/skud/features/` | **Confirmed** | Live response included the `keys` account feature |
 | Intercoms | `POST /api/v0/intercoms/` | **Confirmed** | One-based filtered request returned `has_key_recording_support=true` |
 | Keys | `POST /api/v4/key/list/` | **Confirmed** | Both empty and non-empty live responses were exercised. Confirmed item fields: `id`, `external_id`, `name`, `create_date`, `devices`. HA empty and non-empty inventory paths were also live-validated. |
-| Keys | `external_id` as printed key number | **Experimental** | Android uses `external_id` for selected-key passage filtering. The current UI exposes its value as experimental `number`, but correspondence to the digits printed on the physical key is not yet confirmed. |
+| Keys | `external_id` selected-key semantics | **Confirmed** | Android uses `external_id` for `filters.key`; live history for the tested physical key updates correctly. Direct comparison also confirmed that `external_id`/other candidate server identifiers do **not** match the number printed on that tested key, so no public key-number field is exposed. |
 | Keys | `POST /api/v4/key/skud/<id>/auto_collect/enable/` | **Observed** | Android arms a 60-second enrollment window; the HA validation button is implemented but the endpoint has not yet been validated with a real new key. |
 | Keys | `POST /api/v4/key/edit/` | **Observed** | Android renames with `{key_id,name}`; HA validation runtime uses an opaque `key_ref`, fresh resolution, and post-write verification, but a real rename has not yet been tested. |
 | Keys | `POST /api/v4/key/skud/<id>/delete/key/` | **Observed** | Android deletes a key with `{key_id}`; destructive flow is neither implemented nor live-validated. |
 | Passages | `POST /api/v4/key/skud/<id>/key/pass_history/` | **Confirmed** | Empty and non-empty responses confirmed. Live item fields are `key:str`, `key_name:str`, `time_passage:int`; zero-based pagination confirmed. |
-| Passages | `filters.key=<external_id>` | **Confirmed** | Privacy-safe live probe and Home Assistant selected-key flow returned the two passages associated with the real registered key. |
+| Passages | `filters.key=<external_id>` | **Confirmed** | Privacy-safe live probe and Home Assistant selected-key flow returned the passages associated with the real registered key; subsequent history updates continued to correlate to that same physical key. |
 | Door | `GET /api/v0/skud/shared/<id>/open/?door=1` | **Confirmed** | Physical side effect; successful `{"result":true}` |
 | UCAMS | `POST /api/v0/cameras/this/` | **Confirmed** | Camera/server/token metadata; `analytics` capability metadata also live-confirmed |
 | Analytics | `analytics` in camera metadata: `motion_alarm` | **Confirmed** | Live-tested camera advertises motion analytics; used by production v0.28.0 |
