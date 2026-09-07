@@ -88,4 +88,6 @@ notification blueprint. Images come from the private HA ImageEntity through
 entity rather than embedding a provider endpoint/credential in the notification.
 
 See [../notifications.md](../notifications.md) for the delivery sequence, Android
-live-validation, safety model and remaining release gates.
+live-validation, same-device safety model and the documented waiver for the unavailable
+second-Ufanet-device negative live test. The Android notification block has no remaining
+hard release gate; iOS action delivery is not live-tested.
