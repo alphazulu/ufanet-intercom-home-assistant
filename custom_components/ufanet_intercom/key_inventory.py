@@ -45,9 +45,11 @@ class UfanetApi(BaseUfanetApi):
     def physical_key_inventory(self) -> tuple[PhysicalKeyInventoryItem, ...]:
         """Return the latest private normalized key inventory.
 
-        ``external_id`` is retained only because the official Android client uses
-        it for passage-history filtering. Public sensors/services/frontend never
-        expose this field.
+        ``external_id`` is retained because the official Android client uses it
+        for passage-history filtering. The raw provider field name is never
+        exposed publicly; ``list_physical_keys`` may surface the same value as
+        the user-facing physical-key ``number``. Internal provider ``key_id``
+        remains private and diagnostics/events never expose either identifier.
         """
         return self._physical_key_inventory
 
