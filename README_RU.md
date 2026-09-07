@@ -50,22 +50,20 @@ release-candidate commit, после чего все release-facing версии
 - поля непустого `/api/v4/key/list/`: `id`, `external_id`, `name`, `create_date`, `devices`;
 - непустая история проходов и live-схема элемента `key:str`, `key_name:str`, `time_passage:int`;
 - фильтрация истории выбранного ключа через `filters.key=<external_id>`;
-- Home Assistant/Lovelace отображает один реальный ключ, а выбор строки загружает два реальных passage timestamp.
+- Home Assistant/Lovelace отображает один реальный ключ, а выбор строки загружает его реальные passage timestamps;
+- прямое сравнение показало, что номер, нанесённый на физический ключ, **не совпадает** с кандидатами-идентификаторами из ответа сервера, при этом `external_id` продолжает выбирать правильную и обновляющуюся историю этого же ключа.
 
-Поле **«Номер ключа (эксп.)»** во вкладке КЛЮЧИ намеренно имеет статус
-**Experimental**. Оно построено из provider value, который используется Android для
-истории выбранного ключа, но соответствие этого значения цифрам, нанесённым на
-заведомо известный физический ключ, не доказано. 7 сентября 2026 пользователь явно
-решил оставить candidate Experimental в текущей release-разработке. UI маркирует
-поле как экспериментальное, документация не объявляет mapping Confirmed, а реальные
-значения исключены из diagnostics/logs/events/public support data.
+Последний тест закрывает вопрос с номером: `external_id` полезен как внутренний
+per-key идентификатор истории, но **не является** номером, нанесённым на проверенный
+физический ключ. Поэтому ранее экспериментальное публичное поле `number` удалено из
+`list_physical_keys` и вкладки **КЛЮЧИ**. Provider identifiers остаются только
+внутренними runtime-данными.
 
 До релиза обязательны оставшиеся real-call проверки гонок/несовпадений/metadata,
 controlled live rename существующего ключа, полная регистрация **нового
 незарегистрированного ключа** с реальным `reason=key_add` и быстрым inventory
-refresh, проверка enrollment/rename error behavior и финальный smoke test, что
-Experimental label виден, а внутренний provider ID нигде не раскрывается.
-Подробности: [уведомления Home Assistant](docs/notifications_RU.md),
+refresh, а также проверка enrollment/rename error behavior. Подробности:
+[уведомления Home Assistant](docs/notifications_RU.md),
 [физические ключи/проходы](docs/api/keys_RU.md) и
 [черновик release notes 0.31.0](docs/releases/0.31.0-draft.md).
 
@@ -134,7 +132,7 @@ default_tab: live
 - **АРХИВ** — таймлайн, метки звонков/движения, экспорт MP4 и медиатека экспортов.
 - **ГОСТИ** — приглашения, принятый shared access, временные ключи и отзыв.
 - **УСТРОЙСТВА** — авторизованные Ufanet-сессии, защита регистраций Home Assistant, точечный и защищённый массовый отзыв.
-- **КЛЮЧИ** — свежий inventory, Experimental candidate номера ключа, история выбранного ключа, запуск 60-секундной регистрации и переименование через opaque `key_ref`; удаление ключей отсутствует.
+- **КЛЮЧИ** — свежий inventory, история выбранного ключа, запуск 60-секундной регистрации и переименование через opaque `key_ref`; provider identifiers и предполагаемый физический номер не выводятся, удаление ключей отсутствует.
 - **ДИАГНОСТИКА** — token-free runtime health, polling, FCM authorization, UCAMS/archive и autosave.
 
 Вкладка **КЛЮЧИ** реализована packaged validation extensions. Интеграция сама
@@ -229,15 +227,16 @@ passage-history health отслеживаются отдельно: времен
 Read-only key/history flow теперь live-подтверждён на непустом аккаунте:
 
 - `/api/v4/key/list/` вернул реальный ключ с `id`, `external_id`, `name`, `create_date`, `devices`;
-- `/api/v4/key/skud/<id>/key/pass_history/` вернул два реальных прохода;
+- `/api/v4/key/skud/<id>/key/pass_history/` вернул реальные проходы;
 - live поле `key` в passage item приходит как numeric JSON string;
 - Android-compatible фильтрация выбранного ключа использует `filters.key=<external_id>`;
-- выбор ключа в Lovelace загрузил его два passage time в нижней части вкладки.
+- выбор ключа в Lovelace загрузил его passage times в нижней части вкладки;
+- физический номер на этом ключе не совпал с кандидатами-идентификаторами сервера, но `external_id` продолжил выбирать правильную обновляющуюся историю.
 
-Для управления `ufanet_intercom.list_physical_keys` возвращает opaque `key_ref`,
-Experimental `number`, `name` и `created_at`. Внутренний provider `id` наружу не
-выходит. `number` намеренно остаётся Experimental в текущем candidate и **не
-объявляется** совпадающим с маркировкой физического ключа.
+Для управления `ufanet_intercom.list_physical_keys` теперь возвращает только opaque
+`key_ref`, `name` и `created_at`. И provider `id`, и `external_id` остаются
+внутренними. Поле физического номера не публикуется, поскольку live-тест опроверг
+эту интерпретацию.
 
 Validation-ветка добавляет **«Добавить физический ключ»** (`mdi:key-plus`) только
 для поддерживаемых домофонов. Кнопка повторяет Android-observed 60-секундный
@@ -289,8 +288,7 @@ true`. Клик по строке ключа загружает privacy-safe и�
 - Гостевые ссылки являются временными capabilities доступа.
 - Открытие двери — реальное физическое действие; карточка/notification требуют явного действия пользователя, а notification добавляет same-device guards.
 - Запуск physical-key enrollment изменяет состояние контроля доступа и не должен использоваться как health check или автоматическое действие.
-- Внутренний provider `id` физического ключа остаётся private runtime data и не попадает в sensor attributes/events/diagnostics/public service input.
-- Experimental candidate номера ключа виден только авторизованному пользователю HA; реальные значения исключены из diagnostics, logs, public support bundles, events и примеров репозитория.
+- Provider identifiers физических ключей, включая `external_id`, остаются private runtime data и не попадают в public service responses, sensor attributes, events или diagnostics.
 - Публичное управление физическими ключами использует intercom-scoped opaque `key_ref`; rename перечитывает inventory до изменения и проверяет результат повторным refresh после POST.
 - Tokenized call-media URL остаются внутренними runtime-данными; image entity хранит только созданный JPEG.
 - Управление FCM-сессиями использует opaque refs вместо raw provider device IDs и защищает доказанно принадлежащие HA регистрации.
