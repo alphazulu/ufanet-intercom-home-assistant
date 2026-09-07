@@ -65,13 +65,15 @@ The Android client contains a dedicated HTTP 400 branch when starting `auto_coll
 
 **Status: Observed from Android client; live error contract unconfirmed.**
 
-## Indeterminate physical-key rename result
+## Physical-key rename verification and indeterminate results
 
-`POST /api/v4/key/edit/` remains **Observed**. The validation `rename_physical_key` service does not treat a returned POST as sufficient proof of the new name: it refreshes inventory after the write.
+`POST /api/v4/key/edit/` is **Confirmed for the tested success path**: a controlled Home Assistant rename changed the selected physical key name on the provider side.
 
-If the POST has already been sent but the subsequent refresh fails, the key is missing from fresh inventory, or the requested new name is not observed, Home Assistant reports that the key may have changed but the result could not be verified. This deliberately distinguishes an indeterminate state-changing result from proven success/failure and avoids an automatic repeated POST that could duplicate a user action.
+The provider inventory is eventually consistent. In live testing the first immediate read-back could still show the previous name, while a later refresh returned the requested new name. The validation `rename_physical_key` service therefore sends the state-changing POST exactly once and performs bounded read-only inventory refresh retries before reporting `verified: true`.
 
-Until a real key is available, the project does not claim provider behavior for invalid/stale key IDs, duplicate names, length limits, or other rename error cases.
+If the POST has already been sent but verification still cannot complete within those bounded retries, the key disappears from fresh inventory, or the requested new name is never observed, Home Assistant reports that the key may have changed but the result could not be verified. This deliberately distinguishes an indeterminate state-changing result from proven success/failure and avoids an automatic repeated POST that could duplicate a user action.
+
+The project still does not claim provider-specific error semantics for invalid/stale key IDs, duplicate names, server-side length limits, or other failure cases that have not been directly observed.
 
 ## Reporting a new API error
 
