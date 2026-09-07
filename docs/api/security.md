@@ -46,11 +46,11 @@ FCM completion `reason=key_add` is handled with privacy minimization: provider `
 Physical-key identifiers have two different roles:
 
 - provider `id` / internal `key_id` is implementation-only and must never be accepted from or returned to the browser-facing management surface;
-- provider `external_id` is retained privately because the official Android client uses it for per-key passage filtering. Its **value** may be returned to the authenticated Home Assistant user as the explicit user-facing field `number`, allowing the owner to correlate the integration row with the number printed on the physical key. The raw wire field name `external_id` is not exposed publicly.
+- provider `external_id` is retained privately because the official Android client uses it for per-key passage filtering. Its **value** may currently be returned to the authenticated Home Assistant user as an **Experimental** `number` candidate. The project has not yet confirmed that this value is the number printed on the physical key. The raw wire field name `external_id` is not exposed publicly.
 
-A real key number is access metadata, not a credential, but it should still be kept out of downloadable diagnostics, logs, public support bundles, public issue screenshots, events, and repository examples. Public examples must use placeholders rather than real key numbers.
+A real `external_id`/number value is access metadata, not a credential, but it should still be kept out of downloadable diagnostics, logs, public support bundles, public issue screenshots, events, and repository examples. Public examples must use placeholders rather than real values.
 
-`list_physical_keys` returns an opaque ConfigEntry/intercom-scoped `key_ref`, plus the user-facing `number`, name and creation time. The validation-only `rename_physical_key` service refreshes inventory before resolving that ref, resolves it only for the selected intercom, then refreshes again after the Android-observed `/api/v4/key/edit/` POST and reports verified success only when the requested new name is observed. If the write may have succeeded but verification cannot be completed, the service reports an indeterminate error instead of claiming success.
+`list_physical_keys` returns an opaque ConfigEntry/intercom-scoped `key_ref`, plus the Experimental `number`, name and creation time. The validation-only `rename_physical_key` service refreshes inventory before resolving that ref, resolves it only for the selected intercom, then refreshes again after the Android-observed `/api/v4/key/edit/` POST and reports verified success only when the requested new name is observed. If the write may have succeeded but verification cannot be completed, the service reports an indeterminate error instead of claiming success.
 
 `get_physical_key_passages` uses the same public `key_ref`; the integration resolves it against fresh inventory and uses the private `external_id` internally in `filters.key`. The service returns normalized passage timestamps but no internal provider ID or raw wire identifier.
 
@@ -75,7 +75,7 @@ Recommended redaction rules:
 - avoid exact private addresses and apartment information unless explicitly required by the user;
 - avoid tokenized URLs;
 - never include internal physical-key provider IDs;
-- omit real physical-key numbers from diagnostics/support bundles even though the authenticated KEYS UI intentionally shows them to the owner;
+- omit real physical-key `external_id`/number values from diagnostics/support bundles even though the authenticated KEYS UI may intentionally show the Experimental candidate to the owner;
 - replace exact camera identifiers with a short irreversible hash when practical;
 - report token presence/expiry rather than token value.
 
