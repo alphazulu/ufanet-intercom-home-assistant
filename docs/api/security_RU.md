@@ -16,13 +16,13 @@
 - гостевые/share токены;
 - preview/archive/screenshot URL с токенами;
 - FCM/GCM registration credentials;
-- внутренний provider `key_id` физического ключа.
+- provider identifiers физических ключей (`id`, `key_id`, `external_id`).
 
 URL с медиатокеном является временным credential до истечения токена.
 
-У физического ключа есть два разных идентификатора. Внутренний provider `id`/`key_id` остаётся служебным и не должен попадать в публичные сервисы или frontend. Provider `external_id` используется официальным Android-клиентом для фильтрации истории конкретного ключа. Его **значение** validation-ветка сейчас может показывать авторизованному пользователю Home Assistant как **Experimental** поле `number`, однако соответствие этого значения цифрам, нанесённым на физический ключ, пока не подтверждено. Само wire-имя `external_id` через публичный UI/service не переносится.
+У physical-key identifiers разные внутренние роли. Provider `id`/`key_id` нужен только внутри runtime для операций управления. `external_id` официальный Android-клиент использует для фильтрации истории конкретного ключа. Live-тест подтвердил эту связь: история выбранного физического ключа корректно обновляется при фильтрации через его `external_id`. Одновременно прямое сравнение показало, что `external_id` и другие проверенные candidate identifiers **не совпадают** с номером, нанесённым на этот физический ключ.
 
-Реальное значение `external_id`/number не является credential, но остаётся access metadata. Его не следует включать в downloadable diagnostics, логи, публичные support bundles, события, публичные issue screenshots или примеры репозитория.
+Поэтому интеграция больше не выводит provider identifiers как предполагаемый физический номер ключа. Они остаются private runtime data и не должны попадать в public service responses, frontend, diagnostics, logs, events, публичные support bundles или примеры репозитория.
 
 ## Физические действия
 
@@ -49,9 +49,9 @@ Home Assistant создаёт кнопку **«Добавить физическ
 
 FCM completion `reason=key_add` обрабатывается privacy-safe: provider `key_id`, notification `title`/`body` и raw payload не публикуются. Публичное событие содержит только result, время получения и признак успешного refresh inventory. Так как наблюдаемый `key_add` не содержит `skud_id`, интеграция намеренно не угадывает целевой домофон.
 
-`list_physical_keys` возвращает opaque `key_ref`, привязанный к ConfigEntry и выбранному домофону, а также Experimental `number`, имя и дату добавления. Внутренний provider `key_id` в ответ не попадает. Validation-only `rename_physical_key` перед изменением перечитывает inventory, разрешает `key_ref` только внутри выбранного домофона, затем после Android-observed `/api/v4/key/edit/` делает второй refresh и сообщает verified success только если в свежем inventory видно запрошенное новое имя. Если POST мог изменить состояние, но verification невозможна, сервис возвращает неопределённую ошибку, а не ложный успех.
+`list_physical_keys` возвращает opaque `key_ref`, привязанный к ConfigEntry и выбранному домофону, а также только имя и дату добавления. Provider identifiers в ответ не попадают. Validation-only `rename_physical_key` перед изменением перечитывает inventory, разрешает `key_ref` только внутри выбранного домофона, затем после Android-observed `/api/v4/key/edit/` делает второй refresh и сообщает verified success только если в свежем inventory видно запрошенное новое имя. Если POST мог изменить состояние, но verification невозможна, сервис возвращает неопределённую ошибку, а не ложный успех.
 
-`get_physical_key_passages` также принимает только `key_ref`: интеграция разрешает его по свежему inventory и внутренне использует `external_id` в `filters.key`. Наружу сервис возвращает нормализованные времена проходов, без внутреннего provider ID или raw wire identifier.
+`get_physical_key_passages` также принимает только `key_ref`: интеграция разрешает его по свежему inventory и внутренне использует private `external_id` в `filters.key`. Наружу сервис возвращает нормализованные времена проходов без provider identifiers или raw wire fields.
 
 Переименование ключа меняет пользовательскую metadata и остаётся **Observed** до controlled live-проверки. Удаление ключа является destructive access-control операцией. Наблюдаемый delete endpoint не должен появляться в production UI без live-проверки, строгой привязки ключа к выбранному домофону и отдельного явного подтверждения пользователя.
 
@@ -73,12 +73,11 @@ FCM completion `reason=key_add` обрабатывается privacy-safe: provi
 - никогда не выводить raw JWT/tokens;
 - не включать точные частные адреса/номер квартиры без явной необходимости;
 - удалять URL с токенами;
-- не включать внутренний provider `key_id` физических ключей;
-- не включать реальные значения `external_id`/Experimental number в diagnostics/support bundles, несмотря на то что авторизованный UI **КЛЮЧИ** может показывать candidate владельцу;
+- не включать provider `id`, `key_id` или `external_id` физических ключей;
 - по возможности заменять точный идентификатор камеры коротким необратимым hash;
 - показывать наличие/expiry токена вместо его значения.
 
-Интеграция Home Assistant следует этим принципам в скачиваемой диагностике. Диагностика key subsystem содержит только агрегированные количества/health flags и FCM key-add counters/result, но не имена ключей, значения number/`external_id`, внутренние ID или raw push.
+Интеграция Home Assistant следует этим принципам в скачиваемой диагностике. Диагностика key subsystem содержит только агрегированные количества/health flags и FCM key-add counters/result, но не имена ключей, provider identifiers или raw push.
 
 Во время работы URL медиа звонков с токенами остаются внутри coordinator. Состояния сущностей и событие `ufanet_intercom_call` публикуют только признаки доступности медиа. Авторизованный response-сервис может вернуть короткоживущий URL при явном запросе воспроизведения архива; потребитель должен держать такой ответ только в памяти и не переносить его в постоянные атрибуты сущностей или журналы. Полученный от провайдера HTTP preview URL преобразуется в HTTPS до любого запроса; интеграция никогда не отправляет медиатокен по HTTP и блокирует автоматические redirect при загрузке preview. Для локального декодирования байты preview копируются в анонимный перематываемый Linux `memfd`, который сразу после обработки закрывается; URL с токеном не передаётся `ffmpeg`, именованный файл исходного видео не создаётся. Диагностика изображения последнего звонка выводит только булев признак HTTPS-преобразования, фиксированный класс сигнатуры данных, состояние остановки повторов постоянной ошибки, фиксированные коды причины (`invalid_url`, `unsupported_scheme`, `missing_host`, `embedded_credentials`, `empty_preview`, `size_limit`, `download_error`, `decode_error`, `ffmpeg_unavailable` или `unexpected_error`) и имена классов исключений, но не тела ответов, тексты исключений или media-идентификаторы.
 
@@ -92,7 +91,7 @@ FCM completion `reason=key_add` обрабатывается privacy-safe: provi
 <CAMERA_NUMBER>
 <SKUD_ID>
 <CALL_UUID>
-<KEY_NUMBER>
+<KEY_IDENTIFIER>
 <TEMP_GUEST_TOKEN>
 ```
 
