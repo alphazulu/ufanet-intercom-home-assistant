@@ -14,7 +14,7 @@
 - Просмотр видеоархива с диапазонами записи, масштабированием/перемещением таймлайна, метками звонков и read-only метками движения.
 - История звонков, `ufanet_intercom_call`, нативные сущности **«Входящий звонок»** / **«Снимок последнего звонка»**, doorbell EventEntity и device trigger.
 - Blueprint уведомлений Companion App: мгновенный текстовый push, приватное обновление картинкой Home Assistant, опциональная защищённая кнопка **«Открыть дверь»** и прямой переход **«Открыть камеру»**.
-- Физические ключи для поддерживаемых домофонов: read-only счётчик/inventory, время последнего прохода, EventEntity/device trigger, validation-only **«Добавить физический ключ»**, privacy-safe сервисы списка/переименования через opaque `key_ref` и вкладка **КЛЮЧИ** в Lovelace-карточке.
+- Физические ключи для поддерживаемых домофонов: read-only счётчик/inventory, время последнего прохода, EventEntity/device trigger, validation-only **«Добавить физический ключ»**, privacy-safe сервисы списка/истории/переименования через opaque `key_ref` и вкладка **КЛЮЧИ** с историей выбранного ключа.
 - Read-only UCAMS `motion_alarm`: EventEntity **«Обнаружено движение»**, `ufanet_intercom_motion`, device trigger и метки на таймлайне архива.
 - Выбор получения звонков: polling по умолчанию либо экспериментальный FCM с малой задержкой и резервным опросом.
 - Privacy-safe инвентарь авторизованных Ufanet/FCM-сессий и защищённый явный отзыв сессий.
@@ -25,13 +25,17 @@
 - Options Flow и диагностика Home Assistant с учётом конфиденциальности.
 - Единая Lovelace-карточка: `custom:ufanet-intercom-card`.
 
-## Текущая validation-разработка
+## Текущая validation-разработка / подготовка 0.31.0
 
-Ветка `codex/combined-validation` содержит ещё не выпущенные изменения уведомлений
-и регистрации/управления физическими ключами. Она намеренно остаётся **validation-only** и не
-должна тегироваться/публиковаться, пока не завершены live-gates в активном PR.
-Версия установленной интеграции поэтому остаётся `0.30.0` до отдельного этапа
-подготовки релиза.
+Ветка `codex/combined-validation` содержит ещё не выпущенные изменения уведомлений и
+регистрации/управления физическими ключами. Сейчас она подготавливается как основа
+будущего релиза **0.31.0**, но по-прежнему остаётся **validation-only**: её нельзя
+сливать в `main`, тегировать или публиковать, пока hard live-gates в PR #15 не будут
+закрыты либо явно рассмотрены и waived.
+
+Установленная версия интеграции намеренно остаётся `0.30.0` до утверждения точного
+release-candidate commit, после чего все release-facing версии и cache-bust будут
+подняты синхронно одним изменением.
 
 Уже live-проверено на тестовой установке Home Assistant:
 
@@ -40,16 +44,27 @@
 - action **«Открыть дверь»** физически открыл настроенную дверь;
 - **«Открыть камеру»** открыл More Info выбранной live-камеры;
 - timeout обновил существующее уведомление на месте и удалил устаревшую кнопку открытия;
-- combined-сборка с уведомлениями и physical-key функциями загрузилась без замеченных регрессий;
-- capability/coordinator физических ключей и пустой read-only inventory (`state=0`, `keys=[]`);
-- response-service `ufanet_intercom.list_physical_keys` на текущем zero-key аккаунте вернул `count: 0`, `keys: []`.
+- combined-сборка с notification/physical-key изменениями загружается и работает без замеченных регрессий;
+- capability discovery физических ключей;
+- пустой и непустой inventory физических ключей;
+- поля непустого `/api/v4/key/list/`: `id`, `external_id`, `name`, `create_date`, `devices`;
+- непустая история проходов и live-схема элемента `key:str`, `key_name:str`, `time_passage:int`;
+- фильтрация истории выбранного ключа через `filters.key=<external_id>`;
+- Home Assistant/Lovelace отображает один реальный ключ, а выбор строки загружает два реальных passage timestamp.
+
+Поле **«Номер ключа (эксп.)»** во вкладке КЛЮЧИ намеренно имеет статус
+**Experimental**. Оно построено из provider value, который используется Android для
+истории выбранного ключа, но соответствие этого значения цифрам, нанесённым на
+заведомо известный физический ключ, пока не доказано. До проверки поле остаётся
+экспериментальным либо перед релизом должно быть переименовано/удалено.
 
 До релиза обязательны оставшиеся real-call проверки гонок/несовпадений/metadata,
-live visual-проверка новой вкладки **КЛЮЧИ** и полная регистрация **нового
-физического ключа**, включая реальный `reason=key_add`, непустую запись inventory,
-privacy-safe `list_physical_keys` и реальное переименование через validation-only
-`rename_physical_key`. Подробности: [уведомления Home Assistant](docs/notifications_RU.md)
-и [физические ключи/проходы](docs/api/keys_RU.md).
+controlled live rename существующего ключа, полная регистрация **нового
+незарегистрированного ключа** с реальным `reason=key_add` и быстрым inventory
+refresh, проверка enrollment/rename error behavior и финальное решение по
+Experimental номеру. Подробности: [уведомления Home Assistant](docs/notifications_RU.md),
+[физические ключи/проходы](docs/api/keys_RU.md) и
+[черновик release notes 0.31.0](docs/releases/0.31.0-draft.md).
 
 ## Неофициальная документация API
 
@@ -63,9 +78,9 @@ privacy-safe `list_physical_keys` и реальное переименовани
 - [Примеры curl](docs/api/examples/curl.md)
 - [Read-only пример на Python](docs/api/examples/python.md)
 
-Документация явно разделяет **Confirmed**, **Observed**, **Inferred** и
-**Not supported**. State-changing поведение не переводится в Confirmed только по
-декомпилированному коду клиента.
+Документация явно разделяет **Confirmed**, **Observed**, **Inferred**,
+**Experimental** и **Not supported**. State-changing поведение не переводится в
+Confirmed только по декомпилированному коду клиента или зелёному CI.
 
 ## Требования
 
@@ -99,9 +114,8 @@ privacy-safe `list_physical_keys` и реальное переименовани
 /ufanet_intercom/ufanet-archive-card.js?v=0.30.0
 ```
 
-`?v=` должен совпадать с реально установленным релизом. На validation-ветках это
-значение не меняется до фактического bump версии интеграции/карточки при подготовке
-релиза.
+`?v=` должен совпадать с реально установленным релизом. На validation-ветке это
+значение не меняется до фактического bump версии на утверждённом release candidate.
 
 Минимальная конфигурация:
 
@@ -117,15 +131,14 @@ default_tab: live
 - **АРХИВ** — таймлайн, метки звонков/движения, экспорт MP4 и медиатека экспортов.
 - **ГОСТИ** — приглашения, принятый shared access, временные ключи и отзыв.
 - **УСТРОЙСТВА** — авторизованные Ufanet-сессии, защита регистраций Home Assistant, точечный и защищённый массовый отзыв.
-- **КЛЮЧИ** — свежий privacy-safe список физических ключей, запуск 60-секундной регистрации нового ключа и переименование через opaque `key_ref`; удаление ключей отсутствует.
+- **КЛЮЧИ** — свежий inventory, Experimental candidate номера ключа, история выбранного ключа, запуск 60-секундной регистрации и переименование через opaque `key_ref`; удаление ключей отсутствует.
 - **ДИАГНОСТИКА** — token-free runtime health, polling, FCM authorization, UCAMS/archive и autosave.
 
-Вкладка **КЛЮЧИ** реализована packaged validation-extension
-`ufanet-physical-keys-card.js`. Интеграция сама регистрирует/загружает этот extension,
-а он ждёт регистрации `custom:ufanet-intercom-card`, поэтому отдельно добавлять его
-в Lovelace Resources не требуется. Основной ресурс карточки остаётся настроен как
-раньше. В visual editor validation-ветки `keys` также можно выбрать как
-`default_tab`.
+Вкладка **КЛЮЧИ** реализована packaged validation extensions. Интеграция сама
+регистрирует/загружает их через Lovelace resource mechanism; extensions ждут
+регистрации `custom:ufanet-intercom-card`, поэтому отдельно добавлять их в Lovelace
+Resources не требуется. Основной ресурс карточки остаётся настроен как раньше. В
+visual editor validation-ветки `keys` можно выбрать как `default_tab`.
 
 ## Настройки
 
@@ -203,37 +216,50 @@ Companion, но iOS action delivery на реальном устройстве �
 - **«Последний проход по ключу»** — timestamp последнего прохода;
 - EventEntity **«Проход по физическому ключу»** и соответствующий device trigger.
 
-Отдельный coordinator опрашивает API раз в 60 секунд. Первый успешный poll истории
-устанавливает baseline и не воспроизводит старые проходы; private cursor защищает
-от дублей после reload. Публичный passage event содержит только `key_name` и
-`occurred_at`; private provider identifiers и полная история не публикуются.
+Отдельный coordinator опрашивает API раз в 60 секунд. Capability, inventory и
+passage-history health отслеживаются отдельно: временная ошибка истории больше не
+переводит реально поддерживаемый домофон в `unsupported`. Первый успешный poll
+истории устанавливает baseline и не воспроизводит старые проходы; private cursor
+защищает от дублей после reload. Публичный passage event содержит только `key_name`
+и `occurred_at`; private provider identifiers и полная история не публикуются.
+
+Read-only key/history flow теперь live-подтверждён на непустом аккаунте:
+
+- `/api/v4/key/list/` вернул реальный ключ с `id`, `external_id`, `name`, `create_date`, `devices`;
+- `/api/v4/key/skud/<id>/key/pass_history/` вернул два реальных прохода;
+- live поле `key` в passage item приходит как numeric JSON string;
+- Android-compatible фильтрация выбранного ключа использует `filters.key=<external_id>`;
+- выбор ключа в Lovelace загрузил его два passage time в нижней части вкладки.
+
+Для управления `ufanet_intercom.list_physical_keys` возвращает opaque `key_ref`,
+Experimental `number`, `name` и `created_at`. Внутренний provider `id` наружу не
+выходит. `number` пока является только candidate: соответствие маркировке на
+физическом ключе **не подтверждено**.
 
 Validation-ветка добавляет **«Добавить физический ключ»** (`mdi:key-plus`) только
 для поддерживаемых домофонов. Кнопка повторяет Android-observed 60-секундный
 `auto_collect/enable` flow. Успешный HTTP означает только включение enrollment mode;
-новый ключ нужно физически приложить к считывателю в течение 60 секунд.
+новый ключ нужно физически приложить к считывателю в течение 60 секунд. Реальный
+new-key side effect пока ожидает live-проверки.
 
 FCM listener распознаёт Android-observed completion `reason=key_add`, немедленно
 обновляет key inventory и отправляет account-level privacy-minimized событие
 `ufanet_intercom_key_enrollment`. Private provider identifiers, raw message text и
-push payload не публикуются. Реальный `key_add` и непустой inventory пока имеют
-статус **Observed / pending live validation**.
+push payload не публикуются. Реальный `key_add` остаётся **Observed / pending live
+validation**.
 
-Для управления ключами validation-ветка предоставляет response-service
-`ufanet_intercom.list_physical_keys`, который возвращает только `name`,
-`created_at` и локальный непрозрачный `key_ref`. `ufanet_intercom.rename_physical_key`
-принимает этот `key_ref`, перед изменением перечитывает свежий inventory, разрешает
-ссылку только внутри выбранного домофона и после Android-observed edit request
-обязательно перечитывает inventory ещё раз. Успех возвращается только если новое имя
-реально видно после refresh. Raw provider identifiers не принимаются и не
-возвращаются. Сам rename endpoint остаётся **Observed / pending live validation** до
-появления реального ключа. Удаление ключа не реализовано.
+`ufanet_intercom.rename_physical_key` принимает только `key_ref` и новое имя. Перед
+изменением перечитывается свежий inventory, ref разрешается только внутри выбранного
+домофона, затем вызывается Android-observed edit contract и выполняется второй
+refresh. Успех возвращается только если новое имя реально видно после read-back.
+Сам provider rename endpoint остаётся **Observed / pending live validation**, даже
+при наличии safety/read-back реализации и зелёного CI.
 
-Вкладка **КЛЮЧИ** использует эти же privacy-safe response-services. Кнопка
-**«Добавить ключ»** вызывает только HA entity `button.*_add_physical_key`, показывает
-60-секундный countdown и после окончания окна перечитывает список. Переименование
-запрашивает подтверждение и считает операцию успешной только если backend вернул
-`verified: true`. Никакого delete action в UI нет. Подробности:
+Вкладка **КЛЮЧИ** использует эти response-services. **«Добавить ключ»** вызывает
+только same-device HA enrollment button и показывает 60-секундный countdown.
+Переименование требует явного подтверждения и считает успехом только `verified:
+true`. Клик по строке ключа загружает privacy-safe историю его проходов внизу.
+Никакого delete action в UI нет. Подробности:
 [docs/api/keys_RU.md](docs/api/keys_RU.md).
 
 ## Аналитика движения
@@ -260,8 +286,9 @@ push payload не публикуются. Реальный `key_add` и непу
 - Гостевые ссылки являются временными capabilities доступа.
 - Открытие двери — реальное физическое действие; карточка/notification требуют явного действия пользователя, а notification добавляет same-device guards.
 - Запуск physical-key enrollment изменяет состояние контроля доступа и не должен использоваться как health check или автоматическое действие.
-- Private provider identifiers физических ключей остаются внутри runtime и не попадают в sensor attributes/events/diagnostics.
-- Публичное управление физическими ключами использует только intercom-scoped opaque `key_ref`; rename перечитывает inventory до изменения и проверяет результат повторным refresh после POST.
+- Внутренний provider `id` физического ключа остаётся private runtime data и не попадает в sensor attributes/events/diagnostics/public service input.
+- Experimental candidate номера ключа виден только авторизованному пользователю HA; реальные значения исключены из diagnostics, logs, public support bundles, events и примеров репозитория.
+- Публичное управление физическими ключами использует intercom-scoped opaque `key_ref`; rename перечитывает inventory до изменения и проверяет результат повторным refresh после POST.
 - Tokenized call-media URL остаются внутренними runtime-данными; image entity хранит только созданный JPEG.
 - Управление FCM-сессиями использует opaque refs вместо raw provider device IDs и защищает доказанно принадлежащие HA регистрации.
 - Motion provider cursor хранится только в private storage и наружу выводятся лишь нормализованные timestamps.
@@ -291,8 +318,8 @@ packaging, Python/JSON/JavaScript, ссылки методов/сервисов 
 
 **Green CI не заменяет обязательный физический/live test.** Перед tag/release нужно
 закрыть `REQUIRED VALIDATION BEFORE ANY RELEASE` в активном PR, обновить evidence
-labels/docs/CHANGELOG, затем одним release-prep изменением поднять все версии и
-cache-bust URL. См. [PUBLISHING.md](PUBLISHING.md).
+labels/docs/CHANGELOG и только затем одним release-prep изменением поднять все
+версии/cache-bust URL на точном release candidate. См. [PUBLISHING.md](PUBLISHING.md).
 
 ## Лицензия
 
