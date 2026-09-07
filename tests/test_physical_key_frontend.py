@@ -12,7 +12,7 @@ EXTENSION_PATH = (
 
 
 def test_physical_key_tab_uses_privacy_safe_response_services() -> None:
-    """Keep internal provider identifiers out of the browser-facing key workflow."""
+    """Keep provider identifiers out of the browser-facing key workflow."""
     source = EXTENSION_PATH.read_text(encoding="utf-8")
 
     assert 'const KEY_TAB = "keys"' in source
@@ -21,20 +21,20 @@ def test_physical_key_tab_uses_privacy_safe_response_services() -> None:
     assert '"list_physical_keys"' in source
     assert '"rename_physical_key"' in source
     assert "key_ref: item.key_ref" in source
-    assert "служебный ID Ufanet" in source
+    assert "Внутренние идентификаторы Ufanet не выводятся" in source
     assert "key_id" not in source
     assert "external_id" not in source
 
 
-def test_physical_key_tab_renders_experimental_key_number() -> None:
-    """Show a number candidate without claiming the printed-number mapping."""
+def test_physical_key_tab_does_not_render_provider_identifier_as_key_number() -> None:
+    """Do not expose the disproven external-id to printed-key-number mapping."""
     source = EXTENSION_PATH.read_text(encoding="utf-8")
 
-    assert 'typeof item.number === "string"' in source
-    assert 'number.className = "physical-key-number"' in source
-    assert "Номер ключа (эксп.)" in source
-    assert "экспериментальное значение API" in source.lower()
-    assert "совпадение с маркировкой" in source
+    assert 'typeof item.number === "string"' not in source
+    assert 'physical-key-number' not in source
+    assert "Номер ключа" not in source
+    assert "экспериментальное значение API" not in source.lower()
+    assert "Показываются только пользовательское имя и дата добавления" in source
 
 
 def test_physical_key_tab_has_enrollment_but_no_delete_path() -> None:
