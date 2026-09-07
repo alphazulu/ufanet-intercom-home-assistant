@@ -87,6 +87,76 @@ def _path_is_file(path: Path) -> bool:
     return path.is_file()
 
 
+async def _async_ensure_lovelace_module(hass: HomeAssistant, url: str) -> bool:
+    """Register a card as a Lovelace module when storage resources are writable.
+
+    ``frontend.add_extra_js_url`` is intentionally only a fallback here. Extra JS
+    injection can race Lovelace card construction after a browser refresh, leaving
+    a transient ``Custom element doesn't exist`` / configuration error. A normal
+    Lovelace module resource participates in the dashboard resource-loading phase.
+    """
+    try:
+        lovelace = hass.data.get("lovelace")
+        if lovelace is None:
+            return False
+
+        resources = getattr(lovelace, "resources", None)
+        if resources is None and isinstance(lovelace, dict):
+            resources = lovelace.get("resources")
+        if resources is None:
+            return False
+
+        async_get_info = getattr(resources, "async_get_info", None)
+        if callable(async_get_info):
+            await async_get_info()
+
+        async_items = getattr(resources, "async_items", None)
+        if not callable(async_items):
+            return False
+
+        base_url = str(url).partition("?")[0]
+        existing = next(
+            (
+                item
+                for item in async_items()
+                if str(item.get("url") or "").partition("?")[0] == base_url
+            ),
+            None,
+        )
+
+        if existing is not None:
+            if (
+                str(existing.get("url") or "") == url
+                and str(existing.get("res_type") or "module") == "module"
+            ):
+                return True
+
+            async_update_item = getattr(resources, "async_update_item", None)
+            resource_id = existing.get("id")
+            if not callable(async_update_item) or resource_id is None:
+                return False
+
+            await async_update_item(
+                resource_id,
+                {"res_type": "module", "url": url},
+            )
+            return True
+
+        async_create_item = getattr(resources, "async_create_item", None)
+        if not callable(async_create_item):
+            return False
+
+        await async_create_item({"res_type": "module", "url": url})
+        return True
+    except Exception as err:  # noqa: BLE001 - frontend fallback must stay available
+        _LOGGER.warning(
+            "Could not register Lovelace module %s; using frontend fallback: %s",
+            str(url).partition("?")[0],
+            type(err).__name__,
+        )
+        return False
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up integration-level services and dashboard frontend resources."""
     guest_invite_store = UfanetGuestInviteStore(hass)
@@ -97,32 +167,59 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async_setup_services(hass, guest_invite_store)
     async_setup_key_services(hass)
 
-    if await hass.async_add_executor_job(_path_is_file, _ARCHIVE_CARD_PATH):
-        await hass.http.async_register_static_paths(
-            [
-                StaticPathConfig(
-                    _ARCHIVE_CARD_URL,
-                    str(_ARCHIVE_CARD_PATH),
-                    False,
-                ),
+    archive_card_exists = await hass.async_add_executor_job(
+        _path_is_file,
+        _ARCHIVE_CARD_PATH,
+    )
+    physical_keys_card_exists = await hass.async_add_executor_job(
+        _path_is_file,
+        _PHYSICAL_KEYS_CARD_PATH,
+    )
+
+    if archive_card_exists:
+        static_paths = [
+            StaticPathConfig(
+                _ARCHIVE_CARD_URL,
+                str(_ARCHIVE_CARD_PATH),
+                False,
+            )
+        ]
+        if physical_keys_card_exists:
+            static_paths.append(
                 StaticPathConfig(
                     _PHYSICAL_KEYS_CARD_URL,
                     str(_PHYSICAL_KEYS_CARD_PATH),
                     False,
-                ),
-            ]
+                )
+            )
+        await hass.http.async_register_static_paths(static_paths)
+
+        archive_registered = await _async_ensure_lovelace_module(
+            hass,
+            _ARCHIVE_CARD_MODULE_URL,
         )
-        # Fallback only. The reliable/supported path for the main Lovelace card
-        # is to add _ARCHIVE_CARD_MODULE_URL as a JavaScript Module resource.
-        # The physical-key extension waits for that custom element and is safe
-        # whether it loads immediately before or after the main card script.
-        frontend.add_extra_js_url(hass, _ARCHIVE_CARD_MODULE_URL)
-        frontend.add_extra_js_url(hass, _PHYSICAL_KEYS_CARD_MODULE_URL)
+        if not archive_registered:
+            frontend.add_extra_js_url(hass, _ARCHIVE_CARD_MODULE_URL)
+
+        if physical_keys_card_exists:
+            keys_registered = await _async_ensure_lovelace_module(
+                hass,
+                _PHYSICAL_KEYS_CARD_MODULE_URL,
+            )
+            if not keys_registered:
+                frontend.add_extra_js_url(hass, _PHYSICAL_KEYS_CARD_MODULE_URL)
+        else:
+            _LOGGER.warning(
+                "Ufanet physical-key card extension was not found at %s",
+                _PHYSICAL_KEYS_CARD_PATH,
+            )
+
         _LOGGER.info("Ufanet archive card resource URL: %s", _ARCHIVE_CARD_MODULE_URL)
-        _LOGGER.info(
-            "Ufanet physical-key card extension URL: %s",
-            _PHYSICAL_KEYS_CARD_MODULE_URL,
-        )
+        if physical_keys_card_exists:
+            _LOGGER.info(
+                "Ufanet physical-key card extension URL: %s",
+                _PHYSICAL_KEYS_CARD_MODULE_URL,
+            )
     else:
         _LOGGER.warning(
             "Ufanet archive Lovelace card was not found at %s",
