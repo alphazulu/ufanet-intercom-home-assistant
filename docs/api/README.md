@@ -18,7 +18,7 @@ Every endpoint or behavior should carry one of these labels:
 
 When new behavior is tested, update the relevant page and move the label toward **Confirmed** only when there is direct evidence. For state-changing endpoints, an HTTP 200 alone is not enough: document separately whether the expected side effect was actually verified. Validation code and green CI alone do not promote an evidence label.
 
-Current physical-key evidence: `external_id` is **Confirmed** as the backend selector used for per-key passage filtering. A direct comparison showed that it does **not** match the number printed on the tested physical key, so the former Experimental public key-number interpretation was removed rather than promoted.
+Current physical-key evidence: `external_id` is **Confirmed** as the backend selector used for per-key passage filtering. A direct comparison showed that it does **not** match the number printed on the tested physical key, so the former Experimental public key-number interpretation was removed rather than promoted. Physical-key rename through `/api/v4/key/edit/` is also **Confirmed for the tested success path**, including eventual-consistent read-back and bounded read-only verification retries after a single provider write.
 
 ## Architecture
 
@@ -28,7 +28,7 @@ The integration currently uses three API layers:
    - contract authentication and token refresh;
    - intercom/SKUD discovery and door control;
    - call history;
-   - physical keys: confirmed capability/non-empty list/history and selected-key passage filtering, plus validation-only enrollment and opaque-ref rename flows;
+   - physical keys: confirmed capability/non-empty list/history, selected-key passage filtering and rename, plus validation-only enrollment/real FCM completion;
    - guest/shared-access management;
    - FCM registration and authorized-session security management;
    - Confirmed `reason=sip` as the low-latency call signal and Observed `reason=key_add` as physical-key enrollment completion.
@@ -72,7 +72,7 @@ Important distinction:
 - [UCAMS camera analytics](analytics.md)
 - [Archive](archive.md)
 - [Call events/history](calls.md)
-- [Physical keys and passage history](keys.md) — confirmed non-empty inventory/history and private `external_id` history selection, validation-only enrollment/FCM completion/opaque-ref rename, and the dedicated release gate. The tested provider identifiers are not presented as the printed physical-key number.
+- [Physical keys and passage history](keys.md) — confirmed non-empty inventory/history, private `external_id` history selection and controlled rename; validation-only enrollment/real FCM completion remains the release gate. The tested provider identifiers are not presented as the printed physical-key number.
 - [FCM / push notifications](fcm.md)
 - [Guest and shared access](guests.md)
 - [Observed data models](models.md)
@@ -85,7 +85,7 @@ Important distinction:
 - [curl examples](examples/curl.md) — safe/read-only copy-paste examples, including analytics capability discovery and `motion_alarm` reporting.
 - [Python read-only example](examples/python.md) — authentication/discovery/UCAMS flow with privacy-safe analytics handling guidance.
 
-State-changing examples (door opening, physical-key enrollment, key rename/delete, guest creation/revocation, FCM session logout) are intentionally kept on the relevant reference pages rather than in the copy/paste examples collection. Observed key-management operations must not be interpreted as production-ready until separately live-validated.
+State-changing examples (door opening, physical-key enrollment, key rename/delete, guest creation/revocation, FCM session logout) are intentionally kept on the relevant reference pages rather than in the copy/paste examples collection. Physical-key rename is live-confirmed for the tested success path; enrollment/real `reason=key_add` and delete remain unconfirmed or out of scope as documented on the key reference page.
 
 ## Contributing new API findings
 
