@@ -1,6 +1,6 @@
 # Contributing
 
-1. Never commit real Ufanet/UCAMS JWTs, passwords, contract credentials, active guest URLs, FCM credentials, provider physical-key IDs or `external_id`/key-number values.
+1. Never commit real Ufanet/UCAMS JWTs, passwords, contract credentials, active guest URLs, FCM credentials, or provider physical-key identifiers such as `id`, `key_id` or `external_id`.
 2. Run `python scripts/release_check.py` before opening a pull request.
 3. Run the automated tests with `pytest -vv` after installing `requirements_test.txt`.
 4. Keep all Ufanet/UCAMS network traffic mocked in unit tests; tests must never require a real account or perform physical/state-changing actions.
@@ -10,7 +10,7 @@
 8. Preserve response-service validation before destructive guest-access/FCM-session operations.
 9. If frontend code changes, bump the integration/card/cache-bust version together only during an approved release-preparation step on the exact release candidate.
 10. Never promote Android-observed or decompiled-client behavior to **Confirmed** without direct live evidence; green unit/CI results do not replace controlled live validation of state-changing endpoints.
-11. Use **Experimental** for a deliberately exposed user-facing interpretation whose semantics are not yet proven. Make that uncertainty visible in both UI and documentation, define the live test that would confirm it, and either confirm, rename, remove, or explicitly accept the Experimental status before release. The current physical-key `number` candidate is the reference example.
+11. Use **Experimental** only for a deliberately exposed user-facing interpretation whose semantics are not yet proven. Make the uncertainty visible in UI/docs and define the live test that resolves it. When live evidence disproves an interpretation, remove or rename the public field rather than preserving a misleading label; the former physical-key `number` candidate is the current example.
 12. When a live test changes evidence status, update the detailed API page, EN/RU verification matrix, relevant data-model/security/user docs, CHANGELOG, and active release PR in the same workstream.
 
 ## Test environment
