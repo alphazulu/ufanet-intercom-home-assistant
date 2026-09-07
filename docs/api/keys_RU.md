@@ -14,7 +14,8 @@ Read-only контракты физических ключей и истории
 - непустой `/api/v4/key/skud/<id>/key/pass_history/` с двумя проходами;
 - live-схема passage item: `key:str`, `key_name:str`, `time_passage:int`;
 - фильтрация истории выбранного ключа через `filters.key=<external_id>`;
-- Home Assistant/Lovelace: один реальный ключ отображается, выбор строки загружает его passage timestamps.
+- Home Assistant/Lovelace: один реальный ключ отображается, выбор строки загружает его passage timestamps;
+- controlled rename через `/api/v4/key/edit/`, включая eventual-consistent read-back и автоматические post-write verification retries.
 
 7 сентября 2026 также выполнено прямое сравнение с физическим ключом. Номер, нанесённый на проверенный брелок, **не совпал** с кандидатами-идентификаторами из ответа списка ключей. При этом использование `external_id` этого ключа продолжило возвращать корректную и обновляющуюся историю именно этого физического ключа. Поэтому:
 
@@ -22,7 +23,7 @@ Read-only контракты физических ключей и истории
 - `external_id` **не является** номером, нанесённым на проверенный физический ключ;
 - ранее экспериментальное публичное поле `number` удалено из validation-ветки, чтобы не выпускать вводящую в заблуждение интерпретацию.
 
-Wire-контракты регистрации нового ключа, `reason=key_add` и переименования остаются **Observed**, пока не выполнены соответствующие state-changing live-тесты.
+Регистрация нового ключа и реальный completion `reason=key_add` остаются **Observed**, пока не выполнен соответствующий state-changing live-тест. Переименование физического ключа теперь имеет статус **Confirmed** для проверенного success path.
 
 ## Возможности аккаунта
 
@@ -147,7 +148,7 @@ FCM diagnostics хранят только `received_key_add_push_count`, `last_k
 POST /api/v4/key/edit/
 ```
 
-с внутренним provider identifier и новым именем. **Observed из Android-клиента; реальный state-changing endpoint ещё не live-проверен.**
+с внутренним provider identifier и новым именем. **Confirmed для проверенного success path.** Controlled live-тест в Home Assistant подтвердил, что выбранный физический ключ действительно получает новое имя на стороне provider.
 
 Validation-ветка реализует этот контракт через response-service:
 
@@ -163,17 +164,19 @@ key_ref: <opaque ref from list_physical_keys>
 new_name: "Новое имя"
 ```
 
-Безопасная последовательность:
+Безопасная последовательность и проверка результата:
 
 1. перед изменением перечитывается свежий inventory;
 2. `key_ref` разрешается только внутри выбранного домофона;
 3. пустое имя/control characters отклоняются; локально установлен консервативный предел 128 символов — это не утверждение о provider limit;
-4. runtime вызывает observed edit endpoint с внутренним provider ID;
-5. после POST inventory перечитывается ещё раз;
+4. provider edit request отправляется ровно один раз с внутренним provider ID;
+5. после POST выполняются ограниченные read-only refresh retries, потому что provider inventory обновляется eventual-consistently;
 6. операция считается подтверждённой только если тот же ключ виден с новым именем;
 7. если новое имя совпадает с текущим, provider POST не выполняется.
 
-Внутренний provider ID не попадает в service input/output. Если POST мог изменить серверное состояние, но post-write refresh не удался, HA сообщает неопределённый результат, а не объявляет переименование успешным.
+Live-тест показал, что первый немедленный read-back может ещё возвращать старое имя, а более поздний refresh уже возвращает новое. Автоматический retry-based verification path затем был отдельно live-проверен без ручного refresh. State-changing POST автоматически не повторяется.
+
+Внутренний provider ID не попадает в service input/output. Если POST мог изменить серверное состояние, но verification не удалось завершить в пределах ограниченных read-only retries, HA сообщает неопределённый результат, а не объявляет переименование успешным. Provider-specific error semantics для invalid/stale ID, duplicate name или server-side ограничений длины отдельно не утверждаются без прямого live evidence.
 
 ## Lovelace-вкладка КЛЮЧИ
 
@@ -190,6 +193,8 @@ Provider identifiers и опровергнутый кандидат на физ�
 **Добавить ключ** требует подтверждения, показывает 60-секундный countdown и после завершения окна перечитывает список. **Переименовать** требует подтверждения и отображает успех только после `verified: true` от backend. Delete action отсутствует.
 
 Клик по строке ключа выбирает его и в нижней части вкладки загружает **Историю проходов** выбранного ключа.
+
+Непустой список, история выбранного ключа, backend-verified rename, многократные переключения dashboard, обычные reload и hard refresh были live-проверены на validation-ветке без повторения прежней Lovelace **«Ошибка конфигурации»**.
 
 ## История проходов конкретного ключа
 
@@ -278,26 +283,24 @@ Android-клиент содержит destructive delete-запрос для в�
 - FCM `key_add` + немедленный inventory refresh;
 - `ufanet_intercom_key_enrollment`;
 - `list_physical_keys` только с `key_ref`, `name`, `created_at`;
-- validation-only `rename_physical_key` с fresh-resolution и post-write verification;
+- live-confirmed `rename_physical_key` с fresh-resolution, одним provider write и ограниченной post-write read-only verification;
 - `get_physical_key_passages` с per-key фильтрацией по приватному `external_id`;
-- validation-only Lovelace-вкладку **КЛЮЧИ** с историей выбранного ключа, без delete action.
+- validation-ветку **КЛЮЧИ** с историей выбранного ключа, live-confirmed rename и без delete action.
 
 Diagnostics не содержат имён ключей, provider identifiers, времени проходов или полной истории.
 
 ## Обязательная live-проверка до релиза
 
-Read-only key/history path и отрицательный тест физического номера теперь live-confirmed. Вопрос с номером закрыт и больше не является release blocker: интеграция не публикует предполагаемый номер.
+Read-only key/history path, отрицательный тест физического номера, success path переименования, notification-блок и Lovelace resource-load regression уже закрыты. У Android notification functionality нет оставшегося hard release gate; недоступный live-тест со вторым Ufanet device явно waived после targeted security review, при этом cross-device safety invariant не waived.
 
-Релиз по-прежнему блокируют state-changing и safety tests:
+Оставшиеся hard functional release gates относятся исключительно к регистрации нового физического ключа:
 
-1. запустить auto-collection из HA/card;
+1. запустить auto-collection из HA/card и проверить, что provider действительно включает enrollment mode;
 2. приложить новый незарегистрированный ключ в течение 60 секунд;
-3. получить реальный `reason=key_add` и зафиксировать обезличенную wire-схему;
-4. проверить быстрое обновление числового **Физические ключи** после FCM completion;
-5. проверить появление нового ключа на всех read-only surfaces;
-6. проверить privacy-safe результат `ufanet_intercom_key_enrollment`;
-7. live-проверить `rename_physical_key` и post-write verification;
-8. проверить реальные enrollment/rename error semantics;
-9. завершить оставшиеся notification safety gates из PR #15.
+3. получить реальный `reason=key_add` и зафиксировать только обезличенную wire-схему/status;
+4. подтвердить фактическую регистрацию нового ключа и быстрое обновление числового **Физические ключи** после FCM-triggered refresh;
+5. подтвердить появление нового ключа на privacy-safe read-only surfaces без provider identifiers;
+6. проверить privacy-safe success/error результат `ufanet_intercom_key_enrollment`;
+7. проверить реальные enrollment error semantics, включая наблюдаемые HTTP 400/status значения.
 
-Delete и BLE keys остаются вне текущего release scope.
+Delete и BLE keys остаются вне текущего release scope. iOS notification actions остаются не live-проверенными и не объявляются Confirmed.
