@@ -65,13 +65,15 @@ Android-клиент содержит отдельную ветку для HTTP 
 
 **Статус: Observed из Android-клиента; live error contract не подтверждён.**
 
-## Неопределённый результат переименования физического ключа
+## Проверка результата и неопределённый исход переименования
 
-`POST /api/v4/key/edit/` пока имеет статус **Observed**. Validation-service `rename_physical_key` не считает успешный POST достаточным доказательством нового имени: после write он перечитывает свежий inventory.
+`POST /api/v4/key/edit/` **Confirmed для проверенного success path**: controlled rename в Home Assistant действительно изменил имя выбранного физического ключа на стороне provider.
 
-Если POST уже был отправлен, но последующий refresh завершился ошибкой, ключ исчез из свежего inventory либо новое имя не подтверждено, Home Assistant возвращает ошибку вида «ключ мог быть переименован, но результат не подтверждён». Это намеренно отличает неопределённый state-changing результат от доказанного failure/success и не запускает автоматический повтор POST, который мог бы дублировать пользовательское действие.
+Inventory provider обновляется eventual-consistently. В live-тесте первый немедленный read-back мог ещё показывать старое имя, а более поздний refresh уже возвращал запрошенное новое имя. Поэтому validation-service `rename_physical_key` отправляет state-changing POST ровно один раз и затем выполняет ограниченные read-only inventory refresh retries до подтверждения `verified: true`.
 
-До реального ключа нельзя утверждать, какие HTTP status/body использует provider для invalid/stale key ID, duplicate name, ограничения длины или других rename errors.
+Если POST уже был отправлен, но verification не удалось завершить в пределах этих retries, ключ исчез из свежего inventory либо новое имя так и не наблюдается, Home Assistant сообщает, что ключ мог измениться, но результат не подтверждён. Это намеренно отличает неопределённый state-changing результат от доказанного failure/success и не запускает автоматический повтор POST, который мог бы дублировать пользовательское действие.
+
+Проект по-прежнему не утверждает provider-specific error semantics для invalid/stale key ID, duplicate name, server-side ограничений длины и других failure cases, которые отдельно не наблюдались live.
 
 ## Как документировать новую ошибку
 
