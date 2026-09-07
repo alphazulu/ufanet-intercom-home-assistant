@@ -1,4 +1,4 @@
-"""Privacy tests for the physical-key passage schema probe."""
+"""Privacy and live-contract tests for the physical-key passage schema probe."""
 
 from __future__ import annotations
 
@@ -26,13 +26,13 @@ def test_safe_shape_summary_exposes_only_field_names_types_and_counts() -> None:
         content_type="application/json",
         body_length=321,
         payload={
-            "count": "1",
+            "count": 1,
             "current_page": 0,
             "page_count": 0,
             "page_size": 5,
             "results": [
                 {
-                    "key": 987654321,
+                    "key": "987654321",
                     "key_name": "PRIVATE KEY NAME",
                     "time_passage": 1_788_000_000,
                     "private_future_value": "DO NOT PRINT THIS VALUE",
@@ -45,7 +45,7 @@ def test_safe_shape_summary_exposes_only_field_names_types_and_counts() -> None:
 
     assert "http=200" in summary
     assert "results_len=1" in summary
-    assert "key:int" in summary
+    assert "key:str" in summary
     assert "key_name:str" in summary
     assert "time_passage:int" in summary
     assert "private_future_value:str" in summary
@@ -58,11 +58,35 @@ def test_safe_shape_summary_exposes_only_field_names_types_and_counts() -> None:
         assert private_value not in summary
 
 
-def test_schema_probe_contains_android_single_key_filter_without_raw_output() -> None:
+def test_android_contract_accepts_live_numeric_string_key() -> None:
+    response = probe.SafeResponse(
+        status=200,
+        content_type="application/json",
+        body_length=100,
+        payload={
+            "count": 1,
+            "current_page": 0,
+            "page_count": 0,
+            "page_size": 5,
+            "results": [
+                {
+                    "key": "987654321",
+                    "key_name": "PRIVATE KEY NAME",
+                    "time_passage": 1_788_000_000,
+                }
+            ],
+        },
+    )
+
+    assert probe._android_compatible_contract(response) == "ok"
+
+
+def test_schema_probe_uses_private_external_id_filter_without_raw_output() -> None:
     source = SCRIPT_PATH.read_text(encoding="utf-8")
 
-    assert '"filters": {"key": str(int(target_key[\'key_id\']))}' in source
+    assert '"filters": {"key": target_key["external_id"]}' in source
+    assert '"external_id": external_id' in source
     assert "raw response" in source
-    assert "response body" not in source.lower()
     assert "print(target_key" not in source
     assert "print(keys" not in source
+    assert "print(external_id" not in source
