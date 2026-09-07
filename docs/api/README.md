@@ -13,9 +13,12 @@ Every endpoint or behavior should carry one of these labels:
 - **Confirmed** — exercised successfully against a real account/device.
 - **Observed** — seen in a real response or application code, but not exhaustively tested.
 - **Inferred** — inferred from client code or surrounding behavior and still needs validation.
+- **Experimental** — intentionally exposed for controlled user validation, but the semantic interpretation is not yet proven.
 - **Not supported** — explicitly tested and found not to work in the tested form.
 
 When new behavior is tested, update the relevant page and move the label toward **Confirmed** only when there is direct evidence. For state-changing endpoints, an HTTP 200 alone is not enough: document separately whether the expected side effect was actually verified. Validation code and green CI alone do not promote an evidence label.
+
+Current example: the live physical-key wire field `external_id` is Confirmed as the selector used by the Android client for per-key passage filtering, but its interpretation as the number printed on the physical key is still **Experimental**.
 
 ## Architecture
 
@@ -25,7 +28,7 @@ The integration currently uses three API layers:
    - contract authentication and token refresh;
    - intercom/SKUD discovery and door control;
    - call history;
-   - physical keys: capability/list/history plus validation-only enrollment and opaque-ref rename flows;
+   - physical keys: confirmed capability/non-empty list/history, selected-key passage filtering, plus validation-only enrollment and opaque-ref rename flows;
    - guest/shared-access management;
    - FCM registration and authorized-session security management;
    - Confirmed `reason=sip` as the low-latency call signal and Observed `reason=key_add` as physical-key enrollment completion.
@@ -69,7 +72,7 @@ Important distinction:
 - [UCAMS camera analytics](analytics.md)
 - [Archive](archive.md)
 - [Call events/history](calls.md)
-- [Physical keys and passage history](keys.md) — capability/list/passages, validation-only enrollment/FCM completion/opaque-ref rename, and the dedicated release gate.
+- [Physical keys and passage history](keys.md) — confirmed non-empty inventory/history, experimental key-number interpretation, validation-only enrollment/FCM completion/opaque-ref rename, and the dedicated release gate.
 - [FCM / push notifications](fcm.md)
 - [Guest and shared access](guests.md)
 - [Observed data models](models.md)
@@ -82,11 +85,7 @@ Important distinction:
 - [curl examples](examples/curl.md) — safe/read-only copy-paste examples, including analytics capability discovery and `motion_alarm` reporting.
 - [Python read-only example](examples/python.md) — authentication/discovery/UCAMS flow with privacy-safe analytics handling guidance.
 
-State-changing examples (door opening, physical-key enrollment, key rename/delete,
-guest creation/revocation, FCM session logout) are intentionally kept on the
-relevant reference pages rather than in the copy/paste examples collection.
-Observed key-management operations must not be interpreted as production-ready
-until separately live-validated.
+State-changing examples (door opening, physical-key enrollment, key rename/delete, guest creation/revocation, FCM session logout) are intentionally kept on the relevant reference pages rather than in the copy/paste examples collection. Observed key-management operations must not be interpreted as production-ready until separately live-validated.
 
 ## Contributing new API findings
 
@@ -102,7 +101,6 @@ For every newly tested endpoint, record:
 8. any field whose semantics are still uncertain;
 9. for write endpoints, distinguish provider acceptance from verified state/read-back.
 
-Update both the detailed page and [STATUS.md](STATUS.md) in the same change, and
-update user-facing documentation/CHANGELOG when Home Assistant behavior changes.
+Update both the detailed page and [STATUS.md](STATUS.md) in the same change, and update user-facing documentation/CHANGELOG when Home Assistant behavior changes.
 
-Never commit real passwords, JWTs, refresh tokens, guest tokens, tokenized media URLs, physical-key `external_id`/provider key IDs, exact private addresses, camera/event identifiers from a live account, raw event history, or other account-specific secrets.
+Never commit real passwords, JWTs, refresh tokens, guest tokens, tokenized media URLs, real physical-key provider IDs or `external_id`/key-number values, exact private addresses, camera/event identifiers from a live account, raw event history, or other account-specific secrets.
