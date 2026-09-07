@@ -14,7 +14,6 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.ufanet_intercom.const import DOMAIN
 from custom_components.ufanet_intercom.key_history import (
     SERVICE_GET_PHYSICAL_KEY_PASSAGES,
-    _FRONTEND_SETUP_KEY,
     _parse_filtered_passage_response,
     async_setup_key_history,
 )
@@ -63,8 +62,6 @@ def _install_runtime(hass):
         "options": {},
     }
 
-    # Service tests do not need to schedule browser resource setup.
-    hass.data[_FRONTEND_SETUP_KEY] = True
     async_setup_key_history(hass)
     return entry, device, api, coordinator
 
