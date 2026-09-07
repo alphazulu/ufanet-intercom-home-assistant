@@ -18,7 +18,7 @@
 
 По мере новых тестов статус следует повышать до **Confirmed** только при наличии прямого подтверждения. Наличие production/validation-кода и зелёный CI сами по себе не повышают evidence label state-changing endpoint.
 
-Текущий physical-key результат: `external_id` **Confirmed** как backend selector для per-key истории проходов. Прямое сравнение показало, что он **не совпадает** с номером, нанесённым на проверенный физический ключ, поэтому ранее Experimental публичная трактовка номера удалена, а не повышена до Confirmed.
+Текущий physical-key результат: `external_id` **Confirmed** как backend selector для per-key истории проходов. Прямое сравнение показало, что он **не совпадает** с номером, нанесённым на проверенный физический ключ, поэтому ранее Experimental публичная трактовка номера удалена, а не повышена до Confirmed. Переименование через `/api/v4/key/edit/` также **Confirmed для проверенного success path**, включая eventual-consistent read-back и ограниченные read-only verification retries после единственного provider write.
 
 ## Архитектура
 
@@ -30,7 +30,7 @@
    - история звонков;
    - гостевой и совместный доступ;
    - регистрация FCM и управление безопасностью авторизованных сессий;
-   - Confirmed capability/непустой inventory/history физических ключей и selected-key фильтрация истории, плюс validation-only enrollment/rename flow с privacy-safe Home Assistant surface.
+   - Confirmed capability/непустой inventory/history физических ключей, selected-key фильтрация истории и rename, плюс validation-only enrollment/real FCM completion.
 2. **Управляющий API UCAMS** — `https://cloud.ucams.ru`
    - обмен JWT Ufanet на bearer-токен UCAMS;
    - получение метаданных камеры, live/archive токенов и медиасервера;
@@ -71,7 +71,7 @@ UCAMS bearer token
 - [Аналитические события камер UCAMS](analytics_RU.md)
 - [Видеоархив](archive_RU.md)
 - [Звонки и история](calls_RU.md)
-- [Физические ключи и журнал проходов](keys_RU.md) — Confirmed непустой inventory/history и приватный `external_id` selector истории, validation-only enrollment/FCM completion/opaque-ref rename и отдельный release gate. Проверенные provider identifiers не выдаются за номер, нанесённый на физический ключ.
+- [Физические ключи и журнал проходов](keys_RU.md) — Confirmed непустой inventory/history, приватный `external_id` selector истории и controlled rename; validation-only enrollment/real FCM completion остаётся release gate. Проверенные provider identifiers не выдаются за номер, нанесённый на физический ключ.
 - [FCM / push-уведомления](fcm_RU.md)
 - [Гостевой и совместный доступ](guests_RU.md)
 - [Наблюдаемые модели данных](models_RU.md)
@@ -84,7 +84,7 @@ UCAMS bearer token
 - [Примеры curl](examples/curl.md) — только read-only примеры, включая capability discovery аналитики и отчёт `motion_alarm`.
 - [Read-only пример на Python](examples/python.md) — цепочка авторизации/discovery/UCAMS и рекомендации по privacy-safe обработке аналитики.
 
-State-changing примеры (открытие двери, enrollment/rename/delete физического ключа, создание/отзыв гостевого доступа, завершение FCM-сессии) намеренно не помещаются в каталог copy/paste read-only примеров. Их контракты и safety boundary документируются только на соответствующих reference-страницах.
+State-changing примеры (открытие двери, enrollment/rename/delete физического ключа, создание/отзыв гостевого доступа, завершение FCM-сессии) намеренно не помещаются в каталог copy/paste read-only примеров. Rename физического ключа live-подтверждён для проверенного success path; enrollment/real `reason=key_add` и delete остаются неподтверждёнными или вне scope согласно подробной странице ключей.
 
 ## Как добавлять новые результаты тестов
 
