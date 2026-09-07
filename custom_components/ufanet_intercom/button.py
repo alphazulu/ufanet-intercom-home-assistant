@@ -6,7 +6,7 @@ from typing import Any
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -19,6 +19,17 @@ from .key_enrollment import (
     KEY_ENROLLMENT_WINDOW_SECONDS,
     async_start_physical_key_enrollment,
 )
+
+
+def _known_key_capable_ids(key_coordinator: Any) -> set[int]:
+    """Return only positively known key-capable intercom IDs."""
+    if key_coordinator is None:
+        return set()
+    if bool(getattr(key_coordinator, "capability_known", False)):
+        values = getattr(key_coordinator, "supported_skud_ids", set())
+        return {int(value) for value in values}
+    data = getattr(key_coordinator, "data", None)
+    return {int(value) for value in data} if isinstance(data, dict) else set()
 
 
 async def async_setup_entry(
@@ -54,17 +65,6 @@ async def async_setup_entry(
             # the relays array is empty (validated with a real intercom).
             entities.append(UfanetOpenDoorButton(coordinator, api, skud, 1, None))
 
-    # The key-passage coordinator contains only intercom IDs for which Ufanet
-    # advertised physical-key recording support during its successful refresh.
-    # Do not expose enrollment on unknown/unsupported intercoms.
-    key_passage_coordinator = runtime.get("key_passage_coordinator")
-    key_data = getattr(key_passage_coordinator, "data", None)
-    if isinstance(key_data, dict):
-        for skud_id in sorted(key_data):
-            skud = coordinator.data.get(int(skud_id))
-            if skud is not None:
-                entities.append(UfanetPhysicalKeyEnrollmentButton(coordinator, api, skud))
-
     controllers: dict[int, UfanetArchiveController] = runtime["archive_controllers"]
     for skud_id, controller in controllers.items():
         skud = coordinator.data.get(skud_id)
@@ -79,6 +79,39 @@ async def async_setup_entry(
         )
 
     async_add_entities(entities)
+
+    # Capability discovery is independent from passage history. Add enrollment
+    # buttons from the positive capability set and also after a later recovery,
+    # so a transient startup failure cannot remove the feature for the session.
+    key_passage_coordinator = runtime.get("key_passage_coordinator")
+    added_key_ids: set[int] = set()
+
+    @callback
+    def _add_key_enrollment_buttons() -> None:
+        new_ids = [
+            skud_id
+            for skud_id in sorted(_known_key_capable_ids(key_passage_coordinator))
+            if skud_id in coordinator.data and skud_id not in added_key_ids
+        ]
+        if not new_ids:
+            return
+        added_key_ids.update(new_ids)
+        async_add_entities(
+            [
+                UfanetPhysicalKeyEnrollmentButton(
+                    coordinator,
+                    api,
+                    coordinator.data[skud_id],
+                )
+                for skud_id in new_ids
+            ]
+        )
+
+    _add_key_enrollment_buttons()
+    if key_passage_coordinator is not None:
+        entry.async_on_unload(
+            key_passage_coordinator.async_add_listener(_add_key_enrollment_buttons)
+        )
 
 
 class UfanetOpenDoorButton(ButtonEntity):
