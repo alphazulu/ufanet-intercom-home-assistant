@@ -72,9 +72,9 @@ async def async_setup_entry(
         )
 
     _add_supported_passage_entities()
-    entry.async_on_unload(
-        passage_coordinator.async_add_listener(_add_supported_passage_entities)
-    )
+    passage_listener = getattr(passage_coordinator, "async_add_listener", None)
+    if callable(passage_listener):
+        entry.async_on_unload(passage_listener(_add_supported_passage_entities))
 
     if analytics_coordinator is None:
         return
