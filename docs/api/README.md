@@ -18,7 +18,7 @@ Every endpoint or behavior should carry one of these labels:
 
 When new behavior is tested, update the relevant page and move the label toward **Confirmed** only when there is direct evidence. For state-changing endpoints, an HTTP 200 alone is not enough: document separately whether the expected side effect was actually verified. Validation code and green CI alone do not promote an evidence label.
 
-Current example: the live physical-key wire field `external_id` is Confirmed as the selector used by the Android client for per-key passage filtering, but its interpretation as the number printed on the physical key is still **Experimental**.
+Current physical-key evidence: `external_id` is **Confirmed** as the backend selector used for per-key passage filtering. A direct comparison showed that it does **not** match the number printed on the tested physical key, so the former Experimental public key-number interpretation was removed rather than promoted.
 
 ## Architecture
 
@@ -28,7 +28,7 @@ The integration currently uses three API layers:
    - contract authentication and token refresh;
    - intercom/SKUD discovery and door control;
    - call history;
-   - physical keys: confirmed capability/non-empty list/history, selected-key passage filtering, plus validation-only enrollment and opaque-ref rename flows;
+   - physical keys: confirmed capability/non-empty list/history and selected-key passage filtering, plus validation-only enrollment and opaque-ref rename flows;
    - guest/shared-access management;
    - FCM registration and authorized-session security management;
    - Confirmed `reason=sip` as the low-latency call signal and Observed `reason=key_add` as physical-key enrollment completion.
@@ -72,7 +72,7 @@ Important distinction:
 - [UCAMS camera analytics](analytics.md)
 - [Archive](archive.md)
 - [Call events/history](calls.md)
-- [Physical keys and passage history](keys.md) — confirmed non-empty inventory/history, experimental key-number interpretation, validation-only enrollment/FCM completion/opaque-ref rename, and the dedicated release gate.
+- [Physical keys and passage history](keys.md) — confirmed non-empty inventory/history and private `external_id` history selection, validation-only enrollment/FCM completion/opaque-ref rename, and the dedicated release gate. The tested provider identifiers are not presented as the printed physical-key number.
 - [FCM / push notifications](fcm.md)
 - [Guest and shared access](guests.md)
 - [Observed data models](models.md)
@@ -103,4 +103,4 @@ For every newly tested endpoint, record:
 
 Update both the detailed page and [STATUS.md](STATUS.md) in the same change, and update user-facing documentation/CHANGELOG when Home Assistant behavior changes.
 
-Never commit real passwords, JWTs, refresh tokens, guest tokens, tokenized media URLs, real physical-key provider IDs or `external_id`/key-number values, exact private addresses, camera/event identifiers from a live account, raw event history, or other account-specific secrets.
+Never commit real passwords, JWTs, refresh tokens, guest tokens, tokenized media URLs, physical-key provider IDs or `external_id` values, exact private addresses, camera/event identifiers from a live account, raw event history, or other account-specific secrets.
