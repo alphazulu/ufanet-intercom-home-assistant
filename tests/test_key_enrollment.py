@@ -55,7 +55,10 @@ async def test_button_is_exposed_only_for_key_recording_capable_intercoms() -> N
         last_update_success=True,
         async_add_listener=MagicMock(return_value=lambda: None),
     )
-    key_coordinator = SimpleNamespace(data={7: {"key_count": 0, "last_passage_at": None}})
+    key_coordinator = SimpleNamespace(
+        data={7: {"key_count": 0, "last_passage_at": None}},
+        async_add_listener=MagicMock(return_value=lambda: None),
+    )
     runtime = {
         "coordinator": coordinator,
         "api": SimpleNamespace(),
@@ -63,7 +66,7 @@ async def test_button_is_exposed_only_for_key_recording_capable_intercoms() -> N
         "archive_controllers": {},
     }
     hass = SimpleNamespace(data={DOMAIN: {"entry": runtime}})
-    entry = SimpleNamespace(entry_id="entry")
+    entry = SimpleNamespace(entry_id="entry", async_on_unload=MagicMock())
     added: list = []
 
     await async_setup_entry(hass, entry, lambda entities: added.extend(entities))
@@ -73,6 +76,7 @@ async def test_button_is_exposed_only_for_key_recording_capable_intercoms() -> N
     ]
     assert len(enrollment) == 1
     assert enrollment[0].skud_id == 7
+    entry.async_on_unload.assert_called_once()
 
 
 @pytest.mark.asyncio
