@@ -30,8 +30,8 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 The `codex/combined-validation` branch contains unreleased notification-action and
 physical-key enrollment/management work. The branch is being prepared as the basis
 for a future **0.31.0** release, but it remains **validation-only**: it must not be
-merged, tagged or published until the hard live-validation gates in PR #15 are
-completed or explicitly reviewed/waived.
+merged, tagged or published until the remaining hard live-validation gates in PR #15
+are completed or explicitly reviewed/waived.
 
 The installed integration version intentionally remains `0.30.0` until the exact
 release-candidate commit is approved for the synchronized version/cache-bust bump.
@@ -43,6 +43,10 @@ Already live-validated on the development Home Assistant installation:
 - notification **Open door** action physically opening the configured door;
 - **View camera** opening More Info for the selected live camera;
 - timeout updating the existing notification in place and removing the stale door action;
+- successful **Open door** replacing the same notification without a duplicate or stale door action;
+- a second real call superseding the first pending notification/action;
+- fresh real-call notification metadata matching the expected device/location/local time;
+- notification cross-device runtime guards reviewed separately; the unavailable second-Ufanet-device negative live test is explicitly waived, while the safety invariant remains in force;
 - combined notification + physical-key build loading without observed regression;
 - physical-key capability discovery;
 - empty and non-empty physical-key inventory;
@@ -50,17 +54,24 @@ Already live-validated on the development Home Assistant installation:
 - non-empty passage history with live item schema `key:str`, `key_name:str`, `time_passage:int`;
 - selected-key history filtering through `filters.key=<external_id>`;
 - Home Assistant/Lovelace rendering one real key and passage timestamps after selecting that key;
-- a direct comparison showing that the printed physical-key number does **not** match the candidate identifier values returned by the server, while `external_id` still selects the correct updating history for that same key.
+- a direct comparison showing that the printed physical-key number does **not** match the candidate identifier values returned by the server, while `external_id` still selects the correct updating history for that same key;
+- controlled physical-key rename through `/api/v4/key/edit/`;
+- eventual-consistent rename read-back with one provider write followed by bounded read-only verification retries;
+- automatic rename verification without requiring a manual refresh;
+- repeated dashboard switches, normal reloads and hard refreshes without reproducing the former Lovelace **Configuration error**.
 
-That last test resolves the key-number question: `external_id` is useful internally
-for per-key history, but it is **not** the printed number of the tested physical key.
-The previously experimental public `number` field has therefore been removed from
-`list_physical_keys` and the KEYS UI. Provider identifiers remain private runtime data.
+The key-number test resolves the identifier question: `external_id` is useful
+internally for per-key history, but it is **not** the printed number of the tested
+physical key. The previously experimental public `number` field has therefore been
+removed from `list_physical_keys` and the KEYS UI. Provider identifiers remain
+private runtime data.
 
-Still mandatory before release: the remaining real-call race/mismatch/metadata
-checks, controlled live key rename, full registration of a **new unregistered
-physical key** including the real `reason=key_add` push and immediate inventory
-refresh, and enrollment/rename error behavior. See
+The Android notification block and physical-key rename success path have no remaining
+hard release gate. The remaining functional blocker is the registration of a **new
+unregistered physical key**: real `auto_collect/enable`, physical registration,
+real `reason=key_add`, FCM-triggered inventory refresh, privacy-safe enrollment event,
+and live enrollment error semantics. iOS notification actions are not live-tested and
+are not claimed as Confirmed. See
 [Home Assistant call notifications](docs/notifications.md),
 [Physical keys and passage history](docs/api/keys.md), and the
 [draft 0.31.0 release notes](docs/releases/0.31.0-draft.md).
@@ -202,10 +213,13 @@ to the same Home Assistant device. Membership is revalidated immediately before
 to the configured dashboard URI. Because one Ufanet device can expose live and
 archive cameras, select the live entity explicitly.
 
-Android has been live-tested. The payload uses the shared Android/iOS Companion
-action schema, but iOS action delivery has not been live-tested and is not claimed
-as such. Full safety behavior and remaining gates are documented in
-[docs/notifications.md](docs/notifications.md).
+Android has been live-tested through the complete current release-validation action
+lifecycle, including second-call supersession and post-open replacement. The only
+unperformed notification case is a negative test requiring a second Ufanet device;
+that live test was explicitly waived after the documented targeted security review,
+without waiving the same-device/cross-device runtime guards. The payload uses the
+shared Android/iOS Companion action schema, but iOS action delivery has not been
+live-tested and is not claimed as such. See [docs/notifications.md](docs/notifications.md).
 
 ## Physical keys and passage events
 
@@ -223,7 +237,7 @@ prevents duplicate passage delivery after reloads. Public passage events contain
 only `key_name` and `occurred_at`; private provider identifiers and full history are
 not exposed.
 
-Read-only key and passage behavior is now live-confirmed on a non-empty account:
+Read-only key and passage behavior is live-confirmed on a non-empty account:
 
 - `/api/v4/key/list/` returned a real key with `id`, `external_id`, `name`, `create_date`, and `devices`;
 - `/api/v4/key/skud/<id>/key/pass_history/` returned real passage rows;
@@ -250,10 +264,12 @@ raw message text and push payload are not published. The real `key_add` path rem
 
 `ufanet_intercom.rename_physical_key` accepts only `key_ref` and a new name. It
 refreshes inventory before mutation, resolves the ref only inside the selected
-intercom, calls the Android-observed edit contract internally, then performs a
-second refresh. It reports success only when the requested new name is observed
-after that refresh. The provider rename endpoint itself remains **Observed/pending
-live validation** even though the safety/read-back implementation and CI are present.
+intercom, and sends the provider edit request once. Controlled live testing confirmed
+that `/api/v4/key/edit/` really changes the selected key name. Because Ufanet inventory
+is eventually consistent, the service performs bounded read-only refresh retries and
+reports success only after the requested name is observed; this automatic verification
+path was also live-tested successfully. The integration does not automatically retry
+the state-changing POST.
 
 The **KEYS** tab uses these response services. **Add key** invokes only the same-device
 Home Assistant enrollment button and shows the observed 60-second countdown. Rename
@@ -287,7 +303,7 @@ supports open/download/delete plus configured retention/size cleanup.
 - Opening the door is a real physical action; the card/notification require explicit user interaction and notification actions add same-device guards.
 - Starting physical-key enrollment changes access-control state and must not be used as a health check or automatic action.
 - Provider physical-key IDs, including `external_id`, remain private and are not exposed in public service responses, sensor attributes, events or diagnostics.
-- Public physical-key management uses only an intercom-scoped opaque `key_ref`; rename refreshes inventory before mutation and verifies the result with a second refresh after POST.
+- Public physical-key management uses only an intercom-scoped opaque `key_ref`; rename refreshes inventory before mutation, sends one provider write, and verifies the result through bounded read-only refresh retries.
 - Tokenized call-media URLs remain internal runtime data; only the generated last-call JPEG is cached for the image entity.
 - Authorized-session management exposes opaque refs rather than raw provider FCM device IDs and protects locally provable Home Assistant registrations.
 - Motion analytics stores provider cursor data only in private storage and publishes only normalized timestamps.
