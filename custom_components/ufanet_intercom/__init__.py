@@ -64,6 +64,9 @@ _ARCHIVE_CARD_MODULE_URL = f"{_ARCHIVE_CARD_URL}?v=0.30.0"
 _PHYSICAL_KEYS_CARD_PATH = _FRONTEND_DIR / "ufanet-physical-keys-card.js"
 _PHYSICAL_KEYS_CARD_URL = "/ufanet_intercom/ufanet-physical-keys-card.js"
 _PHYSICAL_KEYS_CARD_MODULE_URL = f"{_PHYSICAL_KEYS_CARD_URL}?v=0.30.0"
+_KEY_HISTORY_CARD_PATH = _FRONTEND_DIR / "ufanet-key-history-card.js"
+_KEY_HISTORY_CARD_URL = "/ufanet_intercom/ufanet-key-history-card.js"
+_KEY_HISTORY_CARD_MODULE_URL = f"{_KEY_HISTORY_CARD_URL}?v=0.30.0"
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -172,6 +175,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         _path_is_file,
         _PHYSICAL_KEYS_CARD_PATH,
     )
+    key_history_card_exists = await hass.async_add_executor_job(
+        _path_is_file,
+        _KEY_HISTORY_CARD_PATH,
+    )
 
     if archive_card_exists:
         static_paths = [
@@ -186,6 +193,14 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 StaticPathConfig(
                     _PHYSICAL_KEYS_CARD_URL,
                     str(_PHYSICAL_KEYS_CARD_PATH),
+                    False,
+                )
+            )
+        if key_history_card_exists:
+            static_paths.append(
+                StaticPathConfig(
+                    _KEY_HISTORY_CARD_URL,
+                    str(_KEY_HISTORY_CARD_PATH),
                     False,
                 )
             )
@@ -211,11 +226,29 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 _PHYSICAL_KEYS_CARD_PATH,
             )
 
+        if key_history_card_exists:
+            history_registered = await _async_ensure_lovelace_module(
+                hass,
+                _KEY_HISTORY_CARD_MODULE_URL,
+            )
+            if not history_registered:
+                frontend.add_extra_js_url(hass, _KEY_HISTORY_CARD_MODULE_URL)
+        else:
+            _LOGGER.warning(
+                "Ufanet key-history card extension was not found at %s",
+                _KEY_HISTORY_CARD_PATH,
+            )
+
         _LOGGER.info("Ufanet archive card resource URL: %s", _ARCHIVE_CARD_MODULE_URL)
         if physical_keys_card_exists:
             _LOGGER.info(
                 "Ufanet physical-key card extension URL: %s",
                 _PHYSICAL_KEYS_CARD_MODULE_URL,
+            )
+        if key_history_card_exists:
+            _LOGGER.info(
+                "Ufanet key-history card extension URL: %s",
+                _KEY_HISTORY_CARD_MODULE_URL,
             )
     else:
         _LOGGER.warning(
