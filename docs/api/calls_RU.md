@@ -86,5 +86,7 @@ notification blueprint. Картинка берётся из приватной 
 `/api/image_proxy/`, а action открытия двери вызывает выбранную Home Assistant
 button entity, а не вставляет provider endpoint/credential в notification payload.
 
-Подробная последовательность, Android live-validation и оставшиеся release gates:
-[../notifications_RU.md](../notifications_RU.md).
+См. [../notifications_RU.md](../notifications_RU.md) для последовательности доставки,
+Android live-validation, same-device safety model и задокументированного waiver для
+недоступного отрицательного live-теста со вторым Ufanet device. У Android notification
+block больше нет hard release gate; iOS action delivery не live-проверен.
