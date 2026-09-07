@@ -90,7 +90,7 @@ def test_physical_key_ref_is_stable_scoped_and_opaque() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_physical_keys_exposes_user_number_but_hides_internal_provider_id(hass) -> None:
+async def test_list_physical_keys_hides_all_provider_identifiers(hass) -> None:
     _entry, device, api, coordinator = _install_runtime(hass)
     api.physical_key_inventory = (
         _key(
@@ -117,13 +117,14 @@ async def test_list_physical_keys_exposes_user_number_but_hides_internal_provide
     )
 
     assert result["count"] == 1
-    assert result["keys"][0]["number"] == "001234567890"
     assert result["keys"][0]["name"] == "Front door"
     assert result["keys"][0]["created_at"] == "2023-11-14T22:15:00+00:00"
     key_ref = result["keys"][0]["key_ref"]
     assert re.fullmatch(r"[0-9a-f]{24}", key_ref)
+    assert "number" not in result["keys"][0]
     assert "key_id" not in str(result)
     assert "external_id" not in str(result)
+    assert "001234567890" not in str(result)
     assert key_ref != "41"
     coordinator.async_request_refresh.assert_awaited_once()
 
