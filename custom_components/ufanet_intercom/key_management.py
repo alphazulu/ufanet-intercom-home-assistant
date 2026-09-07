@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from datetime import datetime, timezone
 from typing import Any
@@ -20,6 +21,9 @@ from .services import _resolve_device_runtime
 
 KEY_REF_LENGTH = 24
 MAX_KEY_NAME_LENGTH = 128
+# The live provider can acknowledge a rename before /api/v4/key/list/ reflects it.
+# Retry only the read-back; the state-changing POST is never repeated automatically.
+RENAME_VERIFY_DELAYS = (0.0, 0.5, 1.0, 2.0, 4.0)
 
 LIST_PHYSICAL_KEYS_SCHEMA = vol.Schema({vol.Required(ATTR_DEVICE_ID): cv.string})
 RENAME_PHYSICAL_KEY_SCHEMA = vol.Schema(
@@ -130,6 +134,51 @@ async def async_rename_physical_key(
         "/api/v4/key/edit/",
         json_body={"key_id": int(key_id), "name": new_name},
     )
+
+
+async def _async_verify_renamed_key(
+    *,
+    api: UfanetApi,
+    coordinator: Any,
+    entry_id: str,
+    skud_id: int,
+    requested_ref: str,
+    new_name: str,
+) -> bool:
+    """Wait for eventual-consistent inventory read-back after one rename POST.
+
+    The provider was live-observed returning from the rename request while the
+    immediately refreshed inventory still held the old name; a later manual
+    refresh showed the new one. This helper therefore retries only GET/list-side
+    refreshes. It must never repeat the rename POST.
+    """
+    for delay in RENAME_VERIFY_DELAYS:
+        if delay:
+            await asyncio.sleep(delay)
+
+        try:
+            await coordinator.async_request_refresh()
+        except Exception:  # noqa: BLE001 - post may already have changed remote state
+            continue
+        if not bool(getattr(coordinator, "last_update_success", False)):
+            continue
+
+        refreshed_inventory = getattr(api, "physical_key_inventory", None)
+        if not isinstance(refreshed_inventory, (tuple, list)):
+            continue
+        try:
+            refreshed = resolve_physical_key(
+                entry_id,
+                skud_id,
+                refreshed_inventory,
+                requested_ref,
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+        if refreshed is not None and refreshed["name"] == new_name:
+            return True
+
+    return False
 
 
 async def _async_fresh_key_inventory(
@@ -245,36 +294,17 @@ def async_setup_key_services(hass: HomeAssistant) -> None:
         except UfanetApiError as err:
             raise HomeAssistantError("Ufanet physical-key rename request failed") from err
 
-        try:
-            await coordinator.async_request_refresh()
-        except Exception as err:  # noqa: BLE001 - state may have changed remotely
+        verified = await _async_verify_renamed_key(
+            api=api,
+            coordinator=coordinator,
+            entry_id=entry.entry_id,
+            skud_id=skud_id,
+            requested_ref=requested_ref,
+            new_name=new_name,
+        )
+        if not verified:
             raise HomeAssistantError(
-                "Physical key may have been renamed, but inventory refresh failed"
-            ) from err
-        if not bool(getattr(coordinator, "last_update_success", False)):
-            raise HomeAssistantError(
-                "Physical key may have been renamed, but inventory refresh failed"
-            )
-
-        refreshed_inventory = getattr(api, "physical_key_inventory", None)
-        if not isinstance(refreshed_inventory, (tuple, list)):
-            raise HomeAssistantError(
-                "Physical key may have been renamed, but refreshed inventory is unavailable"
-            )
-        try:
-            refreshed = resolve_physical_key(
-                entry.entry_id,
-                skud_id,
-                refreshed_inventory,
-                requested_ref,
-            )
-        except (KeyError, TypeError, ValueError) as err:
-            raise HomeAssistantError(
-                "Physical key may have been renamed, but refreshed inventory is invalid"
-            ) from err
-        if refreshed is None or refreshed["name"] != new_name:
-            raise HomeAssistantError(
-                "Ufanet returned from key rename, but the refreshed inventory did not confirm the new name"
+                "Physical key may have been renamed, but repeated inventory read-back did not confirm the new name"
             )
 
         return {
