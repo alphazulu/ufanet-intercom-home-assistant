@@ -39,11 +39,11 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up intercom buttons."""
-    # Account-level authorization/FCM actions are registered here because the
-    # button platform is guaranteed to be loaded for every integration entry.
-    # Registration is idempotent and the handlers resolve the selected HA device
-    # back to its exact config entry before touching provider state.
-    async_setup_authorized_device_services(hass)
+    # Account-level authorization/FCM actions are registered once in a real
+    # Home Assistant runtime. Isolated entity unit tests intentionally use a
+    # minimal hass stub with no service registry.
+    if getattr(hass, "services", None) is not None:
+        async_setup_authorized_device_services(hass)
 
     runtime = hass.data[DOMAIN][entry.entry_id]
     coordinator: UfanetCoordinator = runtime["coordinator"]
