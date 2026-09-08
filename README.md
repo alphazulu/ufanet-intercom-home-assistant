@@ -17,7 +17,7 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 - Physical-key support for capable intercoms: read-only count/inventory, latest passage timestamp, passage EventEntity/device trigger, validation-only **Add physical key**, privacy-safe list/history/rename services using opaque `key_ref` values, and a **KEYS** Lovelace tab with selected-key passage history.
 - Read-only UCAMS `motion_alarm` analytics with a **Motion detected** event entity, `ufanet_intercom_motion` event, visual device trigger and archive timeline markers.
 - Selectable call updates: polling by default or experimental low-latency FCM with safety polling.
-- Privacy-safe FCM authorization/session inventory and explicit guarded session revocation.
+- Privacy-safe authorized-device management with canonical `logout_device` revocation, Home Assistant ownership protection, and a separate advanced FCM cleanup surface using opaque refs rather than raw provider IDs/tokens.
 - Temporary guest keys and accepted shared-access management.
 - Manual archive export to MP4 using `ffmpeg -c copy` into Home Assistant Media.
 - Persistent export media library with per-camera retention and size cleanup.
@@ -48,6 +48,10 @@ Already live-validated on the development Home Assistant installation:
 - fresh real-call notification metadata matching the expected device/location/local time;
 - notification cross-device runtime guards reviewed separately; the unavailable second-Ufanet-device negative live test is explicitly waived, while the safety invariant remains in force;
 - combined notification + physical-key build loading without observed regression;
+- a plain JWT controller with no FCM registration listing the provider authorized-device inventory and revoking a different test device through `logout_device`;
+- target authorization behavior after `logout_device`: existing access JWT remained accepted while target refresh JWT was rejected;
+- direct `DELETE /api/v0/fcm/` without `logout_device` removing a disposable device row and likewise invalidating the tested target refresh JWT while its existing access JWT remained temporarily usable;
+- the **DEVICES / УСТРОЙСТВА** tab using canonical authorization services, plus the separate collapsed advanced FCM cleanup section; test entries were removed successfully and the locally owned Home Assistant registration remained protected;
 - physical-key capability discovery;
 - empty and non-empty physical-key inventory;
 - non-empty `/api/v4/key/list/` item fields (`id`, `external_id`, `name`, `create_date`, `devices`);
@@ -60,21 +64,15 @@ Already live-validated on the development Home Assistant installation:
 - automatic rename verification without requiring a manual refresh;
 - repeated dashboard switches, normal reloads and hard refreshes without reproducing the former Lovelace **Configuration error**.
 
+The authorization tests also establish an important terminology boundary: `authorized_devices` is the provider device/registration inventory used by the official active-device UI, but it is **not an exhaustive independent list of every JWT session**. A row can disappear after FCM unregister while an already-issued access JWT remains temporarily usable.
+
 The key-number test resolves the identifier question: `external_id` is useful
 internally for per-key history, but it is **not** the printed number of the tested
 physical key. The previously experimental public `number` field has therefore been
 removed from `list_physical_keys` and the KEYS UI. Provider identifiers remain
 private runtime data.
 
-The Android notification block and physical-key rename success path have no remaining
-hard release gate. The remaining functional blocker is the registration of a **new
-unregistered physical key**: real `auto_collect/enable`, physical registration,
-real `reason=key_add`, FCM-triggered inventory refresh, privacy-safe enrollment event,
-and live enrollment error semantics. iOS notification actions are not live-tested and
-are not claimed as Confirmed. See
-[Home Assistant call notifications](docs/notifications.md),
-[Physical keys and passage history](docs/api/keys.md), and the
-[draft 0.31.0 release notes](docs/releases/0.31.0-draft.md).
+The Android notification block, authorized-device/advanced-FCM management block, and physical-key rename success path have no remaining hard release gate. The remaining functional blocker is the registration of a **new unregistered physical key**: real `auto_collect/enable`, physical registration, real `reason=key_add`, FCM-triggered inventory refresh, privacy-safe enrollment event, and live enrollment error semantics. iOS notification actions are not live-tested and are not claimed as Confirmed. See [Home Assistant call notifications](docs/notifications.md), [FCM / device authorization](docs/api/fcm.md), [Physical keys and passage history](docs/api/keys.md), and the [draft 0.31.0 release notes](docs/releases/0.31.0-draft.md).
 
 ## Unofficial API documentation
 
@@ -82,6 +80,7 @@ The repository contains a maintained reverse-engineered reference for the Ufanet
 
 - [API reference](docs/api/README.md)
 - [API verification matrix](docs/api/STATUS.md)
+- [Authentication and device authorization](docs/api/auth.md)
 - [Physical keys and passage history](docs/api/keys.md)
 - [FCM / push notifications](docs/api/fcm.md)
 - [Security considerations](docs/api/security.md)
@@ -142,15 +141,11 @@ The validation card contains six tabs:
 - **LIVE** — video, door control, latest call and jump-to-call recording.
 - **АРХИВ** — timeline, call/motion markers, MP4 export and export media library.
 - **ГОСТИ** — shared invitations, accepted guest access, temporary keys and revoke actions.
-- **УСТРОЙСТВА** — authorized Ufanet sessions, Home Assistant ownership protection, targeted revocation and guarded bulk revocation.
+- **УСТРОЙСТВА / DEVICES** — provider authorized-device inventory, Home Assistant ownership protection, canonical targeted/bulk `logout_device` revocation, plus a collapsed advanced FCM section for direct `DELETE /api/v0/fcm/` cleanup with an explicit refresh-authorization warning.
 - **KEYS / КЛЮЧИ** — fresh physical-key inventory, selected-key passage history, explicit 60-second new-key enrollment and rename through opaque `key_ref`; provider IDs and a guessed printed-key number are not exposed, and key deletion is absent.
 - **ДИАГНОСТИКА** — token-free runtime health, polling, FCM authorization state, UCAMS/archive status and autosave state.
 
-The **KEYS** tab is provided by packaged validation extensions. The integration
-registers/loads them automatically through the Lovelace resource mechanism and they
-wait for `custom:ufanet-intercom-card`, so no separate manual Resource entry is
-required for the extensions. The existing main card resource remains configured as
-before. The visual editor also allows `keys` as `default_tab` on the validation branch.
+The KEYS tab and the validation authorized-device behavior are provided by packaged frontend extensions. The integration registers/loads them automatically and the extensions wait for `custom:ufanet-intercom-card`, so no separate manual Resource entries are required. The existing main card resource remains configured as before.
 
 ## Options
 
@@ -165,61 +160,29 @@ YAML values on a particular card remain local overrides where supported.
 - **`polling` (default)** reads `call-history` at the configured interval and needs no additional setup.
 - **`fcm` (experimental)** uses a local headless FCM receiver as a low-latency wake-up signal. `call-history` remains authoritative. Normal polling stays active until the listener confirms MCS connectivity and is restored automatically on disconnect; while FCM is healthy, a 300-second safety poll remains active.
 
-The FCM watchdog distinguishes task startup from an established transport, lets the
-library handle short reconnects, and recreates a terminal/stalled listener with
-backoff. Repairs warnings cover prolonged listener failure, recovered private state
-and pending unregister cleanup without exposing credentials or push payloads.
+The FCM watchdog distinguishes task startup from an established transport, lets the library handle short reconnects, and recreates a terminal/stalled listener with backoff. Repairs warnings cover prolonged listener failure, recovered private state and pending unregister cleanup without exposing credentials or push payloads.
 
-FCM configuration values are not distributed by this repository. Advanced users
-extract them locally from their own decompiled copy of the official Android app:
+FCM configuration values are not distributed by this repository. Advanced users extract them locally from their own decompiled copy of the official Android app:
 
 ```bash
 python tools/research/fcm_probe_py/extract_firebase_config.py /path/to/decompiled-app -o firebase_config.json
 ```
 
-Copy the result to `/config/ufanet_intercom/firebase_config.json`, choose `fcm`, and
-keep the default relative path `ufanet_intercom/firebase_config.json`. The
-integration reads the file but does not copy Firebase values into ConfigEntry or
-diagnostics. See [FCM API notes](docs/api/fcm.md).
+Copy the result to `/config/ufanet_intercom/firebase_config.json`, choose `fcm`, and keep the default relative path `ufanet_intercom/firebase_config.json`. The integration reads the file but does not copy Firebase values into ConfigEntry or diagnostics. See [FCM API notes](docs/api/fcm.md).
 
 ## Incoming-call automations and Companion notifications
 
-Every intercom with call history has an **Incoming call** binary sensor and matching
-visual device trigger. A native doorbell EventEntity represents the same confirmed
-call with Home Assistant's `ring` event type.
+Every intercom with call history has an **Incoming call** binary sensor and matching visual device trigger. A native doorbell EventEntity represents the same confirmed call with Home Assistant's `ring` event type.
 
-The **Last call image** entity privately downloads the tokenized provider preview,
-decodes a JPEG through local `ffmpeg` using an anonymous seekable source, and keeps
-only the JPEG in memory. Tokenized preview/archive URLs are not published through
-entity state or `ufanet_intercom_call`.
+The **Last call image** entity privately downloads the tokenized provider preview, decodes a JPEG through local `ffmpeg` using an anonymous seekable source, and keeps only the JPEG in memory. Tokenized preview/archive URLs are not published through entity state or `ufanet_intercom_call`.
 
-The recommended blueprint is
-[`incoming_call_notification.yaml`](blueprints/automation/ufanet_intercom/incoming_call_notification.yaml).
-Select the intercom, Companion device, matching **Last call** / **Last call image**,
-and optionally:
+The recommended blueprint is [`incoming_call_notification.yaml`](blueprints/automation/ufanet_intercom/incoming_call_notification.yaml). Select the intercom, Companion device, matching **Last call** / **Last call image**, and optionally the matching live camera, exact same-device **Open door** button, image delay, action timeout, dashboard fallback URI and Android notification channel.
 
-- the matching live `camera.*` entity;
-- the exact same-device **Open door** button;
-- image delay, action timeout, dashboard fallback URI and Android notification channel.
+The blueprint sends text immediately, then replaces the same stable-tag notification with the private HA image when ready. On a real call the optional **Open door** action is accepted only for the configured timeout and only when the button belongs to the same Home Assistant device. Membership is revalidated immediately before `button.press`. A manual blueprint run deliberately has **no physical door action**.
 
-The blueprint sends text immediately, then replaces the same stable-tag notification
-with the private HA image when ready. On a real call the optional **Open door**
-action is accepted only for the configured timeout and only when the button belongs
-to the same Home Assistant device. Membership is revalidated immediately before
-`button.press`. A manual blueprint run deliberately has **no physical door action**.
+**View camera** opens the selected live camera through Home Assistant More Info using `more-info-entity-id`; if the selection is missing/mismatched, navigation falls back to the configured dashboard URI. Because one Ufanet device can expose live and archive cameras, select the live entity explicitly.
 
-**View camera** opens the selected live camera through Home Assistant More Info using
-`more-info-entity-id`; if the selection is missing/mismatched, navigation falls back
-to the configured dashboard URI. Because one Ufanet device can expose live and
-archive cameras, select the live entity explicitly.
-
-Android has been live-tested through the complete current release-validation action
-lifecycle, including second-call supersession and post-open replacement. The only
-unperformed notification case is a negative test requiring a second Ufanet device;
-that live test was explicitly waived after the documented targeted security review,
-without waiving the same-device/cross-device runtime guards. The payload uses the
-shared Android/iOS Companion action schema, but iOS action delivery has not been
-live-tested and is not claimed as such. See [docs/notifications.md](docs/notifications.md).
+Android has been live-tested through the complete current release-validation action lifecycle, including second-call supersession and post-open replacement. The only unperformed notification case is a negative test requiring a second Ufanet device; that live test was explicitly waived after the documented targeted security review, without waiving the same-device/cross-device runtime guards. The payload uses the shared Android/iOS Companion action schema, but iOS action delivery has not been live-tested and is not claimed as such. See [docs/notifications.md](docs/notifications.md).
 
 ## Physical keys and passage events
 
@@ -229,13 +192,7 @@ For every intercom advertising key-recording support, the integration creates:
 - **Last key passage** — latest known passage timestamp;
 - **Physical key passage** EventEntity and matching visual device trigger.
 
-The dedicated coordinator polls every 60 seconds. Capability, inventory and passage
-history health are tracked independently: a temporary history failure no longer
-turns a supported intercom into an `unsupported` device. The first successful
-history poll is a baseline and does not replay older passages. A private cursor
-prevents duplicate passage delivery after reloads. Public passage events contain
-only `key_name` and `occurred_at`; private provider identifiers and full history are
-not exposed.
+The dedicated coordinator polls every 60 seconds. Capability, inventory and passage history health are tracked independently: a temporary history failure no longer turns a supported intercom into an `unsupported` device. The first successful history poll is a baseline and does not replay older passages. A private cursor prevents duplicate passage delivery after reloads. Public passage events contain only `key_name` and `occurred_at`; private provider identifiers and full history are not exposed.
 
 Read-only key and passage behavior is live-confirmed on a non-empty account:
 
@@ -246,55 +203,25 @@ Read-only key and passage behavior is live-confirmed on a non-empty account:
 - selecting the key in Lovelace loaded its passage times below the list;
 - the printed number on that physical key did not match the candidate server identifier values, while its `external_id` continued to select the correct updating history.
 
-For management, `ufanet_intercom.list_physical_keys` returns only an opaque `key_ref`,
-`name`, and `created_at`. Both provider `id` and `external_id` remain private. No
-printed-number field is exposed because live testing disproved that interpretation.
+For management, `ufanet_intercom.list_physical_keys` returns only an opaque `key_ref`, `name`, and `created_at`. Both provider `id` and `external_id` remain private. No printed-number field is exposed because live testing disproved that interpretation.
 
-The validation branch also adds **Add physical key** (`mdi:key-plus`) only for
-supported intercoms. It mirrors the Android-observed 60-second
-`auto_collect/enable` flow. A successful button request means only that enrollment
-mode was armed; the new key still has to be presented to the reader within 60
-seconds. The real new-key side effect remains pending live validation.
+The validation branch also adds **Add physical key** (`mdi:key-plus`) only for supported intercoms. It mirrors the Android-observed 60-second `auto_collect/enable` flow. A successful button request means only that enrollment mode was armed; the new key still has to be presented to the reader within 60 seconds. The real new-key side effect remains pending live validation.
 
-The FCM listener recognizes the Android-observed `reason=key_add` completion path.
-It refreshes the key inventory immediately and emits the account-level,
-privacy-minimized `ufanet_intercom_key_enrollment` event. Private provider identifiers,
-raw message text and push payload are not published. The real `key_add` path remains
-**Observed/pending live validation**.
+The FCM listener recognizes the Android-observed `reason=key_add` completion path. It refreshes the key inventory immediately and emits the account-level, privacy-minimized `ufanet_intercom_key_enrollment` event. Private provider identifiers, raw message text and push payload are not published. The real `key_add` path remains **Observed/pending live validation**.
 
-`ufanet_intercom.rename_physical_key` accepts only `key_ref` and a new name. It
-refreshes inventory before mutation, resolves the ref only inside the selected
-intercom, and sends the provider edit request once. Controlled live testing confirmed
-that `/api/v4/key/edit/` really changes the selected key name. Because Ufanet inventory
-is eventually consistent, the service performs bounded read-only refresh retries and
-reports success only after the requested name is observed; this automatic verification
-path was also live-tested successfully. The integration does not automatically retry
-the state-changing POST.
+`ufanet_intercom.rename_physical_key` accepts only `key_ref` and a new name. It refreshes inventory before mutation, resolves the ref only inside the selected intercom, and sends the provider edit request once. Controlled live testing confirmed that `/api/v4/key/edit/` really changes the selected key name. Because Ufanet inventory is eventually consistent, the service performs bounded read-only refresh retries and reports success only after the requested name is observed; this automatic verification path was also live-tested successfully. The integration does not automatically retry the state-changing POST.
 
-The **KEYS** tab uses these response services. **Add key** invokes only the same-device
-Home Assistant enrollment button and shows the observed 60-second countdown. Rename
-requires explicit confirmation and accepts success only when the backend returns
-`verified: true`. Clicking a key loads its privacy-safe passage history below the
-list. No key-delete action exists in the UI. See [docs/api/keys.md](docs/api/keys.md).
+The **KEYS** tab uses these response services. **Add key** invokes only the same-device Home Assistant enrollment button and shows the observed 60-second countdown. Rename requires explicit confirmation and accepts success only when the backend returns `verified: true`. Clicking a key loads its privacy-safe passage history below the list. No key-delete action exists in the UI. See [docs/api/keys.md](docs/api/keys.md).
 
 ## Motion analytics
 
-For cameras that explicitly advertise the live-confirmed `motion_alarm` capability,
-the integration creates a **Motion detected** EventEntity/device trigger and the
-privacy-minimized `ufanet_intercom_motion` bus event. The archive timeline can also
-show read-only motion timestamps. Provider camera/cursor IDs, screenshots,
-recognition data and raw history are not exposed. See
-[docs/api/analytics.md](docs/api/analytics.md).
+For cameras that explicitly advertise the live-confirmed `motion_alarm` capability, the integration creates a **Motion detected** EventEntity/device trigger and the privacy-minimized `ufanet_intercom_motion` bus event. The archive timeline can also show read-only motion timestamps. Provider camera/cursor IDs, screenshots, recognition data and raw history are not exposed. See [docs/api/analytics.md](docs/api/analytics.md).
 
 ## Automatic call recording and local media
 
-Automatic call-video saving is disabled by default. When enabled, a call is exported
-asynchronously after the requested post-call interval is present in UCAMS archive.
-The raw call UUID is hashed before local filename deduplication.
+Automatic call-video saving is disabled by default. When enabled, a call is exported asynchronously after the requested post-call interval is present in UCAMS archive. The raw call UUID is hashed before local filename deduplication.
 
-Manual and automatic MP4 exports are stored under Home Assistant Media in
-`ufanet_intercom/`. The Archive tab lists only exports for the selected camera and
-supports open/download/delete plus configured retention/size cleanup.
+Manual and automatic MP4 exports are stored under Home Assistant Media in `ufanet_intercom/`. The Archive tab lists only exports for the selected camera and supports open/download/delete plus configured retention/size cleanup.
 
 ## Security notes
 
@@ -305,7 +232,7 @@ supports open/download/delete plus configured retention/size cleanup.
 - Provider physical-key IDs, including `external_id`, remain private and are not exposed in public service responses, sensor attributes, events or diagnostics.
 - Public physical-key management uses only an intercom-scoped opaque `key_ref`; rename refreshes inventory before mutation, sends one provider write, and verifies the result through bounded read-only refresh retries.
 - Tokenized call-media URLs remain internal runtime data; only the generated last-call JPEG is cached for the image entity.
-- Authorized-session management exposes opaque refs rather than raw provider FCM device IDs and protects locally provable Home Assistant registrations.
+- Authorized-device management exposes `authorization_ref`; advanced FCM cleanup exposes `fcm_ref`; neither exposes raw provider device IDs or tokens. Both tested destructive paths invalidate the target refresh authorization while an issued access JWT may remain temporarily usable.
 - Motion analytics stores provider cursor data only in private storage and publishes only normalized timestamps.
 
 See [docs/api/security.md](docs/api/security.md) for the detailed boundaries.
@@ -318,25 +245,15 @@ Run the repository self-check before reporting packaging/frontend problems:
 python scripts/release_check.py
 ```
 
-Use either the **ДИАГНОСТИКА** card tab or **Download diagnostics** on the
-integration/device page for privacy-redacted support data.
+Use either the **ДИАГНОСТИКА** card tab or **Download diagnostics** on the integration/device page for privacy-redacted support data.
 
-If local `ffmpeg` is unavailable or last-call JPEG extraction repeatedly fails,
-Home Assistant creates a Repairs warning. Call detection, archive viewing and door
-control remain available; the warning closes automatically after image extraction
-recovers.
+If local `ffmpeg` is unavailable or last-call JPEG extraction repeatedly fails, Home Assistant creates a Repairs warning. Call detection, archive viewing and door control remain available; the warning closes automatically after image extraction recovers.
 
 ## Development / release validation
 
-`python scripts/release_check.py --strict-hacs` plus GitHub CI validates packaging,
-Python/JSON/JavaScript, card method/service references, HACS/Hassfest and release
-version consistency.
+`python scripts/release_check.py --strict-hacs` plus GitHub CI validates packaging, Python/JSON/JavaScript, card method/service references, HACS/Hassfest and release version consistency.
 
-**Green CI does not replace required physical/live validation.** Before tagging a
-release, resolve the active PR's `REQUIRED VALIDATION BEFORE ANY RELEASE` checklist,
-update evidence labels/documents/CHANGELOG, then bump all release-facing versions
-and cache-bust URLs together on the exact release candidate. See
-[PUBLISHING.md](PUBLISHING.md).
+**Green CI does not replace required physical/live validation.** Before tagging a release, resolve the active PR's `REQUIRED VALIDATION BEFORE ANY RELEASE` checklist, update evidence labels/documents/CHANGELOG, then bump all release-facing versions and cache-bust URLs together on the exact release candidate. See [PUBLISHING.md](PUBLISHING.md).
 
 ## License
 
@@ -344,9 +261,7 @@ Licensed under the [MIT License](LICENSE).
 
 Copyright © 2026 [alphazulu](https://github.com/alphazulu).
 
-Commercial use, modification, redistribution, sublicensing, and inclusion in
-proprietary products are permitted. The copyright notice and MIT permission notice
-must be retained in copies or substantial portions of the software.
+Commercial use, modification, redistribution, sublicensing, and inclusion in proprietary products are permitted. The copyright notice and MIT permission notice must be retained in copies or substantial portions of the software.
 
 ## Repository
 
