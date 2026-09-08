@@ -17,14 +17,21 @@ python scripts/release_check.py --strict-hacs
 
 GitHub Actions also runs the release self-check, HACS validation and Home Assistant Hassfest.
 
-The release self-check requires the same version in all release-facing locations:
+The release self-check requires the same version in **all** release-facing locations:
 
 - `custom_components/ufanet_intercom/manifest.json`;
-- `INTEGRATION_VERSION`;
-- Lovelace `CARD_VERSION`;
-- the runtime frontend cache-bust URL;
+- `INTEGRATION_VERSION` in `const.py`;
+- Lovelace `CARD_VERSION` in `ufanet-archive-card.js`;
+- main archive-card cache-bust in `__init__.py`;
+- physical-keys extension cache-bust in `__init__.py`;
+- key-history extension cache-bust in `__init__.py`;
+- authorized-devices extension cache-bust in `authorized_devices.py`;
 - the Lovelace resource URL documented in `README.md`;
 - the Lovelace resource URL documented in `README_RU.md`.
+
+The release gate also parses **every packaged frontend JavaScript file** with `node --check` when Node.js is available and verifies `_callResponseService(...)` references from all frontend files against `services.yaml`. The base-card class method-reference check remains scoped to the base card because packaged extensions intentionally monkey-patch the prototype.
+
+This broader check is important for 0.31.0: validation introduced packaged KEYS/history and authorized-device extensions, so a stale extension cache-bust must fail release preparation rather than silently shipping an older browser resource.
 
 When a release adds or confirms private API behavior, update the detailed EN/RU API page, the EN/RU verification matrix, relevant data-model/example pages, user-facing feature documentation and CHANGELOG in the same release work. Do not upgrade an evidence label to **Confirmed** without a live test.
 
@@ -44,6 +51,18 @@ Do not treat (1) or (2) alone as proof of (3). When the integration has a post-w
 
 The combined validation branch is in **release-preparation documentation freeze**, not release authorization.
 
+Already live-confirmed for the authorization/device-management path:
+
+- a plain `auth_by_contract` JWT controller with no FCM registration can read `POST /api/v4/fcm_device/authorized_devices/`;
+- `authorized_devices` is provider device/registration inventory, not an exhaustive independent inventory of every JWT;
+- a plain-JWT controller can revoke a different test device using `logout_device`;
+- after that revoke the target row disappears, the target's issued access JWT can remain valid, and its refresh JWT is rejected;
+- direct `DELETE /api/v0/fcm/` without `logout_device` also removed a disposable target row and invalidated its tested refresh JWT while its existing access JWT remained temporarily usable;
+- the independent observer/controller authorization survived both controlled target tests;
+- canonical Home Assistant services use `authorization_ref` for authorized-device actions and `fcm_ref` for advanced FCM cleanup; raw provider IDs/tokens remain private;
+- legacy `list_fcm_sessions` / `revoke_fcm_session` / `revoke_other_fcm_sessions` names remain compatibility aliases, but new automations use the canonical authorized-device names;
+- the **УСТРОЙСТВА / DEVICES** UI and its collapsed advanced FCM section were live-tested with successful removal of test entries while the locally owned Home Assistant registration remained protected.
+
 Already live-confirmed for the physical-key path:
 
 - capability discovery;
@@ -62,6 +81,8 @@ The Android notification block is also complete for current release validation. 
 
 Resolved design decisions:
 
+- normal device authorization revoke uses `logout_device`; direct FCM unregister remains a separate advanced action, but both tested paths are treated as authorization-destructive because the target refresh JWT is invalidated;
+- `authorized_devices` is not described as a complete JWT-session list;
 - no physical-key number is exposed from provider identifiers; `external_id` stays private and is used only where its backend semantics are confirmed;
 - physical-key rename is Confirmed for the tested success path and must never use an automatic write retry;
 - notification cross-device isolation retains all runtime guards despite the documented second-device live-test waiver.
@@ -101,7 +122,9 @@ Before tagging, verify that:
 - any remaining **Experimental** behavior is explicitly documented and accepted in final release review, or removed/renamed;
 - all hard live-validation gates in the active release PR are resolved;
 - the release commit is the exact commit reviewed/tested for publication;
-- all release-facing versions/cache-bust values were bumped together only after explicit release-preparation approval;
+- all release-facing versions/cache-bust values listed above were bumped together only after explicit release-preparation approval;
+- `python scripts/release_check.py --strict-hacs` succeeds on that exact SHA;
+- Tests and HACS/Hassfest succeed on that exact SHA;
 - the final GitHub Release notes match the actual release candidate rather than an older validation snapshot.
 
 Existing release tags are immutable and must not be moved to repair documentation after publication; documentation-only corrections go to `main`, while a corrected release artifact requires a new patch version.
