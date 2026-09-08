@@ -324,9 +324,129 @@ revoke_temporary_guest_link:
       selector:
         text:
 
+list_authorized_devices:
+  name: List authorized Ufanet devices
+  description: Return the Ufanet account's authorized-device inventory with device title, last activity, platform and call-access status. Raw provider device IDs are never returned; Home Assistant-owned registrations are marked protected.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+
+revoke_authorized_device:
+  name: Revoke Ufanet device authorization
+  description: Revoke one non-Home-Assistant Ufanet device authorization through logout_device. This is an account authorization action and does not use the FCM registration/unregistration endpoint.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    authorization_ref:
+      name: Authorization reference
+      description: Opaque authorization_ref returned by list_authorized_devices. Raw Ufanet device IDs are not accepted.
+      required: true
+      selector:
+        text:
+    confirm:
+      name: Confirm revocation
+      description: Must be enabled to perform the destructive authorization revoke.
+      required: true
+      selector:
+        boolean:
+
+revoke_other_authorized_devices:
+  name: Revoke other Ufanet device authorizations
+  description: Revoke the current snapshot of all non-Home-Assistant Ufanet device authorizations. Requires the exact revocable_count returned by list_authorized_devices and aborts if it changed.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    expected_count:
+      name: Expected revocable authorizations
+      description: Exact revocable_count returned by the most recent list_authorized_devices call.
+      required: true
+      selector:
+        number:
+          min: 1
+          step: 1
+          mode: box
+    confirm:
+      name: Confirm mass revocation
+      description: Must be enabled to perform the destructive authorization revoke.
+      required: true
+      selector:
+        boolean:
+
+list_fcm_registrations:
+  name: List advanced FCM registrations
+  description: Advanced view using the provider authorized-device inventory as the selectable device set for FCM cleanup. This does not expose FCM tokens or raw provider device IDs.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+
+unregister_fcm_registration:
+  name: Unregister FCM push registration
+  description: Advanced action that removes one non-Home-Assistant push registration using DELETE /api/v0/fcm/. It does not call logout_device and does not claim to revoke the device JWT authorization.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    fcm_ref:
+      name: FCM reference
+      description: Opaque fcm_ref returned by list_fcm_registrations. Raw Ufanet device IDs and FCM tokens are not accepted.
+      required: true
+      selector:
+        text:
+    confirm:
+      name: Confirm FCM cleanup
+      description: Must be enabled to remove the provider push registration.
+      required: true
+      selector:
+        boolean:
+
+unregister_other_fcm_registrations:
+  name: Unregister other FCM push registrations
+  description: Advanced action that removes the current snapshot of all non-Home-Assistant push registrations with DELETE /api/v0/fcm/. It does not call logout_device.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    expected_count:
+      name: Expected removable registrations
+      description: Exact removable_count returned by the most recent list_fcm_registrations call.
+      required: true
+      selector:
+        number:
+          min: 1
+          step: 1
+          mode: box
+    confirm:
+      name: Confirm mass FCM cleanup
+      description: Must be enabled to remove the provider push registrations.
+      required: true
+      selector:
+        boolean:
+
 list_fcm_sessions:
-  name: List authorized FCM sessions
-  description: Return authorized Ufanet device sessions for security review. Raw provider device IDs are never returned; Home Assistant-owned registrations are marked protected.
+  name: List authorized sessions (legacy name)
+  description: Legacy compatibility alias. Despite its historical name, this returns the same authorized Ufanet device/session inventory used by logout_device. Prefer list_authorized_devices for new automations.
   fields:
     device_id:
       name: Intercom
@@ -336,8 +456,8 @@ list_fcm_sessions:
           integration: ufanet_intercom
 
 revoke_fcm_session:
-  name: Revoke authorized FCM session
-  description: Permanently terminate one non-Home-Assistant authorized Ufanet session selected by session_ref from list_fcm_sessions. The server list is refreshed before revocation and disappearance is verified afterward.
+  name: Revoke authorization (legacy name)
+  description: Legacy compatibility alias. This calls logout_device and revokes a Ufanet device authorization; it is not the FCM-only unregister action. Prefer revoke_authorized_device for new automations.
   fields:
     device_id:
       name: Intercom
@@ -359,8 +479,8 @@ revoke_fcm_session:
         boolean:
 
 revoke_other_fcm_sessions:
-  name: Revoke all other FCM sessions
-  description: Permanently terminate the current snapshot of all non-Home-Assistant authorized Ufanet sessions. Requires the expected revocable count from list_fcm_sessions and aborts if it changed.
+  name: Revoke authorizations (legacy name)
+  description: Legacy compatibility alias. This calls logout_device for non-Home-Assistant authorized devices. Prefer revoke_other_authorized_devices for new automations.
   fields:
     device_id:
       name: Intercom
