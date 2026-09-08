@@ -12,6 +12,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .api import UfanetApi, UfanetApiError
 from .archive import UfanetArchiveController
+from .authorized_devices import async_setup_authorized_device_services
 from .const import DOMAIN
 from .coordinator import UfanetCoordinator
 from .entity import device_info
@@ -38,6 +39,12 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up intercom buttons."""
+    # Account-level authorization/FCM actions are registered here because the
+    # button platform is guaranteed to be loaded for every integration entry.
+    # Registration is idempotent and the handlers resolve the selected HA device
+    # back to its exact config entry before touching provider state.
+    async_setup_authorized_device_services(hass)
+
     runtime = hass.data[DOMAIN][entry.entry_id]
     coordinator: UfanetCoordinator = runtime["coordinator"]
     api: UfanetApi = runtime["api"]
