@@ -34,6 +34,7 @@ jobs:
           python -m py_compile \
             tools/research/auth_session_probe_py/probe.py \
             tools/research/auth_session_probe_py/revoke_authorized_device_probe.py \
+            tools/research/auth_session_probe_py/unregister_fcm_only_probe.py \
             tools/research/fcm_probe_py/probe.py \
             tools/research/fcm_probe_py/authorized_devices_probe.py \
             tools/research/fcm_probe_py/logout_jwt_probe.py \
