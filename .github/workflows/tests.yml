@@ -32,7 +32,9 @@ jobs:
       - name: Compile research scripts
         run: |
           python -m py_compile \
+            tools/research/auth_session_probe_py/probe.py \
             tools/research/fcm_probe_py/probe.py \
+            tools/research/fcm_probe_py/logout_jwt_probe.py \
             tools/research/fcm_probe_py/extract_firebase_config.py \
             tools/research/key_passage_probe_py/probe.py \
             tools/research/ucams_analytics_probe_py/probe.py
