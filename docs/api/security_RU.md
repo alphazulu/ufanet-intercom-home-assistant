@@ -63,11 +63,17 @@ FCM completion `reason=key_add` обрабатывается privacy-safe: provi
 
 Создание, принятие и отзыв гостевого/shared доступа изменяет состояние авторизации. UI должен ясно обозначать такие операции и запрашивать подтверждение перед отзывом доступа.
 
-## Авторизованные FCM-сессии
+## Авторизованные устройства и расширенная FCM-очистка
 
-Инвентарь авторизованных устройств и logout являются security-sensitive операциями аккаунта. Raw provider FCM `device_id`, FCM tokens и registration credentials должны оставаться приватными даже при просмотре списка пользователем. Интеграция Home Assistant выводит непрозрачный `session_ref` вместо provider ID.
+Ответ `authorized_devices` содержит security-sensitive metadata аккаунта. Live-тест подтвердил, что endpoint доступен обычной JWT-сессии без FCM-регистрации, но его строки связаны с device/FCM registration state и не являются исчерпывающим независимым перечнем всех JWT.
 
-Нельзя считать сессию безопасной/небезопасной только по title, платформе или возрасту. Home Assistant защищает только регистрации, принадлежность которых можно доказать из локального приватного state; если доказательство получить нельзя, отзыв блокируется fail-closed. Targeted logout требует явного подтверждения и свежего запроса inventory. Массовый logout дополнительно требует точного ожидаемого количества доступных для отзыва сессий по свежему snapshot: если появилась новая сессия, операция отменяется вместо неожиданного удаления.
+Raw provider `device_id`, FCM tokens и registration credentials остаются приватными. Канонические Home Assistant services используют opaque `authorization_ref` для обычного управления авторизованными устройствами и opaque `fcm_ref` для advanced FCM cleanup. Исторические сервисы с `session_ref` сохранены только как compatibility aliases.
+
+Обычный отзыв авторизации использует `logout_device`. Controlled cross-session live-тест подтвердил, что plain JWT controller может отозвать другое тестовое устройство без какой-либо собственной FCM-регистрации. Строка target исчезла; уже выданный access JWT target продолжил работать, а его refresh JWT стал возвращать HTTP 401. Независимый controller остался авторизован.
+
+Advanced FCM cleanup вызывает `DELETE /api/v0/fcm/` и намеренно не вызывает `logout_device`. Отдельный live-тест на disposable registration при этом дал такой же проверенный эффект для refresh chain: target исчез из inventory, существующий access JWT продолжил работать, а refresh JWT стал возвращать HTTP 401. Поэтому это действие нужно считать authorization-destructive, а не безобидной отпиской от push.
+
+Нельзя считать устройство безопасным/небезопасным только по title, platform, age или факту наличия строки в inventory. Home Assistant защищает только регистрации, принадлежность которых можно доказать из локального private state; при невозможности доказательства destructive-действия блокируются fail-closed. Targeted операции требуют явного подтверждения и свежего разрешения ref по inventory. Массовые операции дополнительно требуют точного ожидаемого количества target из текущего snapshot: если inventory изменился, операция отменяется вместо неожиданного воздействия на новые строки.
 
 ## Диагностика и support bundles
 
@@ -78,6 +84,7 @@ FCM completion `reason=key_add` обрабатывается privacy-safe: provi
 - не включать точные частные адреса/номер квартиры без явной необходимости;
 - удалять URL с токенами;
 - не включать provider `id`, `key_id` или `external_id` физических ключей;
+- не включать raw provider device IDs, FCM tokens или Firebase/GCM credentials;
 - по возможности заменять точный идентификатор камеры коротким необратимым hash;
 - показывать наличие/expiry токена вместо его значения.
 
