@@ -43,6 +43,13 @@ jobs:
             tools/research/key_passage_probe_py/probe.py \
             tools/research/ucams_analytics_probe_py/probe.py
 
+      - name: Check frontend JavaScript syntax
+        run: |
+          node --check custom_components/ufanet_intercom/frontend/ufanet-archive-card.js
+          node --check custom_components/ufanet_intercom/frontend/ufanet-physical-keys-card.js
+          node --check custom_components/ufanet_intercom/frontend/ufanet-key-history-card.js
+          node --check custom_components/ufanet_intercom/frontend/ufanet-authorized-devices-card.js
+
       - name: Run pytest with coverage
         shell: bash
         run: |
