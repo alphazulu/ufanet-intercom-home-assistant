@@ -17,7 +17,7 @@
 - Физические ключи для поддерживаемых домофонов: read-only счётчик/inventory, время последнего прохода, EventEntity/device trigger, validation-only **«Добавить физический ключ»**, privacy-safe сервисы списка/истории/переименования через opaque `key_ref` и вкладка **КЛЮЧИ** с историей выбранного ключа.
 - Read-only UCAMS `motion_alarm`: EventEntity **«Обнаружено движение»**, `ufanet_intercom_motion`, device trigger и метки на таймлайне архива.
 - Выбор получения звонков: polling по умолчанию либо экспериментальный FCM с малой задержкой и резервным опросом.
-- Privacy-safe инвентарь авторизованных Ufanet/FCM-сессий и защищённый явный отзыв сессий.
+- Privacy-safe управление авторизованными устройствами: канонический отзыв через `logout_device`, защита собственной регистрации Home Assistant и отдельный advanced FCM cleanup через opaque refs без raw provider IDs/tokens.
 - Временные гостевые ключи и управление принятым совместным доступом.
 - Ручной экспорт архива в MP4 через `ffmpeg -c copy` в Home Assistant Media.
 - Постоянная медиатека экспортов с ограничением срока хранения и общего объёма.
@@ -27,15 +27,9 @@
 
 ## Текущая validation-разработка / подготовка 0.31.0
 
-Ветка `codex/combined-validation` содержит ещё не выпущенные изменения уведомлений и
-регистрации/управления физическими ключами. Сейчас она подготавливается как основа
-будущего релиза **0.31.0**, но по-прежнему остаётся **validation-only**: её нельзя
-сливать в `main`, тегировать или публиковать, пока оставшиеся hard live-gates в PR #15
-не будут закрыты либо явно рассмотрены и waived.
+Ветка `codex/combined-validation` содержит ещё не выпущенные изменения уведомлений и регистрации/управления физическими ключами. Сейчас она подготавливается как основа будущего релиза **0.31.0**, но по-прежнему остаётся **validation-only**: её нельзя сливать в `main`, тегировать или публиковать, пока оставшиеся hard live-gates в PR #15 не будут закрыты либо явно рассмотрены и waived.
 
-Установленная версия интеграции намеренно остаётся `0.30.0` до утверждения точного
-release-candidate commit, после чего все release-facing версии и cache-bust будут
-подняты синхронно одним изменением.
+Установленная версия интеграции намеренно остаётся `0.30.0` до утверждения точного release-candidate commit, после чего все release-facing версии и cache-bust будут подняты синхронно одним изменением.
 
 Уже live-проверено на тестовой установке Home Assistant:
 
@@ -49,6 +43,10 @@ release-candidate commit, после чего все release-facing версии
 - metadata свежего real-call notification соответствует ожидаемым device/location/local time;
 - cross-device runtime guards отдельно проверены код-ревью; недоступный отрицательный live-тест со вторым Ufanet device явно waived, но safety invariant сохранён;
 - combined-сборка с notification/physical-key изменениями загружается и работает без замеченных регрессий;
+- plain JWT controller без FCM-регистрации получил provider authorized-device inventory и отозвал другое тестовое устройство через `logout_device`;
+- после `logout_device` уже выданный access JWT target продолжил работать, а refresh JWT target стал отклоняться;
+- прямой `DELETE /api/v0/fcm/` без вызова `logout_device` удалил disposable device row и также инвалидировал проверенный refresh JWT target, тогда как существующий access JWT ещё временно работал;
+- вкладка **УСТРОЙСТВА** использует canonical authorization services и отдельный сворачиваемый advanced FCM cleanup; тестовые записи удаляются, а собственная регистрация Home Assistant остаётся protected;
 - capability discovery физических ключей;
 - пустой и непустой inventory физических ключей;
 - поля непустого `/api/v4/key/list/`: `id`, `external_id`, `name`, `create_date`, `devices`;
@@ -61,21 +59,11 @@ release-candidate commit, после чего все release-facing версии
 - automatic rename verification без ручного refresh;
 - многократные переключения dashboard, обычные reload и hard refresh без повторения прежней Lovelace **«Ошибка конфигурации»**.
 
-Тест номера закрывает вопрос с идентификатором: `external_id` полезен как внутренний
-per-key идентификатор истории, но **не является** номером, нанесённым на проверенный
-физический ключ. Поэтому ранее экспериментальное публичное поле `number` удалено из
-`list_physical_keys` и вкладки **КЛЮЧИ**. Provider identifiers остаются только
-внутренними runtime-данными.
+Authorization-тесты также уточнили терминологию: `authorized_devices` — provider device/registration inventory, который использует официальный UI активных устройств, но **не исчерпывающий независимый список всех JWT-сессий**. Строка может исчезнуть после FCM unregister, хотя уже выданный access JWT ещё некоторое время работает.
 
-Android notification-блок и success path переименования ключа больше не имеют hard
-release gate. Оставшийся функциональный blocker — регистрация **нового
-незарегистрированного физического ключа**: реальный `auto_collect/enable`, физическая
-регистрация, настоящий `reason=key_add`, FCM-triggered inventory refresh,
-privacy-safe enrollment event и live enrollment error semantics. iOS notification
-actions не live-проверены и не объявляются Confirmed. Подробности:
-[уведомления Home Assistant](docs/notifications_RU.md),
-[физические ключи/проходы](docs/api/keys_RU.md) и
-[черновик release notes 0.31.0](docs/releases/0.31.0-draft.md).
+Тест номера закрывает вопрос с идентификатором: `external_id` полезен как внутренний per-key идентификатор истории, но **не является** номером, нанесённым на проверенный физический ключ. Поэтому ранее экспериментальное публичное поле `number` удалено из `list_physical_keys` и вкладки **КЛЮЧИ**. Provider identifiers остаются только внутренними runtime-данными.
+
+Android notification-блок, управление authorized devices/advanced FCM и success path переименования ключа больше не имеют hard release gate. Оставшийся функциональный blocker — регистрация **нового незарегистрированного физического ключа**: реальный `auto_collect/enable`, физическая регистрация, настоящий `reason=key_add`, FCM-triggered inventory refresh, privacy-safe enrollment event и live enrollment error semantics. iOS notification actions не live-проверены и не объявляются Confirmed. Подробности: [уведомления Home Assistant](docs/notifications_RU.md), [FCM / авторизация устройств](docs/api/fcm_RU.md), [физические ключи/проходы](docs/api/keys_RU.md) и [черновик release notes 0.31.0](docs/releases/0.31.0-draft.md).
 
 ## Неофициальная документация API
 
@@ -83,15 +71,14 @@ actions не live-проверены и не объявляются Confirmed. �
 
 - [Документация API](docs/api/README_RU.md)
 - [Матрица проверки API](docs/api/STATUS_RU.md)
+- [Авторизация и управление устройствами](docs/api/auth_RU.md)
 - [Физические ключи и журнал проходов](docs/api/keys_RU.md)
 - [FCM / push-уведомления](docs/api/fcm_RU.md)
 - [Безопасность](docs/api/security_RU.md)
 - [Примеры curl](docs/api/examples/curl.md)
 - [Read-only пример на Python](docs/api/examples/python.md)
 
-Документация явно разделяет **Confirmed**, **Observed**, **Inferred**,
-**Experimental** и **Not supported**. State-changing поведение не переводится в
-Confirmed только по декомпилированному коду клиента или зелёному CI.
+Документация явно разделяет **Confirmed**, **Observed**, **Inferred**, **Experimental** и **Not supported**. State-changing поведение не переводится в Confirmed только по декомпилированному коду клиента или зелёному CI.
 
 ## Требования
 
@@ -125,8 +112,7 @@ Confirmed только по декомпилированному коду кли
 /ufanet_intercom/ufanet-archive-card.js?v=0.30.0
 ```
 
-`?v=` должен совпадать с реально установленным релизом. На validation-ветке это
-значение не меняется до фактического bump версии на утверждённом release candidate.
+`?v=` должен совпадать с реально установленным релизом. На validation-ветке это значение не меняется до фактического bump версии на утверждённом release candidate.
 
 Минимальная конфигурация:
 
@@ -141,87 +127,46 @@ default_tab: live
 - **LIVE** — видео, управление дверью, последний звонок и переход к записи звонка.
 - **АРХИВ** — таймлайн, метки звонков/движения, экспорт MP4 и медиатека экспортов.
 - **ГОСТИ** — приглашения, принятый shared access, временные ключи и отзыв.
-- **УСТРОЙСТВА** — авторизованные Ufanet-сессии, защита регистраций Home Assistant, точечный и защищённый массовый отзыв.
+- **УСТРОЙСТВА** — provider authorized-device inventory, защита собственной HA registration, canonical targeted/bulk отзыв через `logout_device`, а также отдельный сворачиваемый advanced FCM-раздел для прямого `DELETE /api/v0/fcm/` с предупреждением об invalidation refresh authorization.
 - **КЛЮЧИ** — свежий inventory, история выбранного ключа, запуск 60-секундной регистрации и переименование через opaque `key_ref`; provider identifiers и предполагаемый физический номер не выводятся, удаление ключей отсутствует.
 - **ДИАГНОСТИКА** — token-free runtime health, polling, FCM authorization, UCAMS/archive и autosave.
 
-Вкладка **КЛЮЧИ** реализована packaged validation extensions. Интеграция сама
-регистрирует/загружает их через Lovelace resource mechanism; extensions ждут
-регистрации `custom:ufanet-intercom-card`, поэтому отдельно добавлять их в Lovelace
-Resources не требуется. Основной ресурс карточки остаётся настроен как раньше. В
-visual editor validation-ветки `keys` можно выбрать как `default_tab`.
+Вкладка **КЛЮЧИ** и validation-логика управления устройствами реализованы packaged frontend extensions. Интеграция сама регистрирует/загружает их; extensions ждут `custom:ufanet-intercom-card`, поэтому отдельно добавлять их в Lovelace Resources не требуется. Основной ресурс карточки остаётся настроен как раньше.
 
 ## Настройки
 
 Откройте **Настройки → Устройства и службы → Ufanet Intercom → Настроить**.
 
-Основные параметры: режим получения звонков, polling interval, сколько секунд брать
-до звонка, длительность/шаг архива, ограничения хранения MP4 и автоматическое
-сохранение видео звонков. YAML конкретной карточки остаётся локальным override там,
-где это поддерживается.
+Основные параметры: режим получения звонков, polling interval, сколько секунд брать до звонка, длительность/шаг архива, ограничения хранения MP4 и автоматическое сохранение видео звонков. YAML конкретной карточки остаётся локальным override там, где это поддерживается.
 
 ### Режимы получения звонков
 
 - **`polling` (по умолчанию)** читает `call-history` с выбранным интервалом и не требует дополнительной настройки.
 - **`fcm` (экспериментально)** использует локальный headless FCM receiver как low-latency сигнал. `call-history` остаётся authoritative. До подтверждения MCS работает обычный polling; при исправном FCM сохраняется контрольный опрос раз в 300 секунд, а при разрыве нормальный polling восстанавливается автоматически.
 
-FCM watchdog отличает запуск задачи от установленного транспорта, позволяет библиотеке
-обрабатывать короткие reconnect и пересоздаёт окончательно остановленный/зависший
-listener с backoff. Repairs покрывает длительный сбой listener, восстановление
-повреждённого private state и отложенную очистку регистрации без публикации
-credentials/push payload.
+FCM watchdog отличает запуск задачи от установленного транспорта, позволяет библиотеке обрабатывать короткие reconnect и пересоздаёт окончательно остановленный/зависший listener с backoff. Repairs покрывает длительный сбой listener, восстановление повреждённого private state и отложенную очистку регистрации без публикации credentials/push payload.
 
-FCM-значения не распространяются в репозитории. Продвинутый пользователь извлекает
-их локально из своей декомпилированной копии официального Android-приложения:
+FCM-значения не распространяются в репозитории. Продвинутый пользователь извлекает их локально из своей декомпилированной копии официального Android-приложения:
 
 ```bash
 python tools/research/fcm_probe_py/extract_firebase_config.py /путь/к/decompiled-app -o firebase_config.json
 ```
 
-Скопируйте результат в `/config/ufanet_intercom/firebase_config.json`, выберите
-`fcm` и оставьте относительный путь `ufanet_intercom/firebase_config.json`.
-Интеграция читает JSON, но не копирует Firebase values в ConfigEntry/diagnostics.
-Подробности: [FCM API](docs/api/fcm_RU.md).
+Скопируйте результат в `/config/ufanet_intercom/firebase_config.json`, выберите `fcm` и оставьте относительный путь `ufanet_intercom/firebase_config.json`. Интеграция читает JSON, но не копирует Firebase values в ConfigEntry/diagnostics. Подробности: [FCM API](docs/api/fcm_RU.md).
 
 ## Автоматизации звонка и Companion notifications
 
-Для каждого домофона с историей звонков создаётся бинарный сенсор
-**«Входящий звонок»** и соответствующий device trigger. Нативный doorbell EventEntity
-представляет тот же подтверждённый звонок стандартным типом `ring` Home Assistant.
+Для каждого домофона с историей звонков создаётся бинарный сенсор **«Входящий звонок»** и соответствующий device trigger. Нативный doorbell EventEntity представляет тот же подтверждённый звонок стандартным типом `ring` Home Assistant.
 
-Сущность **«Снимок последнего звонка»** приватно загружает tokenized provider
-preview, извлекает JPEG через локальный `ffmpeg` с анонимным перематываемым
-источником и хранит только JPEG. `preview_url`/`archive_url` не публикуются в
-entity state или `ufanet_intercom_call`.
+Сущность **«Снимок последнего звонка»** приватно загружает tokenized provider preview, извлекает JPEG через локальный `ffmpeg` с анонимным перематываемым источником и хранит только JPEG. `preview_url`/`archive_url` не публикуются в entity state или `ufanet_intercom_call`.
 
-Рекомендуемый blueprint:
-[`incoming_call_notification.yaml`](blueprints/automation/ufanet_intercom/incoming_call_notification.yaml).
-Выберите домофон, Companion device, соответствующие **«Последний вызов»** /
-**«Снимок последнего звонка»**, а при необходимости:
+Рекомендуемый blueprint: [`incoming_call_notification.yaml`](blueprints/automation/ufanet_intercom/incoming_call_notification.yaml). Выберите домофон, Companion device, соответствующие **«Последний вызов»** / **«Снимок последнего звонка»**, matching live `camera.*`, точную кнопку **«Открыть дверь»** того же HA device и при необходимости image delay/action timeout/fallback URI/notification channel.
 
-- matching live `camera.*`;
-- точную кнопку **«Открыть дверь»** того же HA device;
-- image delay, action timeout, fallback URI панели и Android notification channel.
+Blueprint отправляет текст немедленно, затем при готовности JPEG заменяет то же stable-tag уведомление картинкой через `/api/image_proxy/`. В реальном звонке **«Открыть дверь»** работает только в пределах timeout и только для button того же Home Assistant device. Принадлежность проверяется повторно непосредственно перед `button.press`. **Ручной запуск blueprint физическую кнопку открытия не показывает.**
 
-Blueprint отправляет текст немедленно, затем при готовности JPEG заменяет то же
-stable-tag уведомление картинкой через `/api/image_proxy/`. В реальном звонке
-**«Открыть дверь»** работает только в пределах timeout и только для button того же
-Home Assistant device. Принадлежность проверяется повторно непосредственно перед
-`button.press`. **Ручной запуск blueprint физическую кнопку открытия не показывает.**
+**«Открыть камеру»** открывает More Info выбранной live-камеры через `more-info-entity-id`; при отсутствии/несовпадении selection используется fallback URI панели. Одно Ufanet device может содержать live и archive camera, поэтому live entity нужно выбирать явно.
 
-**«Открыть камеру»** открывает More Info выбранной live-камеры через
-`more-info-entity-id`; при отсутствии/несовпадении selection используется fallback
-URI панели. Одно Ufanet device может содержать live и archive camera, поэтому live
-entity нужно выбирать явно.
-
-Android live-проверен по полному текущему release-validation action lifecycle,
-включая замену pending action вторым звонком и post-open replacement. Единственный
-не выполненный notification case — отрицательный тест, требующий второго Ufanet
-device; этот live-тест явно waived после задокументированного targeted security
-review без отмены same-device/cross-device runtime guards. Payload соответствует
-общей action-схеме Android/iOS Companion, но iOS action delivery на реальном
-устройстве пока не проверялся и не объявляется live-confirmed. Подробности:
-[docs/notifications_RU.md](docs/notifications_RU.md).
+Android live-проверен по полному текущему release-validation action lifecycle, включая замену pending action вторым звонком и post-open replacement. Единственный не выполненный notification case — отрицательный тест, требующий второго Ufanet device; этот live-тест явно waived после задокументированного targeted security review без отмены same-device/cross-device runtime guards. Payload соответствует общей action-схеме Android/iOS Companion, но iOS action delivery на реальном устройстве пока не проверялся и не объявляется live-confirmed. Подробности: [docs/notifications_RU.md](docs/notifications_RU.md).
 
 ## Физические ключи и проходы
 
@@ -231,12 +176,7 @@ review без отмены same-device/cross-device runtime guards. Payload со
 - **«Последний проход по ключу»** — timestamp последнего прохода;
 - EventEntity **«Проход по физическому ключу»** и соответствующий device trigger.
 
-Отдельный coordinator опрашивает API раз в 60 секунд. Capability, inventory и
-passage-history health отслеживаются отдельно: временная ошибка истории больше не
-переводит реально поддерживаемый домофон в `unsupported`. Первый успешный poll
-истории устанавливает baseline и не воспроизводит старые проходы; private cursor
-защищает от дублей после reload. Публичный passage event содержит только `key_name`
-и `occurred_at`; private provider identifiers и полная история не публикуются.
+Отдельный coordinator опрашивает API раз в 60 секунд. Capability, inventory и passage-history health отслеживаются отдельно: временная ошибка истории больше не переводит реально поддерживаемый домофон в `unsupported`. Первый успешный poll истории устанавливает baseline и не воспроизводит старые проходы; private cursor защищает от дублей после reload. Публичный passage event содержит только `key_name` и `occurred_at`; private provider identifiers и полная история не публикуются.
 
 Read-only key/history flow live-подтверждён на непустом аккаунте:
 
@@ -247,56 +187,25 @@ Read-only key/history flow live-подтверждён на непустом а�
 - выбор ключа в Lovelace загрузил его passage times в нижней части вкладки;
 - физический номер на этом ключе не совпал с кандидатами-идентификаторами сервера, но `external_id` продолжил выбирать правильную обновляющуюся историю.
 
-Для управления `ufanet_intercom.list_physical_keys` возвращает только opaque
-`key_ref`, `name` и `created_at`. И provider `id`, и `external_id` остаются
-внутренними. Поле физического номера не публикуется, поскольку live-тест опроверг
-эту интерпретацию.
+Для управления `ufanet_intercom.list_physical_keys` возвращает только opaque `key_ref`, `name` и `created_at`. И provider `id`, и `external_id` остаются внутренними. Поле физического номера не публикуется, поскольку live-тест опроверг эту интерпретацию.
 
-Validation-ветка добавляет **«Добавить физический ключ»** (`mdi:key-plus`) только
-для поддерживаемых домофонов. Кнопка повторяет Android-observed 60-секундный
-`auto_collect/enable` flow. Успешный HTTP означает только включение enrollment mode;
-новый ключ нужно физически приложить к считывателю в течение 60 секунд. Реальный
-new-key side effect пока ожидает live-проверки.
+Validation-ветка добавляет **«Добавить физический ключ»** (`mdi:key-plus`) только для поддерживаемых домофонов. Кнопка повторяет Android-observed 60-секундный `auto_collect/enable` flow. Успешный HTTP означает только включение enrollment mode; новый ключ нужно физически приложить к считывателю в течение 60 секунд. Реальный new-key side effect пока ожидает live-проверки.
 
-FCM listener распознаёт Android-observed completion `reason=key_add`, немедленно
-обновляет key inventory и отправляет account-level privacy-minimized событие
-`ufanet_intercom_key_enrollment`. Private provider identifiers, raw message text и
-push payload не публикуются. Реальный `key_add` остаётся **Observed / pending live
-validation**.
+FCM listener распознаёт Android-observed completion `reason=key_add`, немедленно обновляет key inventory и отправляет account-level privacy-minimized событие `ufanet_intercom_key_enrollment`. Private provider identifiers, raw message text и push payload не публикуются. Реальный `key_add` остаётся **Observed / pending live validation**.
 
-`ufanet_intercom.rename_physical_key` принимает только `key_ref` и новое имя. Перед
-изменением перечитывается свежий inventory, ref разрешается только внутри выбранного
-домофона, а provider edit request отправляется один раз. Controlled live-тест
-подтвердил, что `/api/v4/key/edit/` действительно меняет имя выбранного ключа. Так
-как inventory Ufanet eventual-consistent, сервис выполняет ограниченные read-only
-refresh retries и возвращает success только после наблюдения нового имени; этот
-automatic verification path также live-проверен. State-changing POST автоматически
-не повторяется.
+`ufanet_intercom.rename_physical_key` принимает только `key_ref` и новое имя. Перед изменением перечитывается свежий inventory, ref разрешается только внутри выбранного домофона, а provider edit request отправляется один раз. Controlled live-тест подтвердил, что `/api/v4/key/edit/` действительно меняет имя выбранного ключа. Так как inventory Ufanet eventual-consistent, сервис выполняет ограниченные read-only refresh retries и возвращает success только после наблюдения нового имени; этот automatic verification path также live-проверен. State-changing POST автоматически не повторяется.
 
-Вкладка **КЛЮЧИ** использует эти response-services. **«Добавить ключ»** вызывает
-только same-device HA enrollment button и показывает 60-секундный countdown.
-Переименование требует явного подтверждения и считает успехом только `verified:
-true`. Клик по строке ключа загружает privacy-safe историю его проходов внизу.
-Никакого delete action в UI нет. Подробности:
-[docs/api/keys_RU.md](docs/api/keys_RU.md).
+Вкладка **КЛЮЧИ** использует эти response-services. **«Добавить ключ»** вызывает только same-device HA enrollment button и показывает 60-секундный countdown. Переименование требует явного подтверждения и считает успехом только `verified: true`. Клик по строке ключа загружает privacy-safe историю его проходов внизу. Никакого delete action в UI нет. Подробности: [docs/api/keys_RU.md](docs/api/keys_RU.md).
 
 ## Аналитика движения
 
-Для камер с live-confirmed capability `motion_alarm` интеграция создаёт EventEntity
-**«Обнаружено движение»** / device trigger и privacy-minimized
-`ufanet_intercom_motion`. Архивный таймлайн может показывать read-only timestamps
-движения. Provider camera/cursor IDs, screenshots, recognition data и raw history
-не публикуются. Подробности: [docs/api/analytics_RU.md](docs/api/analytics_RU.md).
+Для камер с live-confirmed capability `motion_alarm` интеграция создаёт EventEntity **«Обнаружено движение»** / device trigger и privacy-minimized `ufanet_intercom_motion`. Архивный таймлайн может показывать read-only timestamps движения. Provider camera/cursor IDs, screenshots, recognition data и raw history не публикуются. Подробности: [docs/api/analytics_RU.md](docs/api/analytics_RU.md).
 
 ## Автоматическое сохранение звонков и локальная медиатека
 
-Автосохранение по умолчанию отключено. После включения звонок экспортируется
-асинхронно, когда нужный post-call интервал появился в UCAMS archive. Raw call UUID
-хешируется перед использованием для локальной дедупликации имени файла.
+Автосохранение по умолчанию отключено. После включения звонок экспортируется асинхронно, когда нужный post-call интервал появился в UCAMS archive. Raw call UUID хешируется перед использованием для локальной дедупликации имени файла.
 
-Ручные и автоматические MP4 сохраняются в Home Assistant Media `ufanet_intercom/`.
-Вкладка **АРХИВ** показывает ролики выбранной камеры, позволяет открыть/скачать/удалить
-их и применяет настроенные ограничения срока/объёма.
+Ручные и автоматические MP4 сохраняются в Home Assistant Media `ufanet_intercom/`. Вкладка **АРХИВ** показывает ролики выбранной камеры, позволяет открыть/скачать/удалить их и применяет настроенные ограничения срока/объёма.
 
 ## Безопасность
 
@@ -307,7 +216,7 @@ true`. Клик по строке ключа загружает privacy-safe и�
 - Provider identifiers физических ключей, включая `external_id`, остаются private runtime data и не попадают в public service responses, sensor attributes, events или diagnostics.
 - Публичное управление физическими ключами использует intercom-scoped opaque `key_ref`; rename перечитывает inventory до изменения, отправляет один provider write и подтверждает результат ограниченными read-only refresh retries.
 - Tokenized call-media URL остаются внутренними runtime-данными; image entity хранит только созданный JPEG.
-- Управление FCM-сессиями использует opaque refs вместо raw provider device IDs и защищает доказанно принадлежащие HA регистрации.
+- Управление авторизованными устройствами использует `authorization_ref`, advanced FCM cleanup — `fcm_ref`; raw provider device IDs/tokens не выводятся. Оба live-проверенных destructive flow инвалидируют refresh authorization target, хотя уже выданный access JWT может временно работать.
 - Motion provider cursor хранится только в private storage и наружу выводятся лишь нормализованные timestamps.
 
 Подробности: [docs/api/security_RU.md](docs/api/security_RU.md).
@@ -320,23 +229,15 @@ true`. Клик по строке ключа загружает privacy-safe и�
 python scripts/release_check.py
 ```
 
-В Home Assistant используйте вкладку **ДИАГНОСТИКА** или **Скачать диагностику** на
-странице интеграции/устройства.
+В Home Assistant используйте вкладку **ДИАГНОСТИКА** или **Скачать диагностику** на странице интеграции/устройства.
 
-Если `ffmpeg` недоступен или извлечение JPEG последнего звонка несколько раз
-завершается ошибкой, Home Assistant создаёт Repairs warning. Звонки, архив и
-управление дверью продолжают работать; после успешного JPEG warning закрывается.
+Если `ffmpeg` недоступен или извлечение JPEG последнего звонка несколько раз завершается ошибкой, Home Assistant создаёт Repairs warning. Звонки, архив и управление дверью продолжают работать; после успешного JPEG warning закрывается.
 
 ## Разработка и проверка релиза
 
-`python scripts/release_check.py --strict-hacs` вместе с GitHub CI проверяет
-packaging, Python/JSON/JavaScript, ссылки методов/сервисов карточки, HACS/Hassfest и
-согласованность release versions.
+`python scripts/release_check.py --strict-hacs` вместе с GitHub CI проверяет packaging, Python/JSON/JavaScript, ссылки методов/сервисов карточки, HACS/Hassfest и согласованность release versions.
 
-**Green CI не заменяет обязательный физический/live test.** Перед tag/release нужно
-закрыть `REQUIRED VALIDATION BEFORE ANY RELEASE` в активном PR, обновить evidence
-labels/docs/CHANGELOG и только затем одним release-prep изменением поднять все
-версии/cache-bust URL на точном release candidate. См. [PUBLISHING.md](PUBLISHING.md).
+**Green CI не заменяет обязательный физический/live test.** Перед tag/release нужно закрыть `REQUIRED VALIDATION BEFORE ANY RELEASE` в активном PR, обновить evidence labels/docs/CHANGELOG и только затем одним release-prep изменением поднять все версии/cache-bust URL на точном release candidate. См. [PUBLISHING.md](PUBLISHING.md).
 
 ## Лицензия
 
@@ -344,9 +245,7 @@ labels/docs/CHANGELOG и только затем одним release-prep изм�
 
 Copyright © 2026 [alphazulu](https://github.com/alphazulu).
 
-Разрешены коммерческое использование, изменение, распространение, сублицензирование
-и включение в проприетарные продукты. В копиях или существенных частях ПО должны
-сохраняться copyright notice и текст разрешения MIT License.
+Разрешены коммерческое использование, изменение, распространение, сублицензирование и включение в проприетарные продукты. В копиях или существенных частях ПО должны сохраняться copyright notice и текст разрешения MIT License.
 
 ## Репозиторий
 
