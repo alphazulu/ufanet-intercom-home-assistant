@@ -17,7 +17,9 @@ COMP = ROOT / "custom_components" / "ufanet_intercom"
 MANIFEST = COMP / "manifest.json"
 CONST = COMP / "const.py"
 INIT = COMP / "__init__.py"
+AUTHORIZED_DEVICES = COMP / "authorized_devices.py"
 JS = COMP / "frontend" / "ufanet-archive-card.js"
+JS_FILES = sorted((COMP / "frontend").glob("*.js"))
 SERVICES = COMP / "services.yaml"
 HACS = ROOT / "hacs.json"
 README = ROOT / "README.md"
@@ -56,13 +58,33 @@ def check_versions() -> None:
     manifest_version = str(manifest.get("version") or "")
     const_text = CONST.read_text(encoding="utf-8")
     init_text = INIT.read_text(encoding="utf-8")
+    authorized_devices_text = AUTHORIZED_DEVICES.read_text(encoding="utf-8")
     js_text = JS.read_text(encoding="utf-8")
     readme_text = README.read_text(encoding="utf-8")
     readme_ru_text = README_RU.read_text(encoding="utf-8")
 
     python_version = extract(r'^INTEGRATION_VERSION\s*=\s*["\']([^"\']+)', const_text, "INTEGRATION_VERSION")
     card_version = extract(r'^const CARD_VERSION\s*=\s*["\']([^"\']+)', js_text, "CARD_VERSION")
-    cache_version = extract(r'_ARCHIVE_CARD_MODULE_URL\s*=.*?\?v=([0-9A-Za-z._-]+)', init_text, "frontend cache-bust version")
+    archive_cache_version = extract(
+        r'_ARCHIVE_CARD_MODULE_URL\s*=.*?\?v=([0-9A-Za-z._-]+)',
+        init_text,
+        "archive-card cache-bust version",
+    )
+    physical_keys_cache_version = extract(
+        r'_PHYSICAL_KEYS_CARD_MODULE_URL\s*=.*?\?v=([0-9A-Za-z._-]+)',
+        init_text,
+        "physical-keys-card cache-bust version",
+    )
+    key_history_cache_version = extract(
+        r'_KEY_HISTORY_CARD_MODULE_URL\s*=.*?\?v=([0-9A-Za-z._-]+)',
+        init_text,
+        "key-history-card cache-bust version",
+    )
+    authorized_devices_cache_version = extract(
+        r'_AUTHORIZED_DEVICES_CARD_MODULE_URL\s*=.*?\?v=([0-9A-Za-z._-]+)',
+        authorized_devices_text,
+        "authorized-devices-card cache-bust version",
+    )
     resource_pattern = r'/ufanet_intercom/ufanet-archive-card\.js\?v=([0-9A-Za-z._-]+)'
     readme_version = extract(resource_pattern, readme_text, "README Lovelace resource version")
     readme_ru_version = extract(resource_pattern, readme_ru_text, "README_RU Lovelace resource version")
@@ -71,7 +93,10 @@ def check_versions() -> None:
         "manifest": manifest_version,
         "python": python_version,
         "card": card_version,
-        "cache": cache_version,
+        "archive_cache": archive_cache_version,
+        "physical_keys_cache": physical_keys_cache_version,
+        "key_history_cache": key_history_cache_version,
+        "authorized_devices_cache": authorized_devices_cache_version,
         "readme": readme_version,
         "readme_ru": readme_ru_version,
     }
@@ -98,12 +123,19 @@ def check_json() -> None:
 def check_js() -> None:
     node = shutil.which("node")
     if node:
-        result = subprocess.run([node, "--check", str(JS)], capture_output=True, text=True)
-        if result.returncode:
-            error("node --check failed: " + (result.stderr.strip() or result.stdout.strip()))
+        for path in JS_FILES:
+            result = subprocess.run([node, "--check", str(path)], capture_output=True, text=True)
+            if result.returncode:
+                error(
+                    f"node --check failed for {path.name}: "
+                    + (result.stderr.strip() or result.stdout.strip())
+                )
     else:
         warning("Node.js not installed; skipped JavaScript parser check")
 
+    # The base card is a normal class body, so method declaration/reference checks
+    # are reliable here. Packaged extensions monkey-patch the prototype and are
+    # syntax-checked above instead of being forced through this class-only parser.
     text = JS.read_text(encoding="utf-8")
     calls = set(re.findall(r'this\.(_[A-Za-z][A-Za-z0-9_]*)\s*\(', text))
     definitions = set(re.findall(r'^\s{2}(?:async\s+)?(_[A-Za-z][A-Za-z0-9_]*)\s*\(', text, re.MULTILINE))
@@ -111,7 +143,14 @@ def check_js() -> None:
     if missing:
         error("custom-card method calls without declarations: " + ", ".join(missing))
 
-    service_calls = set(re.findall(r'_callResponseService\(\s*["\']([a-z0-9_]+)["\']', text))
+    service_calls: set[str] = set()
+    for path in JS_FILES:
+        service_calls.update(
+            re.findall(
+                r'_callResponseService\(\s*["\']([a-z0-9_]+)["\']',
+                path.read_text(encoding="utf-8"),
+            )
+        )
     service_keys = set(re.findall(r'^([a-z0-9_]+):\s*$', SERVICES.read_text(encoding="utf-8"), re.MULTILINE))
     missing_services = sorted(service_calls - service_keys)
     if missing_services:
