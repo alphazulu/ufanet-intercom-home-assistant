@@ -14,7 +14,9 @@ Never commit, log, or expose:
 - UCAMS bearer token;
 - `token_l` / `token_r`;
 - guest/share tokens;
-- tokenized preview/archive/screenshot URLs.
+- tokenized preview/archive/screenshot URLs;
+- FCM/GCM registration credentials;
+- physical-key provider identifiers (`id`, `key_id`, `external_id`).
 
 Tokenized media URLs should be treated as credentials until expiration.
 
@@ -64,11 +66,17 @@ Physical-key rename is **Confirmed for the tested success path**. Provider-speci
 
 Creating, accepting, and revoking guest/shared access changes authorization state. Interfaces should clearly label these operations and request confirmation for destructive revocation.
 
-## Authorized FCM sessions
+## Authorized devices and advanced FCM cleanup
 
-Authorized-device inventory and logout are security-sensitive account operations. Raw provider FCM `device_id` values, FCM tokens and registration credentials should remain private even when a user is reviewing sessions. The Home Assistant integration exposes an opaque `session_ref` instead of the provider ID.
+The provider's `authorized_devices` response is security-sensitive account metadata. Live testing showed that it can be queried by an ordinary JWT session with no FCM registration, but its rows are coupled to device/FCM registration state and must not be treated as an exhaustive independent list of every JWT.
 
-A session must not be classified as safe/unsafe from title, platform or age alone. Home Assistant protects only registrations whose ownership can be proved from local private state; ownership verification fails closed before revocation. Targeted logout requires explicit confirmation and a fresh inventory lookup. Bulk logout additionally requires an exact expected revocable count from the fresh snapshot so a newly appeared session causes the operation to abort rather than being removed unexpectedly.
+Raw provider `device_id` values, FCM tokens, and registration credentials remain private. The canonical Home Assistant services expose opaque `authorization_ref` values for normal authorized-device management and opaque `fcm_ref` values for advanced FCM cleanup. Historical `session_ref` services remain compatibility aliases only.
+
+Normal authorized-device revocation uses `logout_device`. A controlled cross-session live test confirmed that an ordinary JWT controller can revoke another test device without performing FCM registration. The target row disappeared; the target's already-issued access JWT remained usable, but its refresh JWT was rejected with HTTP 401. The independent controller remained authorized.
+
+Advanced FCM cleanup calls `DELETE /api/v0/fcm/` and deliberately does not call `logout_device`. A separate disposable-device live test nevertheless produced the same tested refresh-chain consequence: the target row disappeared, its existing access JWT remained usable, and its refresh JWT was rejected with HTTP 401. This action must therefore be treated as authorization-destructive, not merely as a harmless push unsubscribe.
+
+A device must not be classified as safe/unsafe from title, platform, age, or inventory presence alone. Home Assistant protects only registrations whose ownership can be proved from local private state; ownership verification fails closed before destructive actions. Targeted actions require explicit confirmation and fresh inventory resolution. Bulk actions additionally require the exact expected target count from the current snapshot, so a changed inventory aborts instead of unexpectedly affecting newly appeared registrations.
 
 ## Diagnostics and support bundles
 
@@ -79,6 +87,7 @@ Recommended redaction rules:
 - avoid exact private addresses and apartment information unless explicitly required by the user;
 - avoid tokenized URLs;
 - never include physical-key provider `id`, `key_id`, or `external_id` values;
+- never include raw provider device IDs, FCM tokens, or Firebase/GCM credentials;
 - replace exact camera identifiers with a short irreversible hash when practical;
 - report token presence/expiry rather than token value.
 
