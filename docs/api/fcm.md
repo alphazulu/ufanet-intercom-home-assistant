@@ -2,7 +2,7 @@
 
 [Русская версия](fcm_RU.md)
 
-This page tracks reverse engineering of the official Ufanet Android push path and the confirmed headless FCM flow.
+This page tracks reverse engineering of the official Ufanet Android push path, the confirmed headless FCM flow, and the live-confirmed relationship between device registration and Ufanet authorization.
 
 > The repository intentionally does not distribute the official application's concrete Firebase client configuration. Users extract it locally from their own copy of the application with `tools/research/fcm_probe_py/extract_firebase_config.py`.
 
@@ -16,22 +16,17 @@ On 2026-08-29 a standalone Windows/Python headless client successfully:
 4. received a real `reason=sip` push without Android/Google Play Services;
 5. correlated the same physical call with `/api/v1/skuds/call-history/`.
 
-The headless FCM transport and `reason=sip` path are therefore **Confirmed**.
+The headless FCM transport and `reason=sip` path are **Confirmed**.
 
-The official Android client also contains a physical-key enrollment completion path
-using `data.reason=key_add`, `key_status`, and `key_id`. That payload contract is
-currently **Observed** from client code and remains a hard live-validation gate
-until a new unregistered physical key can be enrolled end to end.
+The official Android client also contains a physical-key enrollment completion path using `data.reason=key_add`, `key_status`, and `key_id`. That payload contract is currently **Observed** from client code and remains a hard live-validation gate until a new unregistered physical key can be enrolled end to end.
+
+On 2026-09-08 controlled probes additionally confirmed that the device-registration endpoints are coupled to authorization state: both normal `logout_device` and direct FCM unregister removed the tested device row and invalidated the target refresh JWT while an already-issued access JWT remained temporarily usable.
 
 ## Home Assistant integration mode
 
 Version 0.20.0 exposed `polling` and experimental `fcm` in the integration options. FCM registers a private virtual installation, listens for `data.reason=sip`, and immediately asks the existing call coordinator to refresh `call-history`. Polling remains enabled with a minimum 300-second interval so missed pushes or a broken MCS connection do not silently disable call events.
 
-The current validation branch additionally recognizes `data.reason=key_add`. That
-path does not alter the proven SIP/call flow: it classifies the key-enrollment
-result, requests an immediate physical-key coordinator refresh, and emits a
-privacy-minimized `ufanet_intercom_key_enrollment` Home Assistant event. It never
-publishes the provider key ID or raw notification text.
+The current validation branch additionally recognizes `data.reason=key_add`. That path does not alter the proven SIP/call flow: it classifies the key-enrollment result, requests an immediate physical-key coordinator refresh, and emits a privacy-minimized `ufanet_intercom_key_enrollment` Home Assistant event. It never publishes the provider key ID or raw notification text.
 
 The required JSON is read from `ufanet_intercom/firebase_config.json` under the Home Assistant configuration directory by default. Only this relative path is stored in the config entry. Firebase values and runtime FCM credentials are kept in the local Home Assistant storage/config area and are excluded from diagnostics.
 
@@ -123,7 +118,7 @@ The Android client also **Observed** `token_type = 2` for HMS.
 
 and reuses it. The headless PoC generates an equivalent local installation ID.
 
-### Unregister
+### Unregister / advanced FCM cleanup
 
 **Confirmed**
 
@@ -139,20 +134,19 @@ Content-Type: application/json
 }
 ```
 
-The standalone probe can live-check this contract without touching other devices:
+The original probe established HTTP 200 removal/restoration for its own virtual registration. A later controlled `fcm_delete_jwt_probe.py` test went further: an independent observer deleted a disposable subject registration using only `DELETE /api/v0/fcm/`; `logout_device` was never called. After the DELETE:
 
-```cmd
-py tools\research\fcm_probe_py\probe.py --verify-unregister
-```
+- the target row disappeared from `authorized_devices`;
+- the target's already-issued access JWT still returned HTTP 200;
+- the target refresh JWT returned HTTP 401;
+- the independent observer access JWT remained valid;
+- the probe restored the device with a fresh JWT login and FCM registration.
 
-It deletes only its own locally generated virtual registration, immediately
-registers the same device and token again, and exits without starting the listener.
-The live service returned HTTP 200 with `{"status": "ok"}` for both DELETE and the
-immediate restoring POST. The Home Assistant integration therefore unregisters only
-its strictly validated `Home Assistant_<UUID>` installation when FCM is disabled or
-the ConfigEntry is removed. Normal reloads and Home Assistant restarts keep it.
+Therefore direct FCM unregister is **authorization-destructive for the tested refresh chain** and must not be described as a harmless push unsubscribe.
 
-## Authorized-device inventory
+Normal integration-owned cleanup still unregisters only the strictly validated `Home Assistant_<UUID>` installation when FCM is disabled or the ConfigEntry is removed. Normal reloads and Home Assistant restarts keep that registration.
+
+## Authorized-device / registration inventory
 
 **Confirmed**
 
@@ -161,7 +155,9 @@ POST /api/v4/fcm_device/authorized_devices/
 Authorization: JWT <UFANET_ACCESS>
 ```
 
-The request has no body. The live-confirmed response contains `data.device_list`. The current Android DTO consumes `device_id`, nullable `title`, `last_update`, and `is_call_access`; the server also returned `os` and `os_display`, which the current Android DTO does not declare. A sanitized structural example is:
+The request has no body. A plain JWT controller that never registered for FCM can query this endpoint successfully. The live-confirmed response contains `data.device_list`. The current Android DTO consumes `device_id`, nullable `title`, `last_update`, and `is_call_access`; the server also returned `os` and `os_display`.
+
+Sanitized structural example:
 
 ```json
 {
@@ -181,11 +177,11 @@ The request has no body. The live-confirmed response contains `data.device_list`
 }
 ```
 
-The tested account returned unique `device_id` values and parseable timestamps. The live sample correlated opaque OS code `0` with normalized display `Android` for all returned rows, but this is only an observed correlation for that account and is not documented as a universal enum mapping. The Android response model names `devices_num_permission` as `isQuantityLimited`; the current active-devices screen does not use the flag, so its exact operational semantics remain unconfirmed.
+`last_update` is treated as provider activity time, not login time. The tested account correlated `os=0` with `Android`, but that is not documented as a universal enum. `devices_num_permission` is live-observed; exact operational semantics remain unconfirmed.
 
-Treat this endpoint as an **authorized registration/session inventory**, not a guaranteed list of physical phones or distinct current raw FCM tokens. Re-registration/token refresh can update an existing installation-scoped `device_id`, and old authorized rows can remain for a long time.
+Most importantly, this is **not an exhaustive independent JWT-session inventory**. Live testing showed that a row disappears after direct FCM unregister while the already-issued access JWT can still work. Treat it as the provider device/registration inventory used by the official active-device UI and related authorization actions.
 
-## Authorized-session logout
+## Authorized-device logout
 
 **Confirmed**
 
@@ -201,9 +197,49 @@ Content-Type: application/json
 }
 ```
 
-The official Android active-device UI uses this endpoint for one selected non-current device and implements "terminate all other sessions" by calling the same endpoint for each other row. On 2026-09-03 the project live-confirmed the destructive contract only against a disposable probe-owned virtual registration: the row was present before logout, the POST returned HTTP 200, the row disappeared from `authorized_devices`, and re-registering through `/api/v0/fcm/` restored it. No existing phone or Home Assistant registration was used for that provider-contract test.
+The official Android active-device UI uses this endpoint for a selected non-current device and implements "terminate all other sessions" by calling it for each other row.
 
-Home Assistant v0.30.0 exposes this capability through privacy/safety guards rather than raw provider IDs. `list_fcm_sessions` returns bounded user-facing metadata plus an opaque entry-scoped `session_ref`; HA-owned registrations proven from private local state are marked protected. `revoke_fcm_session` re-fetches the inventory, resolves exactly one non-protected ref, performs logout and verifies disappearance. `revoke_other_fcm_sessions` requires explicit confirmation plus an exact expected revocable count from a fresh snapshot and never removes sessions automatically by age/title/platform. The custom **УСТРОЙСТВА** tab uses the same services and never renders raw provider `device_id` values.
+Controlled live testing confirmed the cross-session authorization effect without relying on FCM for the controller:
+
+1. a plain `auth_by_contract` controller with no FCM registration queried `authorized_devices`;
+2. it selected a separate test device;
+3. `logout_device` returned HTTP 200;
+4. the target row disappeared;
+5. the target's existing access JWT still returned HTTP 200;
+6. the target refresh JWT returned HTTP 401;
+7. the controller/observer authorization remained valid.
+
+This makes `logout_device` the canonical Ufanet **authorized-device revoke** operation even though the endpoint namespace contains `fcm_device`.
+
+## Home Assistant device-management services
+
+The validation branch separates normal device authorization from advanced FCM cleanup:
+
+```text
+list_authorized_devices
+revoke_authorized_device
+revoke_other_authorized_devices
+
+list_fcm_registrations
+unregister_fcm_registration
+unregister_other_fcm_registrations
+```
+
+Normal authorization services use `logout_device`. Advanced FCM services use `DELETE /api/v0/fcm/` and explicitly warn that the tested refresh authorization is invalidated even though `logout_device` is not called.
+
+Public rows use opaque `authorization_ref` or `fcm_ref` values. Raw provider `device_id` values and FCM tokens are never returned. Home Assistant-owned registrations proven from private local state are protected, and ownership verification fails closed before destructive operations. Bulk actions require an exact expected target count from the current snapshot and abort if the inventory changes.
+
+The historical services:
+
+```text
+list_fcm_sessions
+revoke_fcm_session
+revoke_other_fcm_sessions
+```
+
+remain compatibility aliases. Despite their names, their revoke operations use `logout_device`; new automations should use the canonical authorized-device service names.
+
+The **УСТРОЙСТВА / Devices** card tab uses the canonical authorization services and exposes advanced FCM cleanup only in a separate collapsed technical section. This UI path has been live-tested with successful removal of test entries while the locally owned Home Assistant registration remained protected.
 
 ## Headless transport
 
@@ -262,16 +298,7 @@ A sanitized real message has this shape:
 
 Runtime capture confirms that the selector is `data.reason`, equal to `sip` for an incoming call.
 
-The Android live-call path consumes at least:
-
-```text
-username
-password
-server
-skud_id
-```
-
-and does not require the call-history UUID to start the live SIP flow.
+The Android live-call path consumes at least `username`, `password`, `server`, and `skud_id`, and does not require the call-history UUID to start the live SIP flow.
 
 ## Physical-key completion push
 
@@ -283,16 +310,7 @@ The client contains a separate completion path selected by:
 data.reason = key_add
 ```
 
-The fields used by the observed success logic are:
-
-```text
-key_status
-key_id
-```
-
-Success requires `key_status == 0` and a present, parseable `key_id`. Missing or
-invalid status is treated as an error. The observed payload does not provide a
-`skud_id`.
+The observed success logic uses `key_status` and `key_id`. Success requires `key_status == 0` and a present, parseable `key_id`; the observed payload does not provide a `skud_id`.
 
 The validation branch handles this message without exposing provider identifiers:
 
@@ -320,14 +338,9 @@ received_at
 inventory_refresh_succeeded
 ```
 
-Provider `key_id`, notification `title`/`body`, and the raw push are never retained
-in the event or diagnostics. Diagnostics expose only
-`received_key_add_push_count`, `last_key_add_push_at`, and
-`last_key_add_result`.
+Provider `key_id`, notification `title`/`body`, and the raw push are never retained in the event or diagnostics. Diagnostics expose only `received_key_add_push_count`, `last_key_add_push_at`, and `last_key_add_result`.
 
-Because the message has no observed `skud_id`, the event is deliberately
-account-level. The refreshed key inventory determines actual intercom association
-through each key's `devices` field.
+Because the message has no observed `skud_id`, the event is deliberately account-level. The refreshed key inventory determines actual intercom association through each key's `devices` field.
 
 ## Relationship to call history
 
@@ -340,13 +353,7 @@ push.data.time == call-history.called_at   (matched to the second)
 push.data.uuid != call-history.uuid
 ```
 
-Therefore:
-
-- `push.data.uuid` is not the durable history-record UUID;
-- `fcmMessageId` is a separate FCM message identifier;
-- `call-history.uuid` is the canonical durable identifier for completed/archive events.
-
-Two earlier SIP pushes about twelve seconds apart were two separate manually initiated test calls, not confirmed retries of one call.
+Therefore `push.data.uuid` is not the durable history UUID, `fcmMessageId` is a separate delivery identifier, and `call-history.uuid` is the canonical durable identifier for completed/archive events.
 
 ## Home Assistant architecture
 
@@ -373,32 +380,20 @@ FCM reason=key_add
    +--> privacy-minimized account-level completion event
 ```
 
-Push is a low-latency wake-up/completion signal. `call-history` remains the authoritative source for durable call identity and media; `/api/v4/key/list/` is the authoritative inventory source after key enrollment. Periodic polling remains as a fallback.
+Push is a low-latency wake-up/completion signal. `call-history` remains authoritative for durable call identity and media; `/api/v4/key/list/` is authoritative after key enrollment. Periodic polling remains as a fallback.
 
 ## Research latency probe
 
-After every SIP push, the Windows/Python PoC probes call history at offsets:
-
-```text
-0, 0.25, 0.5, 1, 2, 5 seconds
-```
-
-and measures an upper bound on when the matching history record becomes observable. This data is used to choose production retry/backoff behavior.
-
-In four consecutive live test calls on 2026-08-29, the matching row was found by the first request every time. Request completion ranged from 0.446 to 0.916 seconds after the push (median 0.613 seconds), with a push/history timestamp delta of 0–1 second. The push UUID and durable history UUID differed in all four samples. The integration still performs short follow-up refreshes to cover network jitter and slower call-history publication.
+After every SIP push, the Windows/Python PoC probes call history at offsets `0, 0.25, 0.5, 1, 2, 5` seconds. In four consecutive live test calls on 2026-08-29, the matching row was found by the first request every time. Request completion ranged from 0.446 to 0.916 seconds after the push (median 0.613 seconds), with a push/history timestamp delta of 0–1 second. The integration still performs short follow-up refreshes to cover network jitter and slower publication.
 
 ## Required key-add live validation
 
-Before the physical-key block is eligible for release, a new unregistered key must
-confirm that:
+Before the physical-key block is eligible for release, a new unregistered key must confirm that:
 
-1. the real completion push is actually delivered through the headless listener;
-2. its wire shape matches the observed `reason=key_add`, `key_status`, `key_id`
-   contract;
-3. the immediate coordinator refresh succeeds and the key appears in the
-   read-only inventory;
-4. `ufanet_intercom_key_enrollment` reports the correct result without exposing
-   provider identifiers or message text.
+1. the real completion push is delivered through the headless listener;
+2. its wire shape matches the observed `reason=key_add`, `key_status`, `key_id` contract;
+3. the immediate coordinator refresh succeeds and the key appears in the read-only inventory;
+4. `ufanet_intercom_key_enrollment` reports the correct result without exposing provider identifiers or message text.
 
 Until then, `key_add` remains **Observed**, not **Confirmed**.
 
@@ -413,6 +408,7 @@ Do not publish or commit:
 - Android/GCM security tokens;
 - WebPush private keys/auth secrets;
 - Ufanet JWTs;
+- raw provider device IDs from account inventory;
 - real SIP username/password/server values;
 - physical-key `external_id` or provider `key_id` values;
 - private account/location identifiers.
