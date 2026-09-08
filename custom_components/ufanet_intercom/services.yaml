@@ -326,7 +326,7 @@ revoke_temporary_guest_link:
 
 list_authorized_devices:
   name: List authorized Ufanet devices
-  description: Return the Ufanet account's authorized-device inventory with device title, last activity, platform and call-access status. Raw provider device IDs are never returned; Home Assistant-owned registrations are marked protected.
+  description: Return the provider authorized-device/registration inventory used by the official device UI, with title, last activity, platform and call-access status. Live testing shows rows are coupled to FCM registration state, so this is not an independent exhaustive list of every JWT. Raw provider device IDs are never returned; Home Assistant-owned registrations are marked protected.
   fields:
     device_id:
       name: Intercom
@@ -337,7 +337,7 @@ list_authorized_devices:
 
 revoke_authorized_device:
   name: Revoke Ufanet device authorization
-  description: Revoke one non-Home-Assistant Ufanet device authorization through logout_device. This is an account authorization action and does not use the FCM registration/unregistration endpoint.
+  description: Revoke one non-Home-Assistant Ufanet device authorization through logout_device. Live testing shows the target's already-issued access token can remain usable while its refresh chain is invalidated.
   fields:
     device_id:
       name: Intercom
@@ -360,7 +360,7 @@ revoke_authorized_device:
 
 revoke_other_authorized_devices:
   name: Revoke other Ufanet device authorizations
-  description: Revoke the current snapshot of all non-Home-Assistant Ufanet device authorizations. Requires the exact revocable_count returned by list_authorized_devices and aborts if it changed.
+  description: Revoke the current snapshot of all non-Home-Assistant Ufanet device authorizations through logout_device. Requires the exact revocable_count returned by list_authorized_devices and aborts if it changed.
   fields:
     device_id:
       name: Intercom
@@ -386,7 +386,7 @@ revoke_other_authorized_devices:
 
 list_fcm_registrations:
   name: List advanced FCM registrations
-  description: Advanced view using the provider authorized-device inventory as the selectable device set for FCM cleanup. This does not expose FCM tokens or raw provider device IDs.
+  description: Advanced view using the provider authorized-device/registration inventory as the selectable set for FCM cleanup. Live testing shows deleting an FCM registration also removes its row from this inventory. FCM tokens and raw provider device IDs are never exposed.
   fields:
     device_id:
       name: Intercom
@@ -397,7 +397,7 @@ list_fcm_registrations:
 
 unregister_fcm_registration:
   name: Unregister FCM push registration
-  description: Advanced action that removes one non-Home-Assistant push registration using DELETE /api/v0/fcm/. It does not call logout_device and does not claim to revoke the device JWT authorization.
+  description: Advanced destructive action that calls DELETE /api/v0/fcm/ for one non-Home-Assistant registration. It does not call logout_device, but live testing confirmed that it removes the device row and invalidates the associated refresh JWT chain; an already-issued access JWT may remain usable until expiry.
   fields:
     device_id:
       name: Intercom
@@ -413,14 +413,14 @@ unregister_fcm_registration:
         text:
     confirm:
       name: Confirm FCM cleanup
-      description: Must be enabled to remove the provider push registration.
+      description: Must be enabled to remove the provider push registration and invalidate its tested refresh authorization chain.
       required: true
       selector:
         boolean:
 
 unregister_other_fcm_registrations:
   name: Unregister other FCM push registrations
-  description: Advanced action that removes the current snapshot of all non-Home-Assistant push registrations with DELETE /api/v0/fcm/. It does not call logout_device.
+  description: Advanced destructive action that calls DELETE /api/v0/fcm/ for the current snapshot of all non-Home-Assistant registrations. It does not call logout_device; each deleted registration should be treated as also losing its refresh authorization chain based on the live single-target test.
   fields:
     device_id:
       name: Intercom
@@ -439,14 +439,14 @@ unregister_other_fcm_registrations:
           mode: box
     confirm:
       name: Confirm mass FCM cleanup
-      description: Must be enabled to remove the provider push registrations.
+      description: Must be enabled to remove the provider push registrations and invalidate their tested refresh authorization chains.
       required: true
       selector:
         boolean:
 
 list_fcm_sessions:
   name: List authorized sessions (legacy name)
-  description: Legacy compatibility alias. Despite its historical name, this returns the same authorized Ufanet device/session inventory used by logout_device. Prefer list_authorized_devices for new automations.
+  description: Legacy compatibility alias. Despite its historical name, this returns the same provider authorized-device/registration inventory used by logout_device. Prefer list_authorized_devices for new automations.
   fields:
     device_id:
       name: Intercom
@@ -457,7 +457,7 @@ list_fcm_sessions:
 
 revoke_fcm_session:
   name: Revoke authorization (legacy name)
-  description: Legacy compatibility alias. This calls logout_device and revokes a Ufanet device authorization; it is not the FCM-only unregister action. Prefer revoke_authorized_device for new automations.
+  description: Legacy compatibility alias. This specifically calls logout_device and revokes the selected device authorization. Prefer revoke_authorized_device for new automations; unregister_fcm_registration calls a different endpoint but also has a live-confirmed refresh-authorization side effect.
   fields:
     device_id:
       name: Intercom
