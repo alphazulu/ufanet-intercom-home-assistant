@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
 
+from homeassistant.components import frontend
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.const import ATTR_DEVICE_ID
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
@@ -29,6 +33,14 @@ from .fcm_sessions import (
     build_authorized_session_inventory,
     resolve_authorized_session,
 )
+
+_LOGGER = logging.getLogger(__name__)
+_AUTHORIZED_DEVICES_CARD_PATH = (
+    Path(__file__).parent / "frontend" / "ufanet-authorized-devices-card.js"
+)
+_AUTHORIZED_DEVICES_CARD_URL = "/ufanet_intercom/ufanet-authorized-devices-card.js"
+_AUTHORIZED_DEVICES_CARD_MODULE_URL = f"{_AUTHORIZED_DEVICES_CARD_URL}?v=0.30.0"
+_FRONTEND_SETUP_GUARD = f"_{DOMAIN}_authorized_devices_frontend_setup"
 
 _REF = vol.All(cv.string, vol.Match(r"^[0-9a-f]{24}$"))
 LIST_SCHEMA = vol.Schema({vol.Required(ATTR_DEVICE_ID): cv.string})
@@ -60,6 +72,56 @@ UNREGISTER_OTHER_FCM_SCHEMA = vol.Schema(
         vol.Required("confirm"): vol.In([True]),
     }
 )
+
+
+async def _async_setup_authorized_devices_frontend(hass: HomeAssistant) -> None:
+    """Expose and inject the optional device-management extension after its path exists."""
+    try:
+        exists = await hass.async_add_executor_job(
+            _AUTHORIZED_DEVICES_CARD_PATH.is_file
+        )
+        if not exists:
+            _LOGGER.warning(
+                "Ufanet authorized-device frontend extension was not found at %s",
+                _AUTHORIZED_DEVICES_CARD_PATH,
+            )
+            return
+        await hass.http.async_register_static_paths(
+            [
+                StaticPathConfig(
+                    _AUTHORIZED_DEVICES_CARD_URL,
+                    str(_AUTHORIZED_DEVICES_CARD_PATH),
+                    False,
+                )
+            ]
+        )
+        # This extension waits for the main custom element with whenDefined(), so
+        # extra-JS injection is safe even if the base Lovelace module loads first.
+        frontend.add_extra_js_url(hass, _AUTHORIZED_DEVICES_CARD_MODULE_URL)
+        _LOGGER.info(
+            "Ufanet authorized-device frontend extension URL: %s",
+            _AUTHORIZED_DEVICES_CARD_MODULE_URL,
+        )
+    except Exception as err:  # noqa: BLE001 - UI extension must not break core setup
+        _LOGGER.warning(
+            "Could not register Ufanet authorized-device frontend extension: %s",
+            type(err).__name__,
+        )
+
+
+def _schedule_authorized_devices_frontend(hass: HomeAssistant) -> None:
+    """Schedule the extension exactly once without changing service setup semantics."""
+    if hass.data.get(_FRONTEND_SETUP_GUARD):
+        return
+    if getattr(hass, "http", None) is None:
+        return
+    if not callable(getattr(hass, "async_create_task", None)):
+        return
+    hass.data[_FRONTEND_SETUP_GUARD] = True
+    hass.async_create_task(
+        _async_setup_authorized_devices_frontend(hass),
+        "Ufanet authorized-device frontend setup",
+    )
 
 
 def _runtime_for_device(hass: HomeAssistant, device_id: str) -> dict[str, Any]:
@@ -102,8 +164,9 @@ async def _authorized_inventory(
     try:
         protected_ids = await async_owned_fcm_device_ids_for_account(hass, username)
         # Historical API method name retained for compatibility. Live tests proved
-        # this endpoint is the official Ufanet authorized-device inventory and can
-        # be read/acted on by a plain JWT controller with no FCM registration.
+        # this endpoint is the official device/registration inventory. It can be
+        # read by a plain JWT controller, but rows are coupled to FCM registration
+        # state and must not be treated as an exhaustive independent JWT inventory.
         devices = await api.async_get_authorized_fcm_devices()
         inventory = build_authorized_session_inventory(
             entry.entry_id,
@@ -138,6 +201,7 @@ def _counts(rows: list[dict[str, Any]]) -> tuple[int, int]:
 
 def async_setup_authorized_device_services(hass: HomeAssistant) -> None:
     """Register canonical authorization actions and advanced FCM actions once."""
+    _schedule_authorized_devices_frontend(hass)
 
     async def async_list_authorized_devices(call: ServiceCall) -> ServiceResponse:
         _api, _entry, inventory = await _authorized_inventory(hass, call)
@@ -266,8 +330,10 @@ def async_setup_authorized_device_services(hass: HomeAssistant) -> None:
 
         target_device_id = target["device_id"]
         try:
-            # This is deliberately NOT logout_device. DELETE /api/v0/fcm/ removes
-            # the provider push registration and makes no claim about JWT revocation.
+            # This is deliberately NOT logout_device. Live testing on 2026-09-08
+            # confirmed that DELETE /api/v0/fcm/ removes the selected row and
+            # invalidates its refresh JWT chain while an issued access JWT can
+            # remain usable until expiry.
             await api.async_unregister_fcm_device(device_id=target_device_id)
             after = await api.async_get_authorized_fcm_devices()
         except UfanetApiError as err:
