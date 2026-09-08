@@ -38,6 +38,7 @@ jobs:
             tools/research/fcm_probe_py/probe.py \
             tools/research/fcm_probe_py/authorized_devices_probe.py \
             tools/research/fcm_probe_py/logout_jwt_probe.py \
+            tools/research/fcm_probe_py/fcm_delete_jwt_probe.py \
             tools/research/fcm_probe_py/extract_firebase_config.py \
             tools/research/key_passage_probe_py/probe.py \
             tools/research/ucams_analytics_probe_py/probe.py
