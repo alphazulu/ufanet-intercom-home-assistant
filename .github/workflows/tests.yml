@@ -33,6 +33,7 @@ jobs:
         run: |
           python -m py_compile \
             tools/research/auth_session_probe_py/probe.py \
+            tools/research/auth_session_probe_py/revoke_authorized_device_probe.py \
             tools/research/fcm_probe_py/probe.py \
             tools/research/fcm_probe_py/logout_jwt_probe.py \
             tools/research/fcm_probe_py/extract_firebase_config.py \
