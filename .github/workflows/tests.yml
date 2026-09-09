@@ -48,6 +48,7 @@ jobs:
           node --check custom_components/ufanet_intercom/frontend/ufanet-archive-card.js
           node --check custom_components/ufanet_intercom/frontend/ufanet-physical-keys-card.js
           node --check custom_components/ufanet_intercom/frontend/ufanet-key-history-card.js
+          node --check custom_components/ufanet_intercom/frontend/ufanet-private-camera-card.js
           node --check custom_components/ufanet_intercom/frontend/ufanet-authorized-devices-card.js
 
       - name: Run pytest with coverage
