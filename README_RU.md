@@ -25,45 +25,25 @@
 - Options Flow и диагностика Home Assistant с учётом конфиденциальности.
 - Единая Lovelace-карточка: `custom:ufanet-intercom-card`.
 
-## Текущая validation-разработка / подготовка 0.31.0
+## Текущая validation-разработка / release candidate 0.31.0
 
-Ветка `codex/combined-validation` содержит ещё не выпущенные изменения уведомлений и регистрации/управления физическими ключами. Сейчас она подготавливается как основа будущего релиза **0.31.0**, но по-прежнему остаётся **validation-only**: её нельзя сливать в `main`, тегировать или публиковать, пока оставшиеся hard live-gates в PR #15 не будут закрыты либо явно рассмотрены и waived.
+Ветка `codex/combined-validation` теперь содержит утверждённое состояние **release candidate 0.31.0**. Бывший blocker регистрации физического ключа закрыт live evidence. PR по-прежнему остаётся **draft/open/unmerged**: подготовка RC не является разрешением на merge, tag, GitHub Release или публикацию.
 
-Установленная версия интеграции намеренно остаётся `0.30.0` до утверждения точного release-candidate commit, после чего все release-facing версии и cache-bust будут подняты синхронно одним изменением.
+Release-facing версия интеграции, карточки и ресурсов на этой RC-ветке — `0.31.0`. Текущий опубликованный GitHub/HACS релиз остаётся **v0.30.0** до отдельного разрешения на публикацию.
 
-Уже live-проверено на тестовой установке Home Assistant:
+Live-подтверждено для текущего release scope:
 
-- Android actionable notification;
-- реальный звонок Ufanet с push;
-- action **«Открыть дверь»** физически открыл настроенную дверь;
-- **«Открыть камеру»** открыл More Info выбранной live-камеры;
-- timeout обновил существующее уведомление на месте и удалил устаревшую кнопку открытия;
-- успешный **«Открыть дверь»** заменил то же уведомление без дубля и устаревшего door action;
-- второй реальный звонок заменил первый pending notification/action;
-- metadata свежего real-call notification соответствует ожидаемым device/location/local time;
-- cross-device runtime guards отдельно проверены код-ревью; недоступный отрицательный live-тест со вторым Ufanet device явно waived, но safety invariant сохранён;
-- combined-сборка с notification/physical-key изменениями загружается и работает без замеченных регрессий;
-- plain JWT controller без FCM-регистрации получил provider authorized-device inventory и отозвал другое тестовое устройство через `logout_device`;
-- после `logout_device` уже выданный access JWT target продолжил работать, а refresh JWT target стал отклоняться;
-- прямой `DELETE /api/v0/fcm/` без вызова `logout_device` удалил disposable device row и также инвалидировал проверенный refresh JWT target, тогда как существующий access JWT ещё временно работал;
-- вкладка **УСТРОЙСТВА** использует canonical authorization services и отдельный сворачиваемый advanced FCM cleanup; тестовые записи удаляются, а собственная регистрация Home Assistant остаётся protected;
-- capability discovery физических ключей;
-- пустой и непустой inventory физических ключей;
-- поля непустого `/api/v4/key/list/`: `id`, `external_id`, `name`, `create_date`, `devices`;
-- непустая история проходов и live-схема элемента `key:str`, `key_name:str`, `time_passage:int`;
-- фильтрация истории выбранного ключа через `filters.key=<external_id>`;
-- Home Assistant/Lovelace отображает один реальный ключ, а выбор строки загружает его реальные passage timestamps;
-- прямое сравнение показало, что номер, нанесённый на физический ключ, **не совпадает** с кандидатами-идентификаторами из ответа сервера, при этом `external_id` продолжает выбирать правильную и обновляющуюся историю этого же ключа;
-- controlled rename физического ключа через `/api/v4/key/edit/`;
-- eventual-consistent read-back rename с одним provider write и ограниченными read-only verification retries;
-- automatic rename verification без ручного refresh;
-- многократные переключения dashboard, обычные reload и hard refresh без повторения прежней Lovelace **«Ошибка конфигурации»**.
+- Android actionable notifications для реальных звонков Ufanet;
+- защищённый action **«Открыть дверь»** физически открывает настроенную дверь, а **«Открыть камеру»** открывает выбранную same-device live-камеру;
+- timeout, замена после открытия и второй звонок не оставляют stale door action;
+- privacy-safe управление authorized devices и отдельно предупреждаемый advanced FCM unregister, включая проверенное поведение refresh-chain target;
+- capability, непустой inventory, история выбранного физического ключа и backend-verified rename;
+- реально незарегистрированный физический ключ зарегистрирован через `POST /api/v4/key/skud/<id>/auto_collect/enable/` в рабочем 60-секундном окне;
+- headless FCM получил реальный completion `reason=key_add`; проверенный success path соответствует `key_status == 0` и корректному `key_id`, после чего inventory зарегистрированных ключей остался здоровым;
+- отдельный 60-секундный тест без приложения ключа не дал дополнительного completion `reason=key_add`;
+- повторные переключения/reload Lovelace не воспроизводят прежнюю **«Ошибка конфигурации»**.
 
-Authorization-тесты также уточнили терминологию: `authorized_devices` — provider device/registration inventory, который использует официальный UI активных устройств, но **не исчерпывающий независимый список всех JWT-сессий**. Строка может исчезнуть после FCM unregister, хотя уже выданный access JWT ещё некоторое время работает.
-
-Тест номера закрывает вопрос с идентификатором: `external_id` полезен как внутренний per-key идентификатор истории, но **не является** номером, нанесённым на проверенный физический ключ. Поэтому ранее экспериментальное публичное поле `number` удалено из `list_physical_keys` и вкладки **КЛЮЧИ**. Provider identifiers остаются только внутренними runtime-данными.
-
-Android notification-блок, управление authorized devices/advanced FCM и success path переименования ключа больше не имеют hard release gate. Оставшийся функциональный blocker — регистрация **нового незарегистрированного физического ключа**: реальный `auto_collect/enable`, физическая регистрация, настоящий `reason=key_add`, FCM-triggered inventory refresh, privacy-safe enrollment event и live enrollment error semantics. iOS notification actions не live-проверены и не объявляются Confirmed. Подробности: [уведомления Home Assistant](docs/notifications_RU.md), [FCM / авторизация устройств](docs/api/fcm_RU.md), [физические ключи/проходы](docs/api/keys_RU.md) и [черновик release notes 0.31.0](docs/releases/0.31.0-draft.md).
+**Hard functional blockers в утверждённом scope 0.31.0 больше нет.** iOS actionable notifications не live-проверены и не объявляются Confirmed; удаление физических ключей намеренно не реализовано и находится вне scope; ненаблюдавшиеся provider-specific enrollment failure payloads не выводятся по догадке. Обезличенное evidence регистрации находится в `docs/api/key_enrollment_live_2026-09-09.md`, release disposition — в `docs/releases/0.31.0-pre-release-audit.md`.
 
 ## Неофициальная документация API
 
@@ -106,13 +86,13 @@ Android notification-блок, управление authorized devices/advanced 
 
 ## Lovelace-карточка
 
-Текущий опубликованный релиз — v0.30.0, поэтому URL основного ресурса с cache-bust:
+На этой RC-ветке 0.31.0 URL основного ресурса с соответствующим cache-bust:
 
 ```text
-/ufanet_intercom/ufanet-archive-card.js?v=0.30.0
+/ufanet_intercom/ufanet-archive-card.js?v=0.31.0
 ```
 
-`?v=` должен совпадать с реально установленным релизом. На validation-ветке это значение не меняется до фактического bump версии на утверждённом release candidate.
+`?v=` должен совпадать с реально установленной версией интеграции/карточки. Текущий опубликованный релиз остаётся v0.30.0 до отдельного разрешения на merge/tag/GitHub Release.
 
 Минимальная конфигурация:
 

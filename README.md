@@ -25,54 +25,25 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 - Options Flow and privacy-conscious Home Assistant diagnostics.
 - Unified Lovelace card: `custom:ufanet-intercom-card`.
 
-## Current validation / 0.31.0 preparation
+## Current validation / 0.31.0 release candidate
 
-The `codex/combined-validation` branch contains unreleased notification-action and
-physical-key enrollment/management work. The branch is being prepared as the basis
-for a future **0.31.0** release, but it remains **validation-only**: it must not be
-merged, tagged or published until the remaining hard live-validation gates in PR #15
-are completed or explicitly reviewed/waived.
+The `codex/combined-validation` branch now carries the approved **0.31.0 release-candidate state**. The former physical-key enrollment blocker is closed by live evidence. The PR remains **draft/open/unmerged**: RC preparation does not authorize merge, tag, GitHub Release, or publication.
 
-The installed integration version intentionally remains `0.30.0` until the exact
-release-candidate commit is approved for the synchronized version/cache-bust bump.
+The release-facing integration/card/resource version on this RC branch is `0.31.0`. The currently published GitHub/HACS release remains **v0.30.0** until separate publication approval is given.
 
-Already live-validated on the development Home Assistant installation:
+Live-confirmed release evidence includes:
 
-- Android actionable incoming-call notification delivery;
-- real Ufanet call notification;
-- notification **Open door** action physically opening the configured door;
-- **View camera** opening More Info for the selected live camera;
-- timeout updating the existing notification in place and removing the stale door action;
-- successful **Open door** replacing the same notification without a duplicate or stale door action;
-- a second real call superseding the first pending notification/action;
-- fresh real-call notification metadata matching the expected device/location/local time;
-- notification cross-device runtime guards reviewed separately; the unavailable second-Ufanet-device negative live test is explicitly waived, while the safety invariant remains in force;
-- combined notification + physical-key build loading without observed regression;
-- a plain JWT controller with no FCM registration listing the provider authorized-device inventory and revoking a different test device through `logout_device`;
-- target authorization behavior after `logout_device`: existing access JWT remained accepted while target refresh JWT was rejected;
-- direct `DELETE /api/v0/fcm/` without `logout_device` removing a disposable device row and likewise invalidating the tested target refresh JWT while its existing access JWT remained temporarily usable;
-- the **DEVICES / УСТРОЙСТВА** tab using canonical authorization services, plus the separate collapsed advanced FCM cleanup section; test entries were removed successfully and the locally owned Home Assistant registration remained protected;
-- physical-key capability discovery;
-- empty and non-empty physical-key inventory;
-- non-empty `/api/v4/key/list/` item fields (`id`, `external_id`, `name`, `create_date`, `devices`);
-- non-empty passage history with live item schema `key:str`, `key_name:str`, `time_passage:int`;
-- selected-key history filtering through `filters.key=<external_id>`;
-- Home Assistant/Lovelace rendering one real key and passage timestamps after selecting that key;
-- a direct comparison showing that the printed physical-key number does **not** match the candidate identifier values returned by the server, while `external_id` still selects the correct updating history for that same key;
-- controlled physical-key rename through `/api/v4/key/edit/`;
-- eventual-consistent rename read-back with one provider write followed by bounded read-only verification retries;
-- automatic rename verification without requiring a manual refresh;
-- repeated dashboard switches, normal reloads and hard refreshes without reproducing the former Lovelace **Configuration error**.
+- Android actionable incoming-call notifications from real Ufanet calls;
+- guarded **Open door** physically opening the configured door and **View camera** opening the selected same-device camera;
+- timeout, post-open replacement and second-call supersession without stale door actions;
+- privacy-safe authorized-device management and the separately warned advanced FCM unregister path, including target refresh-chain behavior;
+- physical-key capability, non-empty inventory, selected-key passage history and backend-verified rename;
+- a genuinely unregistered physical key enrolled through `POST /api/v4/key/skud/<id>/auto_collect/enable/` during the real 60-second window;
+- real headless-FCM `reason=key_add` completion with the tested success rule (`key_status == 0` plus a parseable `key_id`), followed by healthy registered-key inventory;
+- a separate no-key 60-second timeout in which no additional `reason=key_add` completion push was observed;
+- repeated Lovelace reload/switch tests without reproducing the former **Configuration error**.
 
-The authorization tests also establish an important terminology boundary: `authorized_devices` is the provider device/registration inventory used by the official active-device UI, but it is **not an exhaustive independent list of every JWT session**. A row can disappear after FCM unregister while an already-issued access JWT remains temporarily usable.
-
-The key-number test resolves the identifier question: `external_id` is useful
-internally for per-key history, but it is **not** the printed number of the tested
-physical key. The previously experimental public `number` field has therefore been
-removed from `list_physical_keys` and the KEYS UI. Provider identifiers remain
-private runtime data.
-
-The Android notification block, authorized-device/advanced-FCM management block, and physical-key rename success path have no remaining hard release gate. The remaining functional blocker is the registration of a **new unregistered physical key**: real `auto_collect/enable`, physical registration, real `reason=key_add`, FCM-triggered inventory refresh, privacy-safe enrollment event, and live enrollment error semantics. iOS notification actions are not live-tested and are not claimed as Confirmed. See [Home Assistant call notifications](docs/notifications.md), [FCM / device authorization](docs/api/fcm.md), [Physical keys and passage history](docs/api/keys.md), and the [draft 0.31.0 release notes](docs/releases/0.31.0-draft.md).
+There are **no remaining hard functional blockers under the approved 0.31.0 scope**. iOS actionable-notification delivery is not live-tested and is not claimed as Confirmed; physical-key deletion is deliberately unimplemented/out of scope; provider-specific enrollment failure payloads that were not observed are not inferred. Sanitized enrollment evidence is in `docs/api/key_enrollment_live_2026-09-09.md` and the release disposition is tracked in `docs/releases/0.31.0-pre-release-audit.md`.
 
 ## Unofficial API documentation
 
@@ -118,15 +89,13 @@ promoted to Confirmed from decompiled-client evidence or green CI alone.
 
 ## Lovelace card
 
-Add the main resource as a JavaScript module. The currently published release is v0.30.0, so its cache-bust URL is:
+Add the main resource as a JavaScript module. On this 0.31.0 RC branch the matching cache-bust URL is:
 
 ```text
-/ufanet_intercom/ufanet-archive-card.js?v=0.30.0
+/ufanet_intercom/ufanet-archive-card.js?v=0.31.0
 ```
 
-The `?v=` value must match the installed release. Do not change this documentation
-value on validation branches until the integration/card version is actually bumped
-on the approved release candidate.
+The `?v=` value must match the installed integration/card version. The currently published release remains v0.30.0 until separate merge/tag/GitHub Release approval.
 
 Minimal card:
 

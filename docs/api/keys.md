@@ -23,7 +23,7 @@ A direct physical comparison was also completed on 2026-09-07. The number printe
 - `external_id` is **not** the number printed on the tested physical key;
 - the previously experimental public `number` field was removed from the validation branch rather than shipping a misleading interpretation.
 
-New-key enrollment and the real `reason=key_add` completion remain **Observed** until their state-changing live tests are completed. Physical-key rename is now **Confirmed** for the tested success path.
+New-key enrollment and the real `reason=key_add` completion are now **Confirmed for the tested success path**: a genuinely unregistered key was physically registered during the 60-second Home Assistant enrollment window and real completion pushes were received. A separate no-key timeout produced no completion push; unobserved provider-specific error payloads are not inferred. Physical-key rename remains **Confirmed** for the tested success path.
 
 ## Account features
 
@@ -109,22 +109,24 @@ Both the empty service path (`count: 0`, `keys: []`) and the non-empty inventory
 
 ## Starting physical-key enrollment
 
-The official Android client arms automatic collection with:
+The official Android client and the live-tested Home Assistant path arm automatic collection with:
 
 ```http
 POST /api/v4/key/skud/<skud_id>/auto_collect/enable/
 Authorization: JWT <UFANET_ACCESS>
 ```
 
-**Observed in the Android client; state-changing live validation pending.** A successful response opens a **60-second** window for presenting a new key. HTTP success proves only that enrollment mode was armed, not that a key was registered.
+**Confirmed for the tested success path.** Home Assistant invoked this endpoint, the intercom entered the expected **60-second** enrollment window, and a genuinely unregistered physical key presented during that window was actually registered. HTTP success by itself is still not treated as proof that a key was registered; the physical/inventory/FCM side effects provide that evidence.
 
 Home Assistant exposes **Add physical key** (`mdi:key-plus`) only for capability-supported intercoms and publishes `enrollment_window_seconds: 60`. The button is unavailable for a blocked/unhealthy target.
 
+A separate live timeout test armed the same window and presented no key. After 60 seconds no additional enrollment completion push was observed.
+
 ## Asynchronous enrollment completion through FCM
 
-The Android client recognizes `reason=key_add` plus status and an internal key identifier. **Observed; live validation pending.** Native success semantics require status `0` and a parseable key identifier.
+The Android client recognizes `reason=key_add` plus status and an internal key identifier. **Confirmed for the tested success path.** The active headless FCM listener received real `reason=key_add` completion pushes after the new physical key was registered. The observed success matched the native rule `key_status == 0` with a parseable `key_id`.
 
-The validation runtime refreshes the key coordinator immediately and fires only the privacy-minimized account-level event:
+The runtime immediately refreshes the key coordinator and fires only the privacy-minimized account-level event:
 
 ```yaml
 event_type: ufanet_intercom_key_enrollment
@@ -136,9 +138,9 @@ data:
   inventory_refresh_succeeded: true
 ```
 
-The observed completion payload does not carry `skud_id`, so the integration does not invent one. `/api/v4/key/list/` plus `devices` establishes actual intercom association.
+The completion payload does not provide a trusted public `skud_id`, so the integration does not invent one. `/api/v4/key/list/` plus `devices` establishes actual intercom association.
 
-FCM diagnostics retain only `received_key_add_push_count`, `last_key_add_push_at`, and `last_key_add_result`; provider identifiers, title/body, and raw push data are not retained.
+FCM diagnostics retain only coarse key-add counters/result/timestamps; provider identifiers, notification title/body, and raw push data are not retained. The no-key timeout produced no new completion push, so no unobserved HTTP/status/error-push semantics are claimed.
 
 ## Physical-key rename
 
@@ -289,18 +291,8 @@ Current validation functionality includes:
 
 Diagnostics exclude key names, provider identifiers, passage timestamps, and full history.
 
-## Required live validation before release
+## Release validation disposition
 
-The read-only key/history path, negative printed-number comparison, physical-key rename success path, notification block, and Lovelace resource-load regression are resolved. The Android notification block has no remaining hard release gate; the unavailable second-Ufanet-device live test was explicitly waived after targeted security review without waiving the cross-device safety invariant.
+The physical-key enrollment success path is live-confirmed end to end, including the real 60-second window, physical registration of a previously unregistered key, real `reason=key_add` completion through the headless FCM listener, and healthy post-enrollment inventory. A separate no-key timeout produced no completion push.
 
-The remaining hard functional release gates are exclusively the new physical-key enrollment path:
-
-1. arm auto-collection from HA/card and verify the provider really enables enrollment mode;
-2. present a new unregistered key within 60 seconds;
-3. capture the real `reason=key_add` wire shape using sanitized schema/status evidence only;
-4. verify the new key is actually registered and the numeric **Physical keys** sensor refreshes promptly after the FCM-triggered inventory update;
-5. verify the new key appears across the privacy-safe read-only surfaces without provider identifiers;
-6. verify the privacy-safe `ufanet_intercom_key_enrollment` success/error result;
-7. inspect real enrollment error behavior, including any observed HTTP 400/status semantics.
-
-Delete and BLE keys remain outside the current release scope. iOS notification actions remain not live-tested and are not claimed as Confirmed.
+There are **no remaining hard functional release gates under the approved 0.31.0 scope**. Provider-specific enrollment failure payloads that were not observed are intentionally not inferred. Physical-key deletion and BLE-key work remain outside this release scope. iOS notification actions remain not live-tested and are not claimed as Confirmed.

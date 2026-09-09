@@ -23,7 +23,7 @@ Read-only контракты физических ключей и истории
 - `external_id` **не является** номером, нанесённым на проверенный физический ключ;
 - ранее экспериментальное публичное поле `number` удалено из validation-ветки, чтобы не выпускать вводящую в заблуждение интерпретацию.
 
-Регистрация нового ключа и реальный completion `reason=key_add` остаются **Observed**, пока не выполнен соответствующий state-changing live-тест. Переименование физического ключа теперь имеет статус **Confirmed** для проверенного success path.
+Регистрация нового ключа и реальный completion `reason=key_add` теперь **Confirmed для проверенного success path**: реально незарегистрированный ключ был физически зарегистрирован в 60-секундном окне Home Assistant, после чего получены настоящие completion pushes. Отдельный timeout без ключа не дал completion push; ненаблюдавшиеся provider-specific error payloads не выводятся по догадке. Переименование физического ключа остаётся **Confirmed** для проверенного success path.
 
 ## Возможности аккаунта
 
@@ -109,22 +109,24 @@ Provider `id`, `external_id` и предполагаемый номер физи
 
 ## Запуск регистрации физического ключа
 
-Официальный Android-клиент включает серверный режим автосбора запросом:
+Официальный Android-клиент и live-проверенный Home Assistant path включают серверный режим автосбора запросом:
 
 ```http
 POST /api/v4/key/skud/<skud_id>/auto_collect/enable/
 Authorization: JWT <UFANET_ACCESS>
 ```
 
-**Observed из Android-клиента; state-changing live-проверка ожидается.** После успешного ответа приложение открывает окно **60 секунд**, в течение которого новый ключ нужно приложить к считывателю. HTTP 200 означает только, что режим регистрации включён, а не что ключ уже зарегистрирован.
+**Confirmed для проверенного success path.** Home Assistant вызвал endpoint, домофон вошёл в ожидаемое **60-секундное** окно регистрации, и реально незарегистрированный физический ключ, приложенный в этом окне, был фактически зарегистрирован. Один HTTP success сам по себе по-прежнему не считается доказательством регистрации — доказательство дают физический side effect, inventory и FCM completion.
 
 В HA flow представлен кнопкой **«Добавить физический ключ»** (`mdi:key-plus`) с `enrollment_window_seconds: 60`. Кнопка создаётся только для capability-supported домофона и недоступна для заблокированного/недоступного устройства.
 
+Отдельный live timeout-тест запустил то же окно без приложения ключа. Через 60 секунд дополнительного enrollment completion push не наблюдалось.
+
 ## Асинхронное завершение регистрации через FCM
 
-Android-клиент знает completion `reason=key_add` вместе со status и внутренним идентификатором ключа. **Observed; live-проверка ожидается.** Нативная логика успеха требует status `0` и корректный идентификатор.
+Android-клиент распознаёт `reason=key_add` вместе со status и внутренним идентификатором ключа. **Confirmed для проверенного success path.** Активный headless FCM listener получил реальные completion pushes `reason=key_add` после регистрации нового физического ключа. Наблюдаемый успех соответствует нативному правилу `key_status == 0` и корректному `key_id`.
 
-Validation runtime немедленно обновляет key coordinator и публикует только privacy-minimized account-level событие:
+Runtime немедленно обновляет key coordinator и публикует только privacy-minimized account-level событие:
 
 ```yaml
 event_type: ufanet_intercom_key_enrollment
@@ -136,9 +138,9 @@ data:
   inventory_refresh_succeeded: true
 ```
 
-Observed completion payload не содержит `skud_id`, поэтому интеграция его не угадывает. Привязка ключа определяется последующим `/api/v4/key/list/` через `devices`.
+Completion payload не предоставляет доверенного публичного `skud_id`, поэтому интеграция его не угадывает. Фактическая привязка к домофону устанавливается через `/api/v4/key/list/` и `devices`.
 
-FCM diagnostics хранят только `received_key_add_push_count`, `last_key_add_push_at`, `last_key_add_result`; provider identifiers, `title`, `body` и raw push не сохраняются.
+FCM diagnostics сохраняют только coarse counters/result/timestamps для key-add; provider identifiers, notification title/body и raw push не сохраняются. Timeout без ключа не дал нового completion push, поэтому ненаблюдавшиеся HTTP/status/error-push semantics не утверждаются.
 
 ## Переименование физического ключа
 
@@ -289,18 +291,8 @@ Android-клиент содержит destructive delete-запрос для в�
 
 Diagnostics не содержат имён ключей, provider identifiers, времени проходов или полной истории.
 
-## Обязательная live-проверка до релиза
+## Итог release validation
 
-Read-only key/history path, отрицательный тест физического номера, success path переименования, notification-блок и Lovelace resource-load regression уже закрыты. У Android notification functionality нет оставшегося hard release gate; недоступный live-тест со вторым Ufanet device явно waived после targeted security review, при этом cross-device safety invariant не waived.
+Success path регистрации физического ключа live-подтверждён end to end: реальное 60-секундное окно, физическая регистрация ранее незарегистрированного ключа, настоящий completion `reason=key_add` через headless FCM listener и здоровый inventory после регистрации. Отдельный timeout без ключа не дал completion push.
 
-Оставшиеся hard functional release gates относятся исключительно к регистрации нового физического ключа:
-
-1. запустить auto-collection из HA/card и проверить, что provider действительно включает enrollment mode;
-2. приложить новый незарегистрированный ключ в течение 60 секунд;
-3. получить реальный `reason=key_add` и зафиксировать только обезличенную wire-схему/status;
-4. подтвердить фактическую регистрацию нового ключа и быстрое обновление числового **Физические ключи** после FCM-triggered refresh;
-5. подтвердить появление нового ключа на privacy-safe read-only surfaces без provider identifiers;
-6. проверить privacy-safe success/error результат `ufanet_intercom_key_enrollment`;
-7. проверить реальные enrollment error semantics, включая наблюдаемые HTTP 400/status значения.
-
-Delete и BLE keys остаются вне текущего release scope. iOS notification actions остаются не live-проверенными и не объявляются Confirmed.
+**Hard functional release gates в утверждённом scope 0.31.0 больше нет.** Ненаблюдавшиеся provider-specific enrollment failure payloads намеренно не выводятся по догадке. Удаление физических ключей и BLE keys остаются вне release scope. iOS notification actions не live-проверены и не объявляются Confirmed.

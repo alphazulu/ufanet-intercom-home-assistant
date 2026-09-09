@@ -39,7 +39,7 @@ _AUTHORIZED_DEVICES_CARD_PATH = (
     Path(__file__).parent / "frontend" / "ufanet-authorized-devices-card.js"
 )
 _AUTHORIZED_DEVICES_CARD_URL = "/ufanet_intercom/ufanet-authorized-devices-card.js"
-_AUTHORIZED_DEVICES_CARD_MODULE_URL = f"{_AUTHORIZED_DEVICES_CARD_URL}?v=0.30.0"
+_AUTHORIZED_DEVICES_CARD_MODULE_URL = f"{_AUTHORIZED_DEVICES_CARD_URL}?v=0.31.0"
 _FRONTEND_SETUP_GUARD = f"_{DOMAIN}_authorized_devices_frontend_setup"
 
 _REF = vol.All(cv.string, vol.Match(r"^[0-9a-f]{24}$"))
