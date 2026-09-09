@@ -32,10 +32,23 @@ jobs:
       - name: Compile research scripts
         run: |
           python -m py_compile \
+            tools/research/auth_session_probe_py/probe.py \
+            tools/research/auth_session_probe_py/revoke_authorized_device_probe.py \
+            tools/research/auth_session_probe_py/unregister_fcm_only_probe.py \
             tools/research/fcm_probe_py/probe.py \
+            tools/research/fcm_probe_py/authorized_devices_probe.py \
+            tools/research/fcm_probe_py/logout_jwt_probe.py \
+            tools/research/fcm_probe_py/fcm_delete_jwt_probe.py \
             tools/research/fcm_probe_py/extract_firebase_config.py \
             tools/research/key_passage_probe_py/probe.py \
             tools/research/ucams_analytics_probe_py/probe.py
+
+      - name: Check frontend JavaScript syntax
+        run: |
+          node --check custom_components/ufanet_intercom/frontend/ufanet-archive-card.js
+          node --check custom_components/ufanet_intercom/frontend/ufanet-physical-keys-card.js
+          node --check custom_components/ufanet_intercom/frontend/ufanet-key-history-card.js
+          node --check custom_components/ufanet_intercom/frontend/ufanet-authorized-devices-card.js
 
       - name: Run pytest with coverage
         shell: bash

@@ -1,6 +1,6 @@
 # Python read-only example
 
-This minimal example demonstrates the authentication chain, SKUD discovery, UCAMS exchange, minimal analytics capability discovery, and a privacy-safe read-only `motion_alarm` query. It intentionally does **not** open the door, modify guest access, print provider identifiers, or dump raw event history.
+This minimal example demonstrates the authentication chain, SKUD discovery, UCAMS exchange, minimal analytics capability discovery, and a privacy-safe read-only `motion_alarm` query. It intentionally does **not** open the door, arm physical-key enrollment, rename/delete physical keys, modify guest/session access, print provider identifiers, or dump raw event history.
 
 ```python
 from __future__ import annotations
@@ -156,10 +156,10 @@ if motion_supported:
 - Use `httpx.AsyncClient`/`aiohttp` or another async client in asynchronous applications.
 - Implement token expiration/refresh rather than logging in for every request.
 - Never print or persist raw tokens in diagnostics.
-- Treat all camera/analytics responses as private API structures: validate types and discard unknown fields at the boundary.
-- Keep provider camera IDs, event IDs, exact raw history, media, screenshots, and recognition data out of public entities/logs/diagnostics.
+- Treat all camera/analytics/key responses as private API structures: validate types and discard unknown/private fields at the boundary.
+- Keep provider camera IDs, event IDs, physical-key `external_id`/provider key IDs, exact raw history, media, screenshots, and recognition data out of public entities/logs/diagnostics.
 - Sanitize API failures before passing them to user-visible logs; response bodies can contain private values.
 - Before reading an archive clip, query recording ranges first.
-- Do not automatically call physical/state-changing endpoints during startup or health checks.
+- Do not automatically call physical/state-changing endpoints during startup or health checks. Physical-key enrollment/rename/delete belong only in explicitly guarded user actions after their evidence status is reviewed.
 
-The Home Assistant integration in this repository contains the more complete production implementation described in [../analytics.md](../analytics.md).
+The Home Assistant integration in this repository contains the more complete production implementation described in [../analytics.md](../analytics.md), while physical-key behavior and its current validation gates are documented separately in [../keys.md](../keys.md).

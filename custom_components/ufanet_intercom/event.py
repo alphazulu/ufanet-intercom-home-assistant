@@ -1,18 +1,31 @@
-"""Event platform for Ufanet physical-key passages and motion analytics."""
+"""Event platform for Ufanet calls, physical-key passages and motion analytics."""
 
 from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from homeassistant.components.event import EventEntity
+from homeassistant.components.event import DoorbellEventType, EventDeviceClass, EventEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .analytics import UfanetMotionAnalyticsCoordinator
-from .const import DOMAIN, EVENT_KEY_PASSAGE, EVENT_MOTION_ANALYTICS
-from .coordinator import UfanetCoordinator, UfanetKeyPassageCoordinator
+from .const import (
+    DOMAIN,
+    EVENT_INTERCOM_CALL,
+    EVENT_KEY_PASSAGE,
+    EVENT_MOTION_ANALYTICS,
+)
+from .coordinator import UfanetCallCoordinator, UfanetCoordinator
 from .entity import device_info
+from .key_coordinator import UfanetKeyPassageCoordinator
+
+
+def _known_key_capable_ids(coordinator: Any) -> set[int]:
+    if bool(getattr(coordinator, "capability_known", False)):
+        return {int(value) for value in getattr(coordinator, "supported_skud_ids", set())}
+    data = getattr(coordinator, "data", None)
+    return {int(value) for value in data} if isinstance(data, dict) else set()
 
 
 async def async_setup_entry(
@@ -20,9 +33,10 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up passage and motion event entities."""
+    """Set up call, passage and motion event entities."""
     runtime = hass.data[DOMAIN][entry.entry_id]
     coordinator: UfanetCoordinator = runtime["coordinator"]
+    call_coordinator: UfanetCallCoordinator = runtime["call_coordinator"]
     passage_coordinator: UfanetKeyPassageCoordinator = runtime[
         "key_passage_coordinator"
     ]
@@ -30,16 +44,40 @@ async def async_setup_entry(
         "analytics_coordinator"
     )
 
-    passage_entities: list[EventEntity] = [
-        UfanetKeyPassageEvent(passage_coordinator, coordinator.data[skud_id])
-        for skud_id in passage_coordinator.data
-        if skud_id in coordinator.data
-    ]
-    async_add_entities(passage_entities)
+    async_add_entities(
+        [
+            UfanetIncomingCallEvent(call_coordinator, skud)
+            for skud in coordinator.data.values()
+            if skud.get("cctv_number")
+        ]
+    )
+
+    added_passage_ids: set[int] = set()
+
+    @callback
+    def _add_supported_passage_entities() -> None:
+        new_ids = [
+            skud_id
+            for skud_id in sorted(_known_key_capable_ids(passage_coordinator))
+            if skud_id in coordinator.data and skud_id not in added_passage_ids
+        ]
+        if not new_ids:
+            return
+        added_passage_ids.update(new_ids)
+        async_add_entities(
+            [
+                UfanetKeyPassageEvent(passage_coordinator, coordinator.data[skud_id])
+                for skud_id in new_ids
+            ]
+        )
+
+    _add_supported_passage_entities()
+    passage_listener = getattr(passage_coordinator, "async_add_listener", None)
+    if callable(passage_listener):
+        entry.async_on_unload(passage_listener(_add_supported_passage_entities))
 
     if analytics_coordinator is None:
         return
-
     added_motion_ids: set[int] = set()
 
     @callback
@@ -72,6 +110,59 @@ async def async_setup_entry(
     )
 
 
+class UfanetIncomingCallEvent(EventEntity):
+    """Represent a confirmed Ufanet intercom call as a standard doorbell event."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "incoming_call_event"
+    _attr_icon = "mdi:doorbell-video"
+    _attr_device_class = EventDeviceClass.DOORBELL
+    _attr_event_types: ClassVar[list[str]] = [DoorbellEventType.RING]
+
+    def __init__(
+        self,
+        coordinator: UfanetCallCoordinator,
+        skud: dict[str, Any],
+    ) -> None:
+        self.coordinator = coordinator
+        self.skud_id = int(skud["id"])
+        self._attr_unique_id = f"{self.skud_id}_incoming_call_event"
+        self._attr_device_info = device_info(skud)
+
+    @property
+    def available(self) -> bool:
+        """Return whether call-history updates are healthy."""
+        return self.coordinator.last_update_success
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to privacy-safe incoming-call events."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.hass.bus.async_listen(EVENT_INTERCOM_CALL, self._async_handle_call)
+        )
+
+    @callback
+    def _async_handle_call(self, event: Event) -> None:
+        """Publish a standard ring event for this intercom only."""
+        if event.data.get("skud_id") != self.skud_id:
+            return
+        attributes = {
+            field: event.data[field]
+            for field in (
+                "uuid",
+                "called_at",
+                "address",
+                "porch",
+                "flat",
+                "has_preview",
+                "has_archive",
+            )
+            if field in event.data
+        }
+        self._trigger_event(DoorbellEventType.RING, attributes)
+        self.async_write_ha_state()
+
+
 class UfanetKeyPassageEvent(EventEntity):
     """Represent the latest physical-key passage for one intercom."""
 
@@ -92,25 +183,31 @@ class UfanetKeyPassageEvent(EventEntity):
 
     @property
     def available(self) -> bool:
-        """Return whether passage polling is healthy for this intercom."""
-        return (
+        """Return whether passage history is healthy for this intercom."""
+        state = self.coordinator.data.get(self.skud_id)
+        supports_skud = getattr(self.coordinator, "supports_skud", None)
+        supported = (
+            supports_skud(self.skud_id)
+            if callable(supports_skud)
+            else state is not None
+        )
+        return bool(
             self.coordinator.last_update_success
-            and self.skud_id in self.coordinator.data
+            and supported
+            and isinstance(state, dict)
+            and state.get("history_healthy", True)
         )
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to sanitized key-passage events."""
         await super().async_added_to_hass()
         self.async_on_remove(
-            self.hass.bus.async_listen(
-                EVENT_KEY_PASSAGE,
-                self._async_handle_passage,
-            )
+            self.hass.bus.async_listen(EVENT_KEY_PASSAGE, self._async_handle_passage)
         )
 
     @callback
     def _async_handle_passage(self, event: Event) -> None:
-        """Update the entity for a passage belonging to this intercom."""
+        """Update the entity for a passage belonging to this intercom only."""
         if event.data.get("skud_id") != self.skud_id:
             return
         attributes = {

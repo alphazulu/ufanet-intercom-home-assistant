@@ -1,4 +1,4 @@
-"""Tests for token-free last-call sensor state."""
+"""Tests for token-free last-call and physical-key sensor state."""
 
 from __future__ import annotations
 
@@ -53,7 +53,8 @@ def test_last_call_attributes_publish_capabilities_without_media_urls() -> None:
     assert "ARCHIVE-SECRET" not in serialized
 
 
-def test_physical_key_sensors_publish_only_count_and_timestamp() -> None:
+def test_physical_key_sensor_exposes_sanitized_read_only_inventory() -> None:
+    created = 1_751_011_416
     coordinator = SimpleNamespace(
         last_update_success=True,
         data={
@@ -62,6 +63,22 @@ def test_physical_key_sensors_publish_only_count_and_timestamp() -> None:
                 "last_passage_at": 1_788_220_800,
             }
         },
+        api=SimpleNamespace(
+            physical_key_inventory=(
+                {
+                    "key_id": 3321992,
+                    "name": "Папа",
+                    "created_at": created,
+                    "devices": (7, 8),
+                },
+                {
+                    "key_id": 3321993,
+                    "name": "Other intercom",
+                    "created_at": created + 10,
+                    "devices": (8,),
+                },
+            )
+        ),
     )
 
     count = UfanetPhysicalKeyCountSensor(coordinator, _skud())
@@ -75,5 +92,21 @@ def test_physical_key_sensors_publish_only_count_and_timestamp() -> None:
         1,
         tzinfo=timezone.utc,
     )
-    assert count.extra_state_attributes is None
+    assert count.extra_state_attributes == {
+        "keys": [
+            {
+                "name": "Папа",
+                "created_at": datetime.fromtimestamp(
+                    created,
+                    tz=timezone.utc,
+                ).isoformat(),
+            }
+        ]
+    }
     assert latest.extra_state_attributes is None
+
+    serialized = json.dumps(count.extra_state_attributes, ensure_ascii=False)
+    assert "3321992" not in serialized
+    assert "key_id" not in serialized
+    assert "external_id" not in serialized
+    assert "Other intercom" not in serialized

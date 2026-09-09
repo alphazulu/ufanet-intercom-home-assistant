@@ -13,16 +13,22 @@ This table is a compact index of what has actually been tested by the project. T
 | Account | `GET /api/v0/object/` | **Confirmed** | Reachability confirmed; schema not documented |
 | FCM | `POST /api/v0/fcm/` | **Confirmed** | Android 4.0.14 registration body successfully used by headless Windows/Python client |
 | FCM | Headless FIS/GCM/MCS receive | **Confirmed** | Real Ufanet push received through `mtalk.google.com:5228` without Android/Google Play Services |
-| FCM | `DELETE /api/v0/fcm/` | **Confirmed** | Probe removed only its own virtual registration with HTTP 200, then restored it with POST HTTP 200 |
-| FCM | `POST /api/v4/fcm_device/authorized_devices/` | **Confirmed** | Live-tested no-body POST returns `data.device_list`; confirmed fields include `device_id`, `title`, `last_update`, `is_call_access`, plus server metadata `os`/`os_display`. `devices_num_permission` is live-observed; exact business semantics remain unconfirmed. |
-| FCM | `POST /api/v4/fcm_device/logout_device/` | **Confirmed** | Controlled probe-owned session was present before `{device_id}` logout, absent after HTTP 200, restored through `/api/v0/fcm/`, and present again; targeted production revoke was also live-tested in Home Assistant. |
+| FCM/Auth | `DELETE /api/v0/fcm/` | **Confirmed** | Controlled target row disappeared without `logout_device`; its issued access JWT remained accepted while its refresh JWT was rejected with HTTP 401. Independent observer authorization survived. The registration was then restored with a fresh JWT login. |
+| Device/Auth | `POST /api/v4/fcm_device/authorized_devices/` | **Confirmed** | A plain JWT controller with no FCM registration can query it. Live rows include `device_id`, `title`, `last_update`, `is_call_access`, plus `os`/`os_display`; rows are coupled to FCM/device-registration state and are not an exhaustive independent list of all JWTs. `devices_num_permission` is observed but exact business semantics remain unconfirmed. |
+| Device/Auth | `POST /api/v4/fcm_device/logout_device/` | **Confirmed** | A plain-JWT controller successfully revoked a different test device. The target row disappeared; the target issued access JWT remained accepted while its refresh JWT was rejected with HTTP 401. Independent observer authorization survived. Targeted Home Assistant UI revoke was also live-tested. |
 | Push | `data.reason = "sip"` | **Confirmed** | Real payload carries `username`, `password`, `server`, `skud_id`, `transport`, `contract`, `house_id`, `flat`, `time`, `uuid`; `from=<sender-id>`, priority `normal` |
+| Push | `data.reason = "key_add"` | **Confirmed** | Real completion pushes were received after enrolling a genuinely unregistered key through Home Assistant. The tested success path matched `key_status == 0` plus a parseable `key_id`; a separate no-key 60-second timeout produced no additional completion push. |
 | SKUD | `GET /api/v0/skud/shared/` | **Confirmed** | Returns tested intercom |
 | SKUD | `GET /api/v0/skud/` | **Observed** | Returned `[]` for tested account |
 | Capabilities | `GET /api/v4/skud/features/` | **Confirmed** | Live response included the `keys` account feature |
 | Intercoms | `POST /api/v0/intercoms/` | **Confirmed** | One-based filtered request returned `has_key_recording_support=true` |
-| Keys | `POST /api/v4/key/list/` | **Confirmed** | HTTP 200 and empty `data.keys` confirmed; non-empty item fields remain Observed |
-| Passages | `POST /api/v4/key/skud/<id>/key/pass_history/` | **Confirmed** | HTTP 200, zero-based pagination and empty `results` confirmed; item fields remain Observed |
+| Keys | `POST /api/v4/key/list/` | **Confirmed** | Both empty and non-empty live responses were exercised. Confirmed item fields: `id`, `external_id`, `name`, `create_date`, `devices`. HA empty and non-empty inventory paths were also live-validated. |
+| Keys | `external_id` selected-key semantics | **Confirmed** | Android uses `external_id` for `filters.key`; live history for the tested physical key updates correctly. Direct comparison also confirmed that `external_id`/other candidate server identifiers do **not** match the number printed on that tested key, so no public key-number field is exposed. |
+| Keys | `POST /api/v4/key/skud/<id>/auto_collect/enable/` | **Confirmed** | Home Assistant live-tested the real 60-second enrollment window with a genuinely unregistered key; the key was physically registered and completion arrived through `reason=key_add`. HTTP success alone is still not treated as proof of registration. |
+| Keys | `POST /api/v4/key/edit/` | **Confirmed** | Controlled Home Assistant live rename changed the selected key name. Provider inventory is eventually consistent, so runtime sends one write and performs bounded read-only refresh retries; automatic post-write verification was live-confirmed and no automatic write retry occurs. |
+| Keys | `POST /api/v4/key/skud/<id>/delete/key/` | **Observed** | Android deletes a key with `{key_id}`; destructive flow is neither implemented nor live-validated. |
+| Passages | `POST /api/v4/key/skud/<id>/key/pass_history/` | **Confirmed** | Empty and non-empty responses confirmed. Live item fields are `key:str`, `key_name:str`, `time_passage:int`; zero-based pagination confirmed. |
+| Passages | `filters.key=<external_id>` | **Confirmed** | Privacy-safe live probe and Home Assistant selected-key flow returned the passages associated with the real registered key; subsequent history updates continued to correlate to that same physical key. |
 | Door | `GET /api/v0/skud/shared/<id>/open/?door=1` | **Confirmed** | Physical side effect; successful `{"result":true}` |
 | UCAMS | `POST /api/v0/cameras/this/` | **Confirmed** | Camera/server/token metadata; `analytics` capability metadata also live-confirmed |
 | Analytics | `analytics` in camera metadata: `motion_alarm` | **Confirmed** | Live-tested camera advertises motion analytics; used by production v0.28.0 |
@@ -51,6 +57,8 @@ When adding a new finding:
 
 - update this matrix and the detailed page in the same commit;
 - do not mark a behavior **Confirmed** based only on decompiled client code;
+- use **Experimental** for a user-facing interpretation that is intentionally exposed for validation but whose semantic mapping is not yet proven;
 - record tested failures as **Not supported** only for the exact request form that was tested;
 - do not infer untested pagination/request fields from response metadata;
-- avoid publishing account-specific data, credentials, camera/event identifiers, exact event history, or raw private responses.
+- for state-changing operations, record separately whether the physical/account side effect was actually verified rather than only the HTTP response;
+- avoid publishing account-specific data, credentials, camera/event/key identifiers, exact event history, or raw private responses.

@@ -6,6 +6,11 @@
 официальном Android-клиенте, подтверждённые live-части этого контракта и
 privacy-safe production-поведение, реализованное в Ufanet Intercom v0.28.0.
 
+> Текущая combined validation-ветка уведомлений/физических ключей не меняет
+> контракт `motion_alarm`, его evidence status или production model. Этот раздел
+> повторно проверен при обновлении документации и сохраняет существующие
+> подтверждённые детали без расширения claims.
+
 ## Метаданные возможностей камеры
 
 **Статус: Confirmed для `motion_alarm`; Observed для `perimeter_security`**

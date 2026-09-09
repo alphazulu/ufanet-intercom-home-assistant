@@ -6,15 +6,18 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from homeassistant.components.event import DoorbellEventType, EventDeviceClass
 from homeassistant.core import Event
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ufanet_intercom.const import (
     DOMAIN,
+    EVENT_INTERCOM_CALL,
     EVENT_KEY_PASSAGE,
     EVENT_MOTION_ANALYTICS,
 )
 from custom_components.ufanet_intercom.event import (
+    UfanetIncomingCallEvent,
     UfanetKeyPassageEvent,
     UfanetMotionAnalyticsEvent,
     async_setup_entry,
@@ -27,7 +30,69 @@ def _skud() -> dict:
         "custom_name": "Front door",
         "role": {"name": "Intercom"},
         "model": 39,
+        "cctv_number": "CAM-7",
     }
+
+
+def test_incoming_call_event_is_standard_doorbell_ring() -> None:
+    coordinator = SimpleNamespace(last_update_success=True)
+    entity = UfanetIncomingCallEvent(coordinator, _skud())
+
+    assert entity.available is True
+    assert entity.device_class == EventDeviceClass.DOORBELL
+    assert DoorbellEventType.RING in entity.event_types
+
+
+def test_incoming_call_event_keeps_only_notification_safe_attributes() -> None:
+    coordinator = SimpleNamespace(last_update_success=True)
+    entity = UfanetIncomingCallEvent(coordinator, _skud())
+    entity.async_write_ha_state = MagicMock()
+
+    entity._async_handle_call(  # noqa: SLF001
+        Event(
+            EVENT_INTERCOM_CALL,
+            {
+                "skud_id": 7,
+                "device_id": "ha-device-id",
+                "device_name": "Front door",
+                "uuid": "call-uuid",
+                "called_at": "2026-09-03T04:12:00+00:00",
+                "address": "Example street",
+                "porch": "2",
+                "flat": "15",
+                "has_preview": True,
+                "has_archive": True,
+                "camera_number": "PRIVATE-CAMERA",
+                "preview_url": "https://private.invalid/preview",
+                "archive_url": "https://private.invalid/archive",
+            },
+        )
+    )
+
+    assert entity.state_attributes == {
+        "event_type": DoorbellEventType.RING,
+        "uuid": "call-uuid",
+        "called_at": "2026-09-03T04:12:00+00:00",
+        "address": "Example street",
+        "porch": "2",
+        "flat": "15",
+        "has_preview": True,
+        "has_archive": True,
+    }
+    entity.async_write_ha_state.assert_called_once_with()
+
+
+def test_incoming_call_event_ignores_other_intercoms() -> None:
+    coordinator = SimpleNamespace(last_update_success=True)
+    entity = UfanetIncomingCallEvent(coordinator, _skud())
+    entity.async_write_ha_state = MagicMock()
+
+    entity._async_handle_call(  # noqa: SLF001
+        Event(EVENT_INTERCOM_CALL, {"skud_id": 8, "uuid": "other"})
+    )
+
+    assert entity.state is None
+    entity.async_write_ha_state.assert_not_called()
 
 
 def test_key_passage_event_keeps_only_documented_attributes() -> None:
@@ -114,6 +179,39 @@ def test_motion_event_ignores_other_intercoms() -> None:
 
 
 @pytest.mark.asyncio
+async def test_call_entity_is_added_for_intercom_with_camera(hass) -> None:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Incoming call event test",
+        data={},
+        unique_id="incoming-call-event-test",
+    )
+    entry.add_to_hass(hass)
+
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        "coordinator": SimpleNamespace(data={7: _skud()}),
+        "call_coordinator": SimpleNamespace(last_update_success=True),
+        "key_passage_coordinator": SimpleNamespace(data={}),
+        "analytics_coordinator": None,
+    }
+    batches = []
+
+    def add_entities(entities) -> None:
+        batches.append(list(entities))
+
+    await async_setup_entry(hass, entry, add_entities)
+
+    call_entities = [
+        entity
+        for batch in batches
+        for entity in batch
+        if isinstance(entity, UfanetIncomingCallEvent)
+    ]
+    assert len(call_entities) == 1
+    assert call_entities[0].skud_id == 7
+
+
+@pytest.mark.asyncio
 async def test_motion_entity_is_added_after_coordinator_recovers(hass) -> None:
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -135,6 +233,7 @@ async def test_motion_entity_is_added_after_coordinator_recovers(hass) -> None:
     analytics = AnalyticsCoordinator()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "coordinator": SimpleNamespace(data={7: _skud()}),
+        "call_coordinator": SimpleNamespace(last_update_success=True),
         "key_passage_coordinator": SimpleNamespace(data={}),
         "analytics_coordinator": analytics,
     }
@@ -145,7 +244,12 @@ async def test_motion_entity_is_added_after_coordinator_recovers(hass) -> None:
 
     await async_setup_entry(hass, entry, add_entities)
 
-    assert sum(len(batch) for batch in batches) == 0
+    assert sum(
+        1
+        for batch in batches
+        for entity in batch
+        if isinstance(entity, UfanetIncomingCallEvent)
+    ) == 1
     assert analytics.listener is not None
 
     analytics.data = {7: {"supported": True}}

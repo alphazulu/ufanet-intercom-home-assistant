@@ -2,17 +2,28 @@
 
 [English version](keys.md)
 
-Этот раздел описывает read-only API физических ключей и событий прохода, который
-используют официальный Android-клиент и интеграция Home Assistant.
+Этот раздел описывает API физических ключей и событий прохода, который используют официальный Android-клиент и интеграция Home Assistant.
 
 ## Статус
 
-Все четыре read-only формы запроса успешно проверены на реальной учётной записи.
-Аккаунт вернул feature `keys`, один домофон подтвердил поддержку
-журнала, а список ключей и история вернули корректные пустые коллекции с HTTP 200.
-Поэтому envelope пустых ответов и pagination имеют статус **Confirmed**. Поля
-непустой записи ключа или прохода остаются **Observed** из Android-клиента до
-получения реальной записи. Probe не создаёт, не переименовывает и не удаляет ключи.
+Read-only контракты физических ключей и истории проходов проверены на реальной учётной записи с непустыми данными. Подтверждены:
+
+- account feature `keys`;
+- `has_key_recording_support=true` для реального домофона;
+- непустой `/api/v4/key/list/` с одним зарегистрированным ключом;
+- непустой `/api/v4/key/skud/<id>/key/pass_history/` с двумя проходами;
+- live-схема passage item: `key:str`, `key_name:str`, `time_passage:int`;
+- фильтрация истории выбранного ключа через `filters.key=<external_id>`;
+- Home Assistant/Lovelace: один реальный ключ отображается, выбор строки загружает его passage timestamps;
+- controlled rename через `/api/v4/key/edit/`, включая eventual-consistent read-back и автоматические post-write verification retries.
+
+7 сентября 2026 также выполнено прямое сравнение с физическим ключом. Номер, нанесённый на проверенный брелок, **не совпал** с кандидатами-идентификаторами из ответа списка ключей. При этом использование `external_id` этого ключа продолжило возвращать корректную и обновляющуюся историю именно этого физического ключа. Поэтому:
+
+- `external_id` **Confirmed** как серверный per-key идентификатор для фильтрации истории проходов;
+- `external_id` **не является** номером, нанесённым на проверенный физический ключ;
+- ранее экспериментальное публичное поле `number` удалено из validation-ветки, чтобы не выпускать вводящую в заблуждение интерпретацию.
+
+Регистрация нового ключа и реальный completion `reason=key_add` теперь **Confirmed для проверенного success path**: реально незарегистрированный ключ был физически зарегистрирован в 60-секундном окне Home Assistant, после чего получены настоящие completion pushes. Отдельный timeout без ключа не дал completion push; ненаблюдавшиеся provider-specific error payloads не выводятся по догадке. Переименование физического ключа остаётся **Confirmed** для проверенного success path.
 
 ## Возможности аккаунта
 
@@ -21,19 +32,7 @@ GET /api/v4/skud/features/
 Authorization: JWT <UFANET_ACCESS>
 ```
 
-Подтверждённая форма ответа:
-
-```json
-{
-  "status": "ok",
-  "data": {
-    "features": ["keys"]
-  }
-}
-```
-
-В live-ответе присутствовал `keys`. Клиенту также известны `share_access`,
-`temporary_access`, `frsi` и `ble`.
+**Confirmed.** Live-ответ содержал account feature `keys`.
 
 ## Capability конкретного домофона
 
@@ -47,16 +46,11 @@ Content-Type: application/json
 {
   "page": 1,
   "page_size": 10,
-  "filters": {
-    "has_key_recording_support": true
-  }
+  "filters": {"has_key_recording_support": true}
 }
 ```
 
-Массив `result.intercoms` содержит `id` и булево поле
-`has_key_recording_support`. И запрос, и значение `true` подтверждены live-тестом.
-Нумерация страниц этого endpoint начинается с `1`. Интеграция не опрашивает
-историю домофона, отсутствующего в отфильтрованном результате.
+**Confirmed.** В `result.intercoms` подтверждены `id` и `has_key_recording_support=true`. Нумерация страниц начинается с `1`. Интеграция не создаёт enrollment/management surface для домофона, отсутствующего в этом capability-result.
 
 ## Список физических ключей
 
@@ -65,28 +59,180 @@ POST /api/v4/key/list/
 Authorization: JWT <UFANET_ACCESS>
 ```
 
-Подтверждённый envelope пустого ответа; поля непустой записи остаются Observed:
+**Confirmed на непустом live-ответе.** Item содержит:
+
+- внутренний provider `id`;
+- строковый `external_id`;
+- `name`;
+- `create_date`;
+- `devices`.
+
+И provider `id`, и `external_id` остаются внутренними runtime-данными. Live-сравнение показало, что номер, нанесённый на физический ключ, не представлен проверенными значениями идентификаторов из этого ответа.
+
+У `external_id` при этом подтверждена важная runtime-роль: официальный Android-клиент использует его в `filters.key` при запросе истории одного выбранного ключа, а live-тест показал, что возвращаемая история относится к ожидаемому физическому ключу и корректно обновляется.
+
+## Read-only inventory в Home Assistant
+
+Сенсор **«Физические ключи»** сохраняет числовое состояние — количество ключей, привязанных к конкретному домофону. Атрибут `keys` остаётся минимальным:
+
+```yaml
+keys:
+  - name: "Папа"
+    created_at: "2025-06-27T06:03:36+00:00"
+```
+
+Список фильтруется по `devices`, сортируется от новых к старым и не содержит provider identifiers. Пустой путь (`0`, `[]`) и непустой путь с одним реальным ключом live-проверены.
+
+## Список для Lovelace и операций управления
+
+Validation-ветка предоставляет response-service:
+
+```text
+ufanet_intercom.list_physical_keys
+```
+
+Он сначала обновляет key coordinator/inventory и для выбранного домофона возвращает:
+
+```yaml
+count: 1
+keys:
+  - key_ref: "<24-hex-opaque-ref>"
+    name: "Папа"
+    created_at: "<UTC ISO-8601>"
+```
+
+Provider `id`, `external_id` и предполагаемый номер физического ключа наружу не возвращаются.
+
+`key_ref` — локальная непрозрачная ссылка, зависящая от ConfigEntry, выбранного SKUD и внутреннего provider ID. Ссылка другого домофона не разрешается для выбранного устройства.
+
+Пустой response-service path (`count: 0`, `keys: []`) и непустой inventory path уже live-проверены.
+
+## Запуск регистрации физического ключа
+
+Официальный Android-клиент и live-проверенный Home Assistant path включают серверный режим автосбора запросом:
+
+```http
+POST /api/v4/key/skud/<skud_id>/auto_collect/enable/
+Authorization: JWT <UFANET_ACCESS>
+```
+
+**Confirmed для проверенного success path.** Home Assistant вызвал endpoint, домофон вошёл в ожидаемое **60-секундное** окно регистрации, и реально незарегистрированный физический ключ, приложенный в этом окне, был фактически зарегистрирован. Один HTTP success сам по себе по-прежнему не считается доказательством регистрации — доказательство дают физический side effect, inventory и FCM completion.
+
+В HA flow представлен кнопкой **«Добавить физический ключ»** (`mdi:key-plus`) с `enrollment_window_seconds: 60`. Кнопка создаётся только для capability-supported домофона и недоступна для заблокированного/недоступного устройства.
+
+Отдельный live timeout-тест запустил то же окно без приложения ключа. Через 60 секунд дополнительного enrollment completion push не наблюдалось.
+
+## Асинхронное завершение регистрации через FCM
+
+Android-клиент распознаёт `reason=key_add` вместе со status и внутренним идентификатором ключа. **Confirmed для проверенного success path.** Активный headless FCM listener получил реальные completion pushes `reason=key_add` после регистрации нового физического ключа. Наблюдаемый успех соответствует нативному правилу `key_status == 0` и корректному `key_id`.
+
+Runtime немедленно обновляет key coordinator и публикует только privacy-minimized account-level событие:
+
+```yaml
+event_type: ufanet_intercom_key_enrollment
+data:
+  type: key_enrollment
+  source: fcm
+  result: success
+  received_at: "<UTC ISO-8601>"
+  inventory_refresh_succeeded: true
+```
+
+Completion payload не предоставляет доверенного публичного `skud_id`, поэтому интеграция его не угадывает. Фактическая привязка к домофону устанавливается через `/api/v4/key/list/` и `devices`.
+
+FCM diagnostics сохраняют только coarse counters/result/timestamps для key-add; provider identifiers, notification title/body и raw push не сохраняются. Timeout без ключа не дал нового completion push, поэтому ненаблюдавшиеся HTTP/status/error-push semantics не утверждаются.
+
+## Переименование физического ключа
+
+Официальный Android-клиент использует:
+
+```http
+POST /api/v4/key/edit/
+```
+
+с внутренним provider identifier и новым именем. **Confirmed для проверенного success path.** Controlled live-тест в Home Assistant подтвердил, что выбранный физический ключ действительно получает новое имя на стороне provider.
+
+Validation-ветка реализует этот контракт через response-service:
+
+```text
+ufanet_intercom.rename_physical_key
+```
+
+Публичный input:
+
+```yaml
+device_id: <HA device id>
+key_ref: <opaque ref from list_physical_keys>
+new_name: "Новое имя"
+```
+
+Безопасная последовательность и проверка результата:
+
+1. перед изменением перечитывается свежий inventory;
+2. `key_ref` разрешается только внутри выбранного домофона;
+3. пустое имя/control characters отклоняются; локально установлен консервативный предел 128 символов — это не утверждение о provider limit;
+4. provider edit request отправляется ровно один раз с внутренним provider ID;
+5. после POST выполняются ограниченные read-only refresh retries, потому что provider inventory обновляется eventual-consistently;
+6. операция считается подтверждённой только если тот же ключ виден с новым именем;
+7. если новое имя совпадает с текущим, provider POST не выполняется.
+
+Live-тест показал, что первый немедленный read-back может ещё возвращать старое имя, а более поздний refresh уже возвращает новое. Автоматический retry-based verification path затем был отдельно live-проверен без ручного refresh. State-changing POST автоматически не повторяется.
+
+Внутренний provider ID не попадает в service input/output. Если POST мог изменить серверное состояние, но verification не удалось завершить в пределах ограниченных read-only retries, HA сообщает неопределённый результат, а не объявляет переименование успешным. Provider-specific error semantics для invalid/stale ID, duplicate name или server-side ограничений длины отдельно не утверждаются без прямого live evidence.
+
+## Lovelace-вкладка КЛЮЧИ
+
+Validation-ветка автоматически загружает packaged physical-key extensions и добавляет вкладку **КЛЮЧИ** к существующей карточке.
+
+Строка физического ключа показывает только:
+
+- пользовательское имя;
+- дату добавления;
+- действие **Переименовать**.
+
+Provider identifiers и опровергнутый кандидат на физический номер ключа не отображаются. Opaque `key_ref` используется только внутри вызовов HA service и пользователю не выводится.
+
+**Добавить ключ** требует подтверждения, показывает 60-секундный countdown и после завершения окна перечитывает список. **Переименовать** требует подтверждения и отображает успех только после `verified: true` от backend. Delete action отсутствует.
+
+Клик по строке ключа выбирает его и в нижней части вкладки загружает **Историю проходов** выбранного ключа.
+
+Непустой список, история выбранного ключа, backend-verified rename, многократные переключения dashboard, обычные reload и hard refresh были live-проверены на validation-ветке без повторения прежней Lovelace **«Ошибка конфигурации»**.
+
+## История проходов конкретного ключа
+
+Validation-ветка предоставляет response-service:
+
+```text
+ufanet_intercom.get_physical_key_passages
+```
+
+Публичный input содержит только HA `device_id`, opaque `key_ref` и страницу. Перед запросом сервис перечитывает inventory, разрешает ключ внутри выбранного домофона и затем внутренне использует его `external_id`:
 
 ```json
 {
-  "data": {
-    "keys": [
-      {
-        "id": 1,
-        "external_id": "<redacted>",
-        "name": "<redacted>",
-        "create_date": 1700000000,
-        "devices": ["<redacted-skud-id>"]
-      }
-    ]
+  "page": 0,
+  "page_size": 25,
+  "filters": {
+    "key": "<private external_id>"
   }
 }
 ```
 
-`external_id` рассматривается как приватный идентификатор доступа: он не должен
-попадать в журнал Home Assistant, диагностику, состояние сущностей или события.
+Наружу возвращаются только нормализованные времена проходов:
 
-## Журнал проходов
+```yaml
+page: 0
+page_size: 25
+total: 2
+has_more: false
+passages:
+  - occurred_at: "<UTC ISO-8601>"
+  - occurred_at: "<UTC ISO-8601>"
+```
+
+На live API подтверждено, что `filters.key=<external_id>` возвращает проходы выбранного физического ключа. Frontend end-to-end также live-проверен: при выборе реального ключа карточка отображает его passage timestamps, а последующие обновления истории продолжают корректно относиться к тому же ключу.
+
+## Wire-контракт журнала проходов
 
 ```http
 POST /api/v4/key/skud/<skud_id>/key/pass_history/
@@ -94,50 +240,59 @@ Authorization: JWT <UFANET_ACCESS>
 Content-Type: application/json
 ```
 
-Минимальное тело без фильтрации по конкретному ключу:
+Минимальный запрос:
 
 ```json
-{
-  "page": 0,
-  "page_size": 5
-}
+{"page": 0, "page_size": 5}
 ```
 
-Подтверждённые envelope и pagination; поля непустой записи остаются Observed:
+**Confirmed на непустом live-ответе.** Envelope:
 
-```json
-{
-  "count": 1,
-  "current_page": 0,
-  "page_count": 1,
-  "page_size": 5,
-  "results": [
-    {
-      "key": 1,
-      "key_name": "<redacted>",
-      "time_passage": 1700000000
-    }
-  ]
-}
+```text
+count: int
+current_page: int
+page_count: int
+page_size: int
+results: list
 ```
 
-`time_passage` интерпретируется Android-клиентом как Unix-время в секундах.
-Начальная страница имеет номер `0`, а штатный размер страницы клиента равен `25`.
+Live passage item:
 
-## Модель Home Assistant
+```text
+key: str
+key_name: str
+time_passage: int
+```
 
-В версии 0.27.0 функция реализована в read-only виде:
+Важное отличие от decompiled Android DTO: DTO объявляет `key` как integer, а реальный backend отдаёт JSON string. Gson в Android принимает numeric string для integer field; Home Assistant явно зеркалирует это поведение.
 
-- определение capability перед polling;
-- сенсор **«Количество физических ключей»**;
-- сенсор времени **«Последний проход по ключу»**;
-- `EventEntity`, событие `ufanet_intercom_key_passage` и device trigger;
-- приватный cursor времени/внутреннего ID ключа для дедупликации после reload;
-- отдельный coordinator с интервалом 60 секунд.
+Первый coordinator poll устанавливает baseline и не воспроизводит старые события. Приватный cursor предотвращает дубли после reload/restart. Публичное событие прохода не содержит provider IDs.
 
-Первый успешный опрос используется как baseline и не генерирует старые события.
-Имя ключа существует только в фактическом transient-событии. Диагностика не
-содержит имён, времени событий, внутренних ID ключей, `external_id` и полной
-истории.
+## Удаление ключа
 
-Переименование, удаление, автоматический сбор и BLE-ключи в первый этап не входят.
+Android-клиент содержит destructive delete-запрос для выбранного физического ключа. **Observed.** Удаление в текущем runtime **не реализовано** и остаётся вне release scope до отдельного дизайна защиты/подтверждения и live-теста.
+
+## Модель Home Assistant в validation-ветке
+
+Текущая ветка включает:
+
+- capability discovery;
+- **Физические ключи**: count + read-only `keys`;
+- **Последний проход по ключу**;
+- passage EventEntity / `ufanet_intercom_key_passage` / device trigger;
+- 60-секундный key coordinator;
+- **Добавить физический ключ**;
+- FCM `key_add` + немедленный inventory refresh;
+- `ufanet_intercom_key_enrollment`;
+- `list_physical_keys` только с `key_ref`, `name`, `created_at`;
+- live-confirmed `rename_physical_key` с fresh-resolution, одним provider write и ограниченной post-write read-only verification;
+- `get_physical_key_passages` с per-key фильтрацией по приватному `external_id`;
+- validation-ветку **КЛЮЧИ** с историей выбранного ключа, live-confirmed rename и без delete action.
+
+Diagnostics не содержат имён ключей, provider identifiers, времени проходов или полной истории.
+
+## Итог release validation
+
+Success path регистрации физического ключа live-подтверждён end to end: реальное 60-секундное окно, физическая регистрация ранее незарегистрированного ключа, настоящий completion `reason=key_add` через headless FCM listener и здоровый inventory после регистрации. Отдельный timeout без ключа не дал completion push.
+
+**Hard functional release gates в утверждённом scope 0.31.0 больше нет.** Ненаблюдавшиеся provider-specific enrollment failure payloads намеренно не выводятся по догадке. Удаление физических ключей и BLE keys остаются вне release scope. iOS notification actions не live-проверены и не объявляются Confirmed.

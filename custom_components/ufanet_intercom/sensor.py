@@ -7,16 +7,20 @@ from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .coordinator import (
-    UfanetCallCoordinator,
-    UfanetCoordinator,
-    UfanetKeyPassageCoordinator,
-)
+from .coordinator import UfanetCallCoordinator, UfanetCoordinator
 from .entity import device_info
+from .key_coordinator import UfanetKeyPassageCoordinator
+
+
+def _known_key_capable_ids(coordinator: Any) -> set[int]:
+    if bool(getattr(coordinator, "capability_known", False)):
+        return {int(value) for value in getattr(coordinator, "supported_skud_ids", set())}
+    data = getattr(coordinator, "data", None)
+    return {int(value) for value in data} if isinstance(data, dict) else set()
 
 
 async def async_setup_entry(
@@ -24,30 +28,49 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up last-call sensors."""
+    """Set up last-call and physical-key sensors."""
     runtime = hass.data[DOMAIN][entry.entry_id]
     coordinator: UfanetCoordinator = runtime["coordinator"]
     call_coordinator: UfanetCallCoordinator = runtime["call_coordinator"]
-
     passage_coordinator: UfanetKeyPassageCoordinator = runtime[
         "key_passage_coordinator"
     ]
 
-    entities: list[SensorEntity] = [
-        UfanetLastCallSensor(call_coordinator, skud)
-        for skud in coordinator.data.values()
-        if skud.get("cctv_number")
-    ]
-    for skud_id in passage_coordinator.data:
-        if (skud := coordinator.data.get(skud_id)) is None:
-            continue
-        entities.extend(
-            (
-                UfanetPhysicalKeyCountSensor(passage_coordinator, skud),
-                UfanetLastKeyPassageSensor(passage_coordinator, skud),
+    async_add_entities(
+        [
+            UfanetLastCallSensor(call_coordinator, skud)
+            for skud in coordinator.data.values()
+            if skud.get("cctv_number")
+        ]
+    )
+
+    added_key_ids: set[int] = set()
+
+    @callback
+    def _add_supported_key_sensors() -> None:
+        new_ids = [
+            skud_id
+            for skud_id in sorted(_known_key_capable_ids(passage_coordinator))
+            if skud_id in coordinator.data and skud_id not in added_key_ids
+        ]
+        if not new_ids:
+            return
+        added_key_ids.update(new_ids)
+        entities: list[SensorEntity] = []
+        for skud_id in new_ids:
+            skud = coordinator.data[skud_id]
+            entities.extend(
+                (
+                    UfanetPhysicalKeyCountSensor(passage_coordinator, skud),
+                    UfanetLastKeyPassageSensor(passage_coordinator, skud),
+                )
             )
-        )
-    async_add_entities(entities)
+        async_add_entities(entities)
+
+    _add_supported_key_sensors()
+    entry.async_on_unload(
+        passage_coordinator.async_add_listener(_add_supported_key_sensors)
+    )
 
 
 class UfanetLastCallSensor(SensorEntity):
@@ -132,9 +155,16 @@ class _UfanetKeyPassageSensor(SensorEntity):
 
     @property
     def available(self) -> bool:
-        """Return whether passage polling is healthy for this intercom."""
+        """Return whether key inventory is healthy for this intercom."""
+        supports_skud = getattr(self.coordinator, "supports_skud", None)
+        supported = (
+            supports_skud(self.skud_id)
+            if callable(supports_skud)
+            else self.skud_id in self.coordinator.data
+        )
         return (
             self.coordinator.last_update_success
+            and supported
             and self.skud_id in self.coordinator.data
         )
 
@@ -147,7 +177,7 @@ class _UfanetKeyPassageSensor(SensorEntity):
 
 
 class UfanetPhysicalKeyCountSensor(_UfanetKeyPassageSensor):
-    """Number of registered physical keys linked to one intercom."""
+    """Number and read-only inventory of physical keys linked to one intercom."""
 
     _attr_translation_key = "physical_key_count"
     _attr_icon = "mdi:key-chain-variant"
@@ -168,6 +198,56 @@ class UfanetPhysicalKeyCountSensor(_UfanetKeyPassageSensor):
         value = state.get("key_count")
         return int(value) if value is not None else None
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose key names/dates without provider key or external IDs."""
+        api = getattr(self.coordinator, "api", None)
+        inventory = getattr(api, "physical_key_inventory", ())
+        visible: list[tuple[int, int, dict[str, str | None]]] = []
+
+        for key in inventory:
+            if not isinstance(key, dict):
+                continue
+            devices = key.get("devices") or ()
+            if self.skud_id not in devices:
+                continue
+            name = key.get("name")
+            created_at = key.get("created_at")
+            key_id = key.get("key_id")
+            if not isinstance(name, str):
+                continue
+
+            created_iso: str | None = None
+            if isinstance(created_at, int) and not isinstance(created_at, bool):
+                try:
+                    created_iso = datetime.fromtimestamp(
+                        created_at,
+                        tz=timezone.utc,
+                    ).isoformat()
+                except (OSError, OverflowError, ValueError):
+                    created_iso = None
+
+            sort_key_id = (
+                key_id
+                if isinstance(key_id, int) and not isinstance(key_id, bool)
+                else 0
+            )
+            sort_created = (
+                created_at
+                if isinstance(created_at, int) and not isinstance(created_at, bool)
+                else 0
+            )
+            visible.append(
+                (
+                    sort_created,
+                    sort_key_id,
+                    {"name": name, "created_at": created_iso},
+                )
+            )
+
+        visible.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        return {"keys": [item[2] for item in visible]}
+
 
 class UfanetLastKeyPassageSensor(_UfanetKeyPassageSensor):
     """Timestamp of the latest physical-key passage."""
@@ -182,6 +262,14 @@ class UfanetLastKeyPassageSensor(_UfanetKeyPassageSensor):
         skud: dict[str, Any],
     ) -> None:
         super().__init__(coordinator, skud, "last_key_passage")
+
+    @property
+    def available(self) -> bool:
+        """Return whether passage history itself is healthy."""
+        if not super().available:
+            return False
+        state = self.coordinator.data.get(self.skud_id) or {}
+        return bool(state.get("history_healthy", True))
 
     @property
     def native_value(self) -> datetime | None:

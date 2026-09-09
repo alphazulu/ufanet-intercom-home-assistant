@@ -62,7 +62,6 @@ get_archive_url:
           unit_of_measurement: s
           mode: box
 
-
 get_archive_download_url:
   name: Get archive MP4 download URL
   description: Export the selected recorded archive interval to a persistent local MP4 file using ffmpeg. The file is stored in Home Assistant Media and can be downloaded through an authenticated media URL.
@@ -116,7 +115,6 @@ get_archive_download_url:
           step: 1
           unit_of_measurement: MB
           mode: box
-
 
 list_archive_exports:
   name: List archive exports
@@ -226,7 +224,6 @@ get_last_call_preview_url:
         device:
           integration: ufanet_intercom
 
-
 get_guest_access:
   name: Get guest access
   description: Return active temporary guest links and users with shared access for the selected intercom.
@@ -251,7 +248,6 @@ create_guest_invite:
         device:
           integration: ufanet_intercom
 
-
 forget_guest_invite:
   name: Forget generated guest invite
   description: Remove one locally stored generated invitation from Home Assistant. This does not revoke the invitation on the Ufanet server.
@@ -269,7 +265,6 @@ forget_guest_invite:
       required: true
       selector:
         text:
-
 
 revoke_shared_access:
   name: Revoke shared access
@@ -290,7 +285,6 @@ revoke_shared_access:
         number:
           min: 1
           mode: box
-
 
 create_temporary_guest_link:
   name: Create temporary guest link
@@ -330,10 +324,129 @@ revoke_temporary_guest_link:
       selector:
         text:
 
+list_authorized_devices:
+  name: List authorized Ufanet devices
+  description: Return the provider authorized-device/registration inventory used by the official device UI, with title, last activity, platform and call-access status. Live testing shows rows are coupled to FCM registration state, so this is not an independent exhaustive list of every JWT. Raw provider device IDs are never returned; Home Assistant-owned registrations are marked protected.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+
+revoke_authorized_device:
+  name: Revoke Ufanet device authorization
+  description: Revoke one non-Home-Assistant Ufanet device authorization through logout_device. Live testing shows the target's already-issued access token can remain usable while its refresh chain is invalidated.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    authorization_ref:
+      name: Authorization reference
+      description: Opaque authorization_ref returned by list_authorized_devices. Raw Ufanet device IDs are not accepted.
+      required: true
+      selector:
+        text:
+    confirm:
+      name: Confirm revocation
+      description: Must be enabled to perform the destructive authorization revoke.
+      required: true
+      selector:
+        boolean:
+
+revoke_other_authorized_devices:
+  name: Revoke other Ufanet device authorizations
+  description: Revoke the current snapshot of all non-Home-Assistant Ufanet device authorizations through logout_device. Requires the exact revocable_count returned by list_authorized_devices and aborts if it changed.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    expected_count:
+      name: Expected revocable authorizations
+      description: Exact revocable_count returned by the most recent list_authorized_devices call.
+      required: true
+      selector:
+        number:
+          min: 1
+          step: 1
+          mode: box
+    confirm:
+      name: Confirm mass revocation
+      description: Must be enabled to perform the destructive authorization revoke.
+      required: true
+      selector:
+        boolean:
+
+list_fcm_registrations:
+  name: List advanced FCM registrations
+  description: Advanced view using the provider authorized-device/registration inventory as the selectable set for FCM cleanup. Live testing shows deleting an FCM registration also removes its row from this inventory. FCM tokens and raw provider device IDs are never exposed.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+
+unregister_fcm_registration:
+  name: Unregister FCM push registration
+  description: Advanced destructive action that calls DELETE /api/v0/fcm/ for one non-Home-Assistant registration. It does not call logout_device, but live testing confirmed that it removes the device row and invalidates the associated refresh JWT chain; an already-issued access JWT may remain usable until expiry.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    fcm_ref:
+      name: FCM reference
+      description: Opaque fcm_ref returned by list_fcm_registrations. Raw Ufanet device IDs and FCM tokens are not accepted.
+      required: true
+      selector:
+        text:
+    confirm:
+      name: Confirm FCM cleanup
+      description: Must be enabled to remove the provider push registration and invalidate its tested refresh authorization chain.
+      required: true
+      selector:
+        boolean:
+
+unregister_other_fcm_registrations:
+  name: Unregister other FCM push registrations
+  description: Advanced destructive action that calls DELETE /api/v0/fcm/ for the current snapshot of all non-Home-Assistant registrations. It does not call logout_device; each deleted registration should be treated as also losing its refresh authorization chain based on the live single-target test.
+  fields:
+    device_id:
+      name: Intercom
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    expected_count:
+      name: Expected removable registrations
+      description: Exact removable_count returned by the most recent list_fcm_registrations call.
+      required: true
+      selector:
+        number:
+          min: 1
+          step: 1
+          mode: box
+    confirm:
+      name: Confirm mass FCM cleanup
+      description: Must be enabled to remove the provider push registrations and invalidate their tested refresh authorization chains.
+      required: true
+      selector:
+        boolean:
 
 list_fcm_sessions:
-  name: List authorized FCM sessions
-  description: Return authorized Ufanet device sessions for security review. Raw provider device IDs are never returned; Home Assistant-owned registrations are marked protected.
+  name: List authorized sessions (legacy name)
+  description: Legacy compatibility alias. Despite its historical name, this returns the same provider authorized-device/registration inventory used by logout_device. Prefer list_authorized_devices for new automations.
   fields:
     device_id:
       name: Intercom
@@ -343,8 +456,8 @@ list_fcm_sessions:
           integration: ufanet_intercom
 
 revoke_fcm_session:
-  name: Revoke authorized FCM session
-  description: Permanently terminate one non-Home-Assistant authorized Ufanet session selected by session_ref from list_fcm_sessions. The server list is refreshed before revocation and disappearance is verified afterward.
+  name: Revoke authorization (legacy name)
+  description: Legacy compatibility alias. This specifically calls logout_device and revokes the selected device authorization. Prefer revoke_authorized_device for new automations; unregister_fcm_registration calls a different endpoint but also has a live-confirmed refresh-authorization side effect.
   fields:
     device_id:
       name: Intercom
@@ -366,8 +479,8 @@ revoke_fcm_session:
         boolean:
 
 revoke_other_fcm_sessions:
-  name: Revoke all other FCM sessions
-  description: Permanently terminate the current snapshot of all non-Home-Assistant authorized Ufanet sessions. Requires the expected revocable count from list_fcm_sessions and aborts if it changed.
+  name: Revoke authorizations (legacy name)
+  description: Legacy compatibility alias. This calls logout_device for non-Home-Assistant authorized devices. Prefer revoke_other_authorized_devices for new automations.
   fields:
     device_id:
       name: Intercom
@@ -390,3 +503,68 @@ revoke_other_fcm_sessions:
       required: true
       selector:
         boolean:
+
+list_physical_keys:
+  name: List physical keys
+  description: Return a fresh privacy-safe physical-key inventory for the selected intercom. The response includes only an opaque key_ref, user-facing name, and creation time; provider IDs and external_id are never returned.
+  fields:
+    device_id:
+      name: Intercom
+      description: Ufanet Intercom device with physical-key recording support.
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+
+rename_physical_key:
+  name: Rename physical key
+  description: Rename one physical key selected by the opaque key_ref returned by List physical keys. The inventory is refreshed before the request and the new name is verified afterward; raw provider key IDs are never accepted or returned.
+  fields:
+    device_id:
+      name: Intercom
+      description: Ufanet Intercom device to which the key is assigned.
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    key_ref:
+      name: Key reference
+      description: Opaque key_ref returned by List physical keys. Raw provider key IDs are not accepted.
+      required: true
+      selector:
+        text:
+    new_name:
+      name: New name
+      description: New user-facing name for the physical key.
+      required: true
+      selector:
+        text:
+
+get_physical_key_passages:
+  name: Get physical key passage history
+  description: Return one privacy-safe page of passage times for a physical key selected by opaque key_ref. Provider key IDs, provider key names and raw response fields are never returned.
+  fields:
+    device_id:
+      name: Intercom
+      description: Ufanet Intercom device to which the selected key is assigned.
+      required: true
+      selector:
+        device:
+          integration: ufanet_intercom
+    key_ref:
+      name: Key reference
+      description: Opaque key_ref returned by List physical keys. Raw provider key IDs are not accepted.
+      required: true
+      selector:
+        text:
+    page:
+      name: Page
+      description: Zero-based passage-history page. The validation UI requests 25 rows per page.
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1000
+          step: 1
+          mode: box

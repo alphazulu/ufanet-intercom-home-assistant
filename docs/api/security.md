@@ -14,7 +14,9 @@ Never commit, log, or expose:
 - UCAMS bearer token;
 - `token_l` / `token_r`;
 - guest/share tokens;
-- tokenized preview/archive/screenshot URLs.
+- tokenized preview/archive/screenshot URLs;
+- FCM/GCM registration credentials;
+- physical-key provider identifiers (`id`, `key_id`, `external_id`).
 
 Tokenized media URLs should be treated as credentials until expiration.
 
@@ -33,15 +35,48 @@ Applications should:
 - never use the endpoint for health checking;
 - distinguish viewing video from controlling access.
 
+The validation-branch Companion **Open door** action follows the same boundary: it is exposed only for a real call, requires an explicit tap, uses a unique local action ID, validates that the button belongs to the same Home Assistant device both when the notification is built and immediately before `button.press`, and is removed after command dispatch or timeout. A manual blueprint run cannot open the door.
+
+The unavailable negative test with a second Ufanet device was explicitly waived after a targeted security/code review. That waiver applies only to the missing live test, not to the cross-device safety invariant or any of the same-device execution guards. iOS action delivery remains not live-tested.
+
+## Physical-key enrollment and management
+
+Calling `/api/v4/key/skud/<SKUD_ID>/auto_collect/enable/` changes access-control state: it arms a 60-second window in which a new physical key can be registered by presenting it to the intercom reader. It is not a read-only health check and must not be started automatically.
+
+Home Assistant creates **Add physical key** only for an intercom that explicitly advertises `has_key_recording_support`, and the button is unavailable for an `is_blocked` device. A successful HTTP response proves only that enrollment mode was armed, not that a key was actually registered.
+
+FCM completion `reason=key_add` is handled with privacy minimization: provider `key_id`, notification `title`/`body`, and the raw payload are not published. The public event contains only the result, receipt time, and whether inventory refresh succeeded. Because the observed `key_add` payload has no `skud_id`, the integration deliberately does not guess the target intercom.
+
+Physical-key identifiers have two different private runtime roles:
+
+- provider `id` / internal `key_id` is implementation-only and must never be accepted from or returned to the browser-facing management surface;
+- provider `external_id` is retained privately because the official Android client uses it for per-key passage filtering. Live testing confirmed that it selects the correct updating history for the tested physical key, but direct comparison also showed that it does **not** match the number printed on that key.
+
+Because the printed-number interpretation was disproved, neither provider identifier is exposed as a user-facing physical-key number. `list_physical_keys` returns only an opaque ConfigEntry/intercom-scoped `key_ref`, name and creation time.
+
+`rename_physical_key` refreshes inventory before resolving that ref, resolves it only for the selected intercom, sends the provider edit request once, then performs bounded read-only refresh retries. Controlled live testing confirmed that the provider really changes the selected key name and that inventory read-back is eventually consistent: the first immediate read can still show the previous name while a later refresh shows the requested name. The service reports verified success only when that post-write state is observed; if verification remains impossible, it returns an indeterminate result rather than retrying the state-changing POST.
+
+`get_physical_key_passages` uses the same public `key_ref`; the integration resolves it against fresh inventory and uses the private `external_id` internally in `filters.key`. The service returns normalized passage timestamps but no provider identifier or raw wire field.
+
+Provider key identifiers are access metadata and must be kept out of downloadable diagnostics, logs, public support bundles, public issue screenshots, events, and repository examples.
+
+Physical-key rename is **Confirmed for the tested success path**. Provider-specific rename failure semantics that have not been observed directly remain undocumented rather than inferred. Deleting a key is a destructive access-control operation. The observed delete endpoint must not be added to a production UI without live endpoint validation, strict verification that the key belongs to the selected intercom, and a separate explicit user confirmation.
+
 ## Guest-access side effects
 
 Creating, accepting, and revoking guest/shared access changes authorization state. Interfaces should clearly label these operations and request confirmation for destructive revocation.
 
-## Authorized FCM sessions
+## Authorized devices and advanced FCM cleanup
 
-Authorized-device inventory and logout are security-sensitive account operations. Raw provider FCM `device_id` values, FCM tokens and registration credentials should remain private even when a user is reviewing sessions. The Home Assistant integration exposes an opaque `session_ref` instead of the provider ID.
+The provider's `authorized_devices` response is security-sensitive account metadata. Live testing showed that it can be queried by an ordinary JWT session with no FCM registration, but its rows are coupled to device/FCM registration state and must not be treated as an exhaustive independent list of every JWT.
 
-A session must not be classified as safe/unsafe from title, platform or age alone. Home Assistant protects only registrations whose ownership can be proved from local private state; ownership verification fails closed before revocation. Targeted logout requires explicit confirmation and a fresh inventory lookup. Bulk logout additionally requires an exact expected revocable count from the fresh snapshot so a newly appeared session causes the operation to abort rather than being removed unexpectedly.
+Raw provider `device_id` values, FCM tokens, and registration credentials remain private. The canonical Home Assistant services expose opaque `authorization_ref` values for normal authorized-device management and opaque `fcm_ref` values for advanced FCM cleanup. Historical `session_ref` services remain compatibility aliases only.
+
+Normal authorized-device revocation uses `logout_device`. A controlled cross-session live test confirmed that an ordinary JWT controller can revoke another test device without performing FCM registration. The target row disappeared; the target's already-issued access JWT remained usable, but its refresh JWT was rejected with HTTP 401. The independent controller remained authorized.
+
+Advanced FCM cleanup calls `DELETE /api/v0/fcm/` and deliberately does not call `logout_device`. A separate disposable-device live test nevertheless produced the same tested refresh-chain consequence: the target row disappeared, its existing access JWT remained usable, and its refresh JWT was rejected with HTTP 401. This action must therefore be treated as authorization-destructive, not merely as a harmless push unsubscribe.
+
+A device must not be classified as safe/unsafe from title, platform, age, or inventory presence alone. Home Assistant protects only registrations whose ownership can be proved from local private state; ownership verification fails closed before destructive actions. Targeted actions require explicit confirmation and fresh inventory resolution. Bulk actions additionally require the exact expected target count from the current snapshot, so a changed inventory aborts instead of unexpectedly affecting newly appeared registrations.
 
 ## Diagnostics and support bundles
 
@@ -51,6 +86,8 @@ Recommended redaction rules:
 - never include raw JWTs/tokens;
 - avoid exact private addresses and apartment information unless explicitly required by the user;
 - avoid tokenized URLs;
+- never include physical-key provider `id`, `key_id`, or `external_id` values;
+- never include raw provider device IDs, FCM tokens, or Firebase/GCM credentials;
 - replace exact camera identifiers with a short irreversible hash when practical;
 - report token presence/expiry rather than token value.
 
@@ -68,6 +105,7 @@ All examples in this repository must use placeholders such as:
 <CAMERA_NUMBER>
 <SKUD_ID>
 <CALL_UUID>
+<KEY_IDENTIFIER>
 <TEMP_GUEST_TOKEN>
 ```
 

@@ -26,6 +26,58 @@ Relevant fields:
 
 Do not hard-code `model == 39` or assume `camera == null` for all devices.
 
+## Physical key
+
+**Status: non-empty live model Confirmed**
+
+A live non-empty `/api/v4/key/list/` response confirmed these item fields:
+
+```text
+id
+external_id
+name
+create_date
+devices
+```
+
+Confirmed runtime roles:
+
+- `id` — internal provider key identifier; required only for private runtime mutation verification and never exposed through public key-management surfaces;
+- `external_id` — string per-key identifier used by the official Android client for `filters.key` when requesting one selected key's passage history;
+- `name` — user-facing key name;
+- `create_date` — key creation/registration timestamp;
+- `devices` — relationship used to associate the account-level key with a specific intercom.
+
+A direct live comparison on 2026-09-07 showed that the number printed on the tested physical key did **not** match the candidate identifier values returned by the key-list response. At the same time, `filters.key=<external_id>` continued to return the correct updating history for that physical key. Therefore `external_id` is a confirmed backend selector, not a printed-key-number field for the tested key.
+
+The sensor `keys` attribute intentionally remains minimal and contains only `name` and normalized UTC `created_at`.
+
+Validation management surfaces expose a local opaque `key_ref` rather than any provider identifier. `list_physical_keys` returns only `key_ref`, `name`, and `created_at`; the previously experimental public `number` field was removed after the live comparison disproved that interpretation.
+
+Both provider `id` and `external_id` remain private runtime data. They are excluded from diagnostics, logs, events, public support bundles and repository examples.
+
+## Physical-key passage item
+
+**Status: Confirmed**
+
+A live non-empty `/api/v4/key/skud/<id>/key/pass_history/` response confirmed:
+
+```text
+key: str
+key_name: str
+time_passage: int
+```
+
+The live backend returns `key` as a numeric JSON string even though the decompiled Android DTO models it as an integer. Gson accepts that numeric-string representation; Home Assistant mirrors the coercion explicitly.
+
+For selected-key history, the official Android flow uses:
+
+```text
+filters.key = <physical-key external_id>
+```
+
+This filtering contract was live-confirmed with a real registered key and its updating passage history.
+
 ## UCAMS camera metadata
 
 **Status: Observed; `motion_alarm` capability Confirmed on the live-tested camera**
@@ -127,8 +179,8 @@ Private API responses may differ across accounts, cities, tariffs, firmware and 
 - tolerate explicit `null`;
 - avoid assuming all enum values are already known;
 - validate confirmed fields before use;
-- discard or redact unknown/private analytics fields instead of exposing raw responses through public diagnostics.
+- discard or redact unknown/private fields instead of exposing raw responses through public diagnostics.
 
 ## Schema contribution rule
 
-Only add a field to this document when it was actually observed in a response or client code. Mark uncertain semantics explicitly instead of guessing. Never publish raw account-specific camera/event identifiers or event history as documentation samples.
+Only add a field to this document when it was actually observed in a response or client code. Mark uncertain semantics explicitly instead of guessing. Never publish real provider key IDs or `external_id` values, raw account-specific camera/event identifiers, or event history as documentation samples.

@@ -13,16 +13,22 @@
 | Account | `GET /api/v0/object/` | **Confirmed** | Доступность подтверждена; схема ещё не описана |
 | FCM | `POST /api/v0/fcm/` | **Confirmed** | Тело регистрации из Android 4.0.14 успешно использовано headless Windows/Python client |
 | FCM | Headless FIS/GCM/MCS receive | **Confirmed** | Без Android/Google Play Services получен реальный Ufanet push через `mtalk.google.com:5228` |
-| FCM | `DELETE /api/v0/fcm/` | **Confirmed** | Probe удалил только собственную виртуальную регистрацию с HTTP 200 и восстановил её через POST HTTP 200 |
-| FCM | `POST /api/v4/fcm_device/authorized_devices/` | **Confirmed** | Live-проверенный POST без body возвращает `data.device_list`; подтверждены `device_id`, `title`, `last_update`, `is_call_access` и серверные metadata `os`/`os_display`. `devices_num_permission` наблюдается live, но его точная бизнес-семантика пока не подтверждена. |
-| FCM | `POST /api/v4/fcm_device/logout_device/` | **Confirmed** | Controlled probe-owned сессия была видна до logout `{device_id}`, исчезла после HTTP 200, восстановлена через `/api/v0/fcm/` и снова появилась; targeted production revoke также live-проверен в Home Assistant. |
+| FCM/Auth | `DELETE /api/v0/fcm/` | **Confirmed** | Controlled target исчез из inventory без вызова `logout_device`; уже выданный access JWT остался рабочим, а refresh JWT target стал возвращать HTTP 401. Независимая observer-авторизация сохранилась. После теста регистрация восстановлена свежим JWT login. |
+| Device/Auth | `POST /api/v4/fcm_device/authorized_devices/` | **Confirmed** | Plain JWT controller без FCM-регистрации может читать endpoint. Live-строки содержат `device_id`, `title`, `last_update`, `is_call_access`, а также `os`/`os_display`; строки связаны с FCM/device registration state и не являются исчерпывающим независимым списком всех JWT. `devices_num_permission` наблюдается, но точная бизнес-семантика не подтверждена. |
+| Device/Auth | `POST /api/v4/fcm_device/logout_device/` | **Confirmed** | Plain-JWT controller успешно отозвал другое тестовое устройство. Target исчез из inventory; уже выданный access JWT target остался рабочим, а refresh JWT target стал возвращать HTTP 401. Независимая observer-авторизация сохранилась. Targeted revoke из Home Assistant UI также live-проверен. |
 | Push | `data.reason = "sip"` | **Confirmed** | Реальный payload содержит `username`, `password`, `server`, `skud_id`, `transport`, `contract`, `house_id`, `flat`, `time`, `uuid`; `from=<sender-id>`, priority `normal` |
+| Push | `data.reason = "key_add"` | **Confirmed** | После регистрации реально незарегистрированного ключа через Home Assistant получены настоящие completion pushes. Проверенный success path соответствует `key_status == 0` и корректному `key_id`; отдельный 60-секундный timeout без ключа не дал дополнительного completion push. |
 | SKUD | `GET /api/v0/skud/shared/` | **Confirmed** | Возвращает протестированный домофон |
 | SKUD | `GET /api/v0/skud/` | **Observed** | На тестируемом аккаунте вернул `[]` |
 | Возможности | `GET /api/v4/skud/features/` | **Confirmed** | Live-ответ содержал account feature `keys` |
 | Домофоны | `POST /api/v0/intercoms/` | **Confirmed** | Фильтрованный запрос со страницей от `1` вернул `has_key_recording_support=true` |
-| Ключи | `POST /api/v4/key/list/` | **Confirmed** | Подтверждены HTTP 200 и пустой `data.keys`; поля непустой записи остаются Observed |
-| Проходы | `POST /api/v4/key/skud/<id>/key/pass_history/` | **Confirmed** | Подтверждены HTTP 200, страницы от `0` и пустой `results`; поля записи остаются Observed |
+| Ключи | `POST /api/v4/key/list/` | **Confirmed** | Live-проверены пустой и непустой ответы. Подтверждены поля элемента `id`, `external_id`, `name`, `create_date`, `devices`. Пустой и непустой inventory также проверены в HA. |
+| Ключи | семантика выбранного ключа через `external_id` | **Confirmed** | Android использует `external_id` в `filters.key`; live-история проверенного физического ключа корректно обновляется. Прямое сравнение также подтвердило, что `external_id`/другие кандидатные server identifiers **не совпадают** с номером, нанесённым на этот ключ, поэтому публичное поле номера не выводится. |
+| Ключи | `POST /api/v4/key/skud/<id>/auto_collect/enable/` | **Confirmed** | Home Assistant live-проверил реальное 60-секундное окно с незарегистрированным ключом: ключ был физически зарегистрирован, completion пришёл через `reason=key_add`. Один HTTP success по-прежнему не считается доказательством регистрации. |
+| Ключи | `POST /api/v4/key/edit/` | **Confirmed** | Controlled live rename в Home Assistant реально изменил имя выбранного ключа. Inventory Ufanet обновляется с задержкой, поэтому runtime выполняет один write и ограниченные read-only refresh retries; автоматический post-write verification live-подтверждён, автоматического повторного write нет. |
+| Ключи | `POST /api/v4/key/skud/<id>/delete/key/` | **Observed** | Android-клиент удаляет ключ телом `{key_id}`; destructive flow не реализован и не live-проверен. |
+| Проходы | `POST /api/v4/key/skud/<id>/key/pass_history/` | **Confirmed** | Подтверждены пустой и непустой ответы. Live-поля записи: `key:str`, `key_name:str`, `time_passage:int`; пагинация начинается с `0`. |
+| Проходы | `filters.key=<external_id>` | **Confirmed** | Privacy-safe live-probe и Home Assistant flow выбранного ключа вернули проходы реального зарегистрированного ключа; последующие обновления истории продолжили относиться к тому же физическому ключу. |
 | Дверь | `GET /api/v0/skud/shared/<id>/open/?door=1` | **Confirmed** | Физическое действие; успешный `{"result":true}` |
 | UCAMS | `POST /api/v0/cameras/this/` | **Confirmed** | Метаданные камеры/сервера/токенов; metadata capability `analytics` также live-подтверждена |
 | Аналитика | `analytics` в metadata камеры: `motion_alarm` | **Confirmed** | Проверенная live-камера объявляет аналитику движения; используется production v0.28.0 |
@@ -51,6 +57,8 @@
 
 - обновляйте эту матрицу и подробную страницу одним commit;
 - не ставьте **Confirmed** только на основании декомпилированного кода клиента;
+- используйте **Experimental** для пользовательской интерпретации, которую намеренно выводим для проверки, но чья семантика ещё не доказана;
 - статус **Not supported** относится только к точно проверенной форме запроса;
 - не выводите непроверенные request-поля пагинации из одной только metadata ответа;
-- не публикуйте данные конкретного аккаунта, credentials, camera/event identifiers, точную историю событий или raw private responses.
+- для state-changing операций отдельно фиксируйте, был ли реально проверен побочный эффект, а не только HTTP-ответ;
+- не публикуйте данные конкретного аккаунта, credentials, camera/event/key identifiers, точную историю событий или raw private responses.

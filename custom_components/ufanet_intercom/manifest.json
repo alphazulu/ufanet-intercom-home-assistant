@@ -8,6 +8,7 @@
   "dependencies": [
     "frontend",
     "http",
+    "lovelace",
     "media_source",
     "stream"
   ],
@@ -18,5 +19,5 @@
   "requirements": [
     "firebase-messaging==0.4.5"
   ],
-  "version": "0.30.0"
+  "version": "0.31.0"
 }

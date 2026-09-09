@@ -33,7 +33,7 @@ Realtime Database URL и Storage bucket для FCM receiver не нужны и �
 - `github.com/morhaviv/go-fcm-receiver` — Go, MIT;
 - `github.com/agusibrahim/fcm_receiver.rs` — Rust;
 - `push-receiver-v2` — Node.js;
-- Python package `firebase-messaging`, используемый research PoC.
+- Python package `firebase-messaging`, используемый research PoC и интеграцией.
 
 ## Подтверждённый PoC
 
@@ -64,29 +64,31 @@ mtalk.google.com:5228 TLS/MCS
 incoming Ufanet data message
         |
         v
-sanitize + inspect SIP payload
+sanitize + dispatch supported reason
 ```
 
-Headless Windows/Python flow практически подтверждён реальным `reason=sip` push.
+Headless Windows/Python flow подтверждён реальным `reason=sip` push. После первого успешного получения сообщения credentials виртуального FCM device должны сохраняться и переиспользоваться, а не генерироваться при каждом старте.
 
-После первого успешного получения сообщения credentials виртуального FCM device должны сохраняться и переиспользоваться, а не генерироваться при каждом старте.
+## Реализованная архитектура Home Assistant
 
-## Целевая архитектура Home Assistant
-
-Production integration должна быть Python/asyncio и выполнять:
+Начиная с интеграционного FCM flow, production Home Assistant уже реализует основные элементы первоначально исследованной архитектуры:
 
 1. загрузку Firebase client config из локальной пользовательской конфигурации;
 2. Firebase Installations/FCM registration;
 3. Android/GCM check-in;
 4. хранение runtime FCM credentials только в private HA storage;
 5. TLS connection к MCS (`mtalk.google.com:5228`);
-6. protobuf framing/heartbeat/login;
-7. decrypt encrypted payload при необходимости;
-8. reconnect/backoff;
+6. protobuf framing/heartbeat/login через используемую receiver library;
+7. обработку защищённого transport payload библиотекой;
+8. reconnect/backoff и watchdog;
 9. persistent-id deduplication;
-10. callback в `UfanetCallCoordinator` при `sip` push.
+10. callback в call coordinator при `reason=sip`, после чего authoritative `call-history` обновляется немедленно.
 
-Конкретная Firebase configuration официального приложения не должна быть обязательной частью исходного кода интеграции: пользователь может импортировать/извлечь её локально.
+Polling остаётся safety path: до подтверждения здорового MCS используется обычный polling, при исправном FCM сохраняется 300-секундный контрольный опрос, а после disconnect обычный polling автоматически возвращается.
+
+Текущая combined validation-ветка дополнительно распознаёт Android-observed `reason=key_add`, немедленно refresh physical-key inventory и создаёт privacy-minimized `ufanet_intercom_key_enrollment`. Сам реальный `key_add` от нового незарегистрированного ключа ещё не live-подтверждён и остаётся hard validation gate; provider `key_id`, title/body и raw push наружу не публикуются.
+
+Конкретная Firebase configuration официального приложения не является частью исходного кода интеграции: пользователь импортирует/извлекает её локально.
 
 ## Подтверждённые свойства SIP push
 
@@ -98,6 +100,8 @@ Production integration должна быть Python/asyncio и выполнят�
 - `push.data.uuid` при этом отличался от durable `call-history.uuid`.
 
 Поэтому push используется как low-latency trigger, а `call-history.uuid` — как канонический durable ID звонка.
+
+Android notification action lifecycle поверх подтверждённого Home Assistant call event также прошёл текущую live-validation: реальный звонок, Open door, View camera, timeout replacement, post-open replacement и supersession вторым звонком подтверждены. Недоступный отрицательный test со вторым Ufanet device отдельно waived после security review без отмены cross-device runtime guards. Это относится к Home Assistant Companion notification layer, а не к wire-семантике FCM transport.
 
 ## Сеть
 
@@ -120,6 +124,7 @@ mtalk.google.com:5228/TCP
 - private WebPush keys/auth secret;
 - Ufanet JWT;
 - реальные SIP username/password/server;
+- provider physical-key identifiers из `key_add`;
 - account-specific device/account/location identifiers.
 
 Firebase Android client parameters технически распространяются внутри клиентского APK, однако этот open-source проект сознательно получает их локально из пользовательской копии и не распространяет конфигурацию чужого Firebase project как часть интеграции.

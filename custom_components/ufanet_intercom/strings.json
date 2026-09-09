@@ -67,6 +67,9 @@
       "open_door": {
         "name": "Open door"
       },
+      "add_physical_key": {
+        "name": "Add physical key"
+      },
       "archive_previous": {
         "name": "Archive back"
       },
@@ -91,6 +94,9 @@
       }
     },
     "event": {
+      "incoming_call_event": {
+        "name": "Incoming call"
+      },
       "key_passage": {
         "name": "Physical key passage"
       },

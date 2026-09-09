@@ -2,18 +2,28 @@
 
 [Русская версия](keys_RU.md)
 
-This page documents the read-only physical-key and passage-event API used by the
-official Android client and the Home Assistant integration.
+This page documents the physical-key and passage-event API used by the official Android client and the Home Assistant integration.
 
 ## Status
 
-The four read-only request forms below were exercised successfully against a real
-account. The account advertised `keys`, one intercom reported
-key-recording support, and both the key list and passage history returned valid
-empty collections with HTTP 200. The empty-response envelopes and pagination are
-therefore **Confirmed**; the fields of a non-empty key or passage item remain
-**Observed** from the Android client until a real item is captured. The probe does
-not create, rename, or delete keys.
+The read-only physical-key and passage-history contracts have been exercised against a real non-empty account. Confirmed behavior includes:
+
+- account feature `keys`;
+- `has_key_recording_support=true` for a real intercom;
+- non-empty `/api/v4/key/list/` with one registered key;
+- non-empty `/api/v4/key/skud/<id>/key/pass_history/` with two passages;
+- live passage-item schema `key:str`, `key_name:str`, `time_passage:int`;
+- filtering one key's passage history through `filters.key=<external_id>`;
+- Home Assistant/Lovelace rendering one key and loading two passage timestamps when that row is selected;
+- controlled rename through `/api/v4/key/edit/`, including eventual-consistent read-back and automatic post-write verification retries.
+
+A direct physical comparison was also completed on 2026-09-07. The number printed on the tested key did **not** match the candidate identifier values returned by the key-list response. At the same time, using that key's `external_id` continued to return the correct, updating passage history. Therefore:
+
+- `external_id` is **Confirmed** as a backend per-key identifier used for passage-history filtering;
+- `external_id` is **not** the number printed on the tested physical key;
+- the previously experimental public `number` field was removed from the validation branch rather than shipping a misleading interpretation.
+
+New-key enrollment and the real `reason=key_add` completion are now **Confirmed for the tested success path**: a genuinely unregistered key was physically registered during the 60-second Home Assistant enrollment window and real completion pushes were received. A separate no-key timeout produced no completion push; unobserved provider-specific error payloads are not inferred. Physical-key rename remains **Confirmed** for the tested success path.
 
 ## Account features
 
@@ -22,19 +32,7 @@ GET /api/v4/skud/features/
 Authorization: JWT <UFANET_ACCESS>
 ```
 
-Confirmed response shape:
-
-```json
-{
-  "status": "ok",
-  "data": {
-    "features": ["keys"]
-  }
-}
-```
-
-The live response included `keys`. The client also recognizes `share_access`,
-`temporary_access`, `frsi`, and `ble`.
+**Confirmed.** The live response included the account feature `keys`.
 
 ## Per-intercom capability
 
@@ -48,16 +46,11 @@ Content-Type: application/json
 {
   "page": 1,
   "page_size": 10,
-  "filters": {
-    "has_key_recording_support": true
-  }
+  "filters": {"has_key_recording_support": true}
 }
 ```
 
-Entries in `result.intercoms` carry an `id` and the Boolean
-`has_key_recording_support` capability. Both the request and a `true` capability
-were live-confirmed. Paging is one-based for this endpoint. The integration does
-not poll passage history for an intercom that is absent from the filtered result.
+**Confirmed.** `result.intercoms` contains `id` and live-confirmed `has_key_recording_support=true`. Paging is one-based. Enrollment/key-management surfaces are not exposed for an intercom absent from this capability result.
 
 ## Physical-key list
 
@@ -66,28 +59,180 @@ POST /api/v4/key/list/
 Authorization: JWT <UFANET_ACCESS>
 ```
 
-Confirmed empty envelope; non-empty item shape remains Observed:
+**Confirmed on a non-empty live response.** Each key item contains:
+
+- internal provider `id`;
+- string `external_id`;
+- `name`;
+- `create_date`;
+- `devices`.
+
+Both provider `id` and `external_id` remain implementation-only. The live comparison showed that the printed physical-key number is not represented by the tested identifier values returned by this response.
+
+`external_id` still has an important confirmed runtime role: the official Android client uses it as the identifier in `filters.key` when requesting passage history for one selected key, and live testing confirmed that the resulting history belongs to the expected physical key and updates correctly.
+
+## Read-only inventory in Home Assistant
+
+The **Physical keys** sensor remains numeric. Its `keys` attribute stays minimal:
+
+```yaml
+keys:
+  - name: "Dad"
+    created_at: "2025-06-27T06:03:36+00:00"
+```
+
+Rows are filtered by `devices`, sorted newest first, and contain no provider identifiers. Both the empty (`0`, `[]`) path and a non-empty live path with one real key have been validated.
+
+## List surface used by Lovelace and management actions
+
+The validation branch exposes:
+
+```text
+ufanet_intercom.list_physical_keys
+```
+
+It refreshes the key coordinator/inventory first and returns, for the selected intercom:
+
+```yaml
+count: 1
+keys:
+  - key_ref: "<24-hex-opaque-ref>"
+    name: "Dad"
+    created_at: "<UTC ISO-8601>"
+```
+
+No provider `id`, `external_id`, or guessed physical-key number is returned.
+
+`key_ref` is a local opaque reference scoped to the ConfigEntry, selected SKUD, and internal provider ID. A ref from another intercom does not resolve for the selected device.
+
+Both the empty service path (`count: 0`, `keys: []`) and the non-empty inventory path have been exercised live.
+
+## Starting physical-key enrollment
+
+The official Android client and the live-tested Home Assistant path arm automatic collection with:
+
+```http
+POST /api/v4/key/skud/<skud_id>/auto_collect/enable/
+Authorization: JWT <UFANET_ACCESS>
+```
+
+**Confirmed for the tested success path.** Home Assistant invoked this endpoint, the intercom entered the expected **60-second** enrollment window, and a genuinely unregistered physical key presented during that window was actually registered. HTTP success by itself is still not treated as proof that a key was registered; the physical/inventory/FCM side effects provide that evidence.
+
+Home Assistant exposes **Add physical key** (`mdi:key-plus`) only for capability-supported intercoms and publishes `enrollment_window_seconds: 60`. The button is unavailable for a blocked/unhealthy target.
+
+A separate live timeout test armed the same window and presented no key. After 60 seconds no additional enrollment completion push was observed.
+
+## Asynchronous enrollment completion through FCM
+
+The Android client recognizes `reason=key_add` plus status and an internal key identifier. **Confirmed for the tested success path.** The active headless FCM listener received real `reason=key_add` completion pushes after the new physical key was registered. The observed success matched the native rule `key_status == 0` with a parseable `key_id`.
+
+The runtime immediately refreshes the key coordinator and fires only the privacy-minimized account-level event:
+
+```yaml
+event_type: ufanet_intercom_key_enrollment
+data:
+  type: key_enrollment
+  source: fcm
+  result: success
+  received_at: "<UTC ISO-8601>"
+  inventory_refresh_succeeded: true
+```
+
+The completion payload does not provide a trusted public `skud_id`, so the integration does not invent one. `/api/v4/key/list/` plus `devices` establishes actual intercom association.
+
+FCM diagnostics retain only coarse key-add counters/result/timestamps; provider identifiers, notification title/body, and raw push data are not retained. The no-key timeout produced no new completion push, so no unobserved HTTP/status/error-push semantics are claimed.
+
+## Physical-key rename
+
+The official Android client uses:
+
+```http
+POST /api/v4/key/edit/
+```
+
+with the internal provider identifier plus the requested name. **Confirmed for the tested success path.** A controlled Home Assistant live test verified that the selected physical key's name actually changes on the provider side.
+
+The validation branch exposes:
+
+```text
+ufanet_intercom.rename_physical_key
+```
+
+Public input:
+
+```yaml
+device_id: <HA device id>
+key_ref: <opaque ref from list_physical_keys>
+new_name: "New name"
+```
+
+Safety and verification flow:
+
+1. refresh inventory before mutation;
+2. resolve `key_ref` only within the selected intercom;
+3. reject blank names/control characters and apply a conservative local 128-character bound (not a claimed provider limit);
+4. send the provider edit request exactly once with the resolved internal provider ID;
+5. perform bounded read-only inventory refresh retries after the POST because provider read-back is eventually consistent;
+6. report success only when the same key is observed with the requested new name;
+7. skip the provider POST when the normalized name is already unchanged.
+
+Live testing showed that the first immediate read-back can still contain the previous name while a later refresh returns the new name. The automatic retry-based verification path was then exercised successfully without requiring a manual refresh. The implementation never retries the state-changing POST automatically.
+
+The internal provider ID is never accepted or returned by the service. If the POST may have changed remote state but verification cannot be completed within the bounded read-only retries, Home Assistant reports an indeterminate result instead of falsely claiming success. Provider-specific failure semantics for invalid/stale IDs, duplicate names, or server-side length limits are still not claimed without direct evidence.
+
+## Lovelace KEYS tab
+
+The validation branch automatically loads the packaged physical-key extensions and adds **KEYS / КЛЮЧИ** to the existing card.
+
+Each physical-key row shows only:
+
+- user-facing name;
+- creation date;
+- **Rename** action.
+
+Provider IDs and the disproven physical-key-number candidate are not rendered. Opaque `key_ref` is used only for Home Assistant service calls and is not shown to the user.
+
+**Add key** requires confirmation, shows the 60-second countdown, and refreshes inventory afterward. **Rename** requires confirmation and reports success only after backend `verified: true`. There is no delete action.
+
+Selecting a key row loads the **Passage history** section below the key list for that selected key.
+
+The non-empty list, selected-key passage history, backend-verified rename, repeated dashboard switching, normal reloads, and hard refreshes have all been live-tested on the validation branch without reproducing the former Lovelace **Configuration error**.
+
+## Per-key passage-history service
+
+The validation branch exposes:
+
+```text
+ufanet_intercom.get_physical_key_passages
+```
+
+Public input contains only HA `device_id`, opaque `key_ref`, and page. The service refreshes inventory, resolves the selected key within the selected intercom, then internally uses its `external_id`:
 
 ```json
 {
-  "data": {
-    "keys": [
-      {
-        "id": 1,
-        "external_id": "<redacted>",
-        "name": "<redacted>",
-        "create_date": 1700000000,
-        "devices": ["<redacted-skud-id>"]
-      }
-    ]
+  "page": 0,
+  "page_size": 25,
+  "filters": {
+    "key": "<private external_id>"
   }
 }
 ```
 
-`external_id` is treated as a private access identifier. It must not enter Home
-Assistant logs, diagnostics, entity states, or events.
+Only normalized passage times are returned:
 
-## Passage history
+```yaml
+page: 0
+page_size: 25
+total: 2
+has_more: false
+passages:
+  - occurred_at: "<UTC ISO-8601>"
+  - occurred_at: "<UTC ISO-8601>"
+```
+
+The live API confirmed that `filters.key=<external_id>` returns the passages associated with the selected physical key. The frontend path was also exercised end to end: selecting the real key rendered its passage times below the key list, and subsequent history updates continued to correlate to that same key.
+
+## Passage-history wire contract
 
 ```http
 POST /api/v4/key/skud/<skud_id>/key/pass_history/
@@ -95,49 +240,59 @@ Authorization: JWT <UFANET_ACCESS>
 Content-Type: application/json
 ```
 
-Minimal request without a per-key filter:
+Minimal request:
 
 ```json
-{
-  "page": 0,
-  "page_size": 5
-}
+{"page": 0, "page_size": 5}
 ```
 
-Confirmed envelope and pagination; non-empty item shape remains Observed:
+**Confirmed on a non-empty live response.** Envelope:
 
-```json
-{
-  "count": 1,
-  "current_page": 0,
-  "page_count": 1,
-  "page_size": 5,
-  "results": [
-    {
-      "key": 1,
-      "key_name": "<redacted>",
-      "time_passage": 1700000000
-    }
-  ]
-}
+```text
+count: int
+current_page: int
+page_count: int
+page_size: int
+results: list
 ```
 
-The Android client interprets `time_passage` as Unix seconds. Paging starts at
-page `0`; the client normally requests 25 items.
+Live passage item:
 
-## Home Assistant model
+```text
+key: str
+key_name: str
+time_passage: int
+```
 
-Version 0.27.0 implements the feature as read-only:
+Important difference from the decompiled Android DTO: the DTO declares `key` as an integer, while the real backend returns a JSON string. Gson accepts a numeric string for an integer field; Home Assistant mirrors that coercion explicitly.
 
-- capability discovery before polling;
-- **Physical key count** sensor;
-- **Last key passage** timestamp sensor;
-- passage `EventEntity`, `ufanet_intercom_key_passage` bus event and device trigger;
-- a private reload-safe timestamp/internal-key cursor;
-- a dedicated 60-second coordinator.
+The first successful coordinator poll establishes a baseline and does not replay historical passages. A private cursor prevents duplicates after reload/restart. Public passage events do not expose provider IDs.
 
-The first successful poll is a baseline and does not emit historical events. Key
-names are present only in an actual transient event. Diagnostics exclude names,
-timestamps, internal key IDs, `external_id`, and full history.
+## Delete key
 
-Key rename/delete, automatic collection, and BLE keys are outside the first phase.
+The Android client also contains a destructive delete request for a selected physical key. **Observed.** Deletion is **not implemented** in the current runtime and remains outside release scope until separately designed, guarded, and live-tested.
+
+## Home Assistant model on the validation branch
+
+Current validation functionality includes:
+
+- capability discovery;
+- **Physical keys** count + read-only `keys`;
+- **Last key passage**;
+- passage EventEntity / `ufanet_intercom_key_passage` / device trigger;
+- 60-second key coordinator;
+- **Add physical key**;
+- FCM `key_add` + immediate inventory refresh;
+- `ufanet_intercom_key_enrollment`;
+- `list_physical_keys` with only `key_ref`, `name`, `created_at`;
+- live-confirmed `rename_physical_key` with fresh resolution, one provider write and bounded post-write read-only verification;
+- `get_physical_key_passages` with per-key filtering through private `external_id`;
+- validation-branch **KEYS** Lovelace tab with selected-key passage history, live-confirmed rename and no delete action.
+
+Diagnostics exclude key names, provider identifiers, passage timestamps, and full history.
+
+## Release validation disposition
+
+The physical-key enrollment success path is live-confirmed end to end, including the real 60-second window, physical registration of a previously unregistered key, real `reason=key_add` completion through the headless FCM listener, and healthy post-enrollment inventory. A separate no-key timeout produced no completion push.
+
+There are **no remaining hard functional release gates under the approved 0.31.0 scope**. Provider-specific enrollment failure payloads that were not observed are intentionally not inferred. Physical-key deletion and BLE-key work remain outside this release scope. iOS notification actions remain not live-tested and are not claimed as Confirmed.

@@ -1,7 +1,7 @@
 """Constants for the Ufanet Intercom integration."""
 
 DOMAIN = "ufanet_intercom"
-INTEGRATION_VERSION = "0.30.0"
+INTEGRATION_VERSION = "0.31.0"
 
 UFANET_BASE_URL = "https://dom.ufanet.ru"
 UCAMS_BASE_URL = "https://cloud.ucams.ru"
@@ -72,10 +72,20 @@ SERVICE_CREATE_GUEST_INVITE = "create_guest_invite"
 SERVICE_FORGET_GUEST_INVITE = "forget_guest_invite"
 SERVICE_REVOKE_SHARED_ACCESS = "revoke_shared_access"
 SERVICE_CREATE_TEMPORARY_GUEST_LINK = "create_temporary_guest_link"
+SERVICE_LIST_AUTHORIZED_DEVICES = "list_authorized_devices"
+SERVICE_REVOKE_AUTHORIZED_DEVICE = "revoke_authorized_device"
+SERVICE_REVOKE_OTHER_AUTHORIZED_DEVICES = "revoke_other_authorized_devices"
+SERVICE_LIST_FCM_REGISTRATIONS = "list_fcm_registrations"
+SERVICE_UNREGISTER_FCM_REGISTRATION = "unregister_fcm_registration"
+SERVICE_UNREGISTER_OTHER_FCM_REGISTRATIONS = "unregister_other_fcm_registrations"
+# Legacy names kept for backward compatibility. These three historical services
+# use logout_device and therefore revoke Ufanet authorizations, not just FCM.
 SERVICE_LIST_FCM_SESSIONS = "list_fcm_sessions"
 SERVICE_REVOKE_FCM_SESSION = "revoke_fcm_session"
 SERVICE_REVOKE_OTHER_FCM_SESSIONS = "revoke_other_fcm_sessions"
 SERVICE_REVOKE_TEMPORARY_GUEST_LINK = "revoke_temporary_guest_link"
+SERVICE_LIST_PHYSICAL_KEYS = "list_physical_keys"
+SERVICE_RENAME_PHYSICAL_KEY = "rename_physical_key"
 
 DEFAULT_ARCHIVE_DURATION_SECONDS = 300
 MAX_ARCHIVE_DURATION_SECONDS = 21600

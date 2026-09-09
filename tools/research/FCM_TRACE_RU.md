@@ -1,10 +1,22 @@
 # Динамический захват FCM Ufanet на Android
 
-Цель: поймать точный live payload входящего домофонного звонка и подтвердить runtime-поведение клиента 4.0.14 без MITM и без открытия двери.
+Цель: при необходимости повторно поймать exact live payload официального Android-клиента и проверить runtime-поведение конкретной версии приложения без MITM и без открытия двери.
 
-## Что уже известно из статического анализа 4.0.14
+## Текущий статус исследования
 
-Декомпилированный официальный Android-клиент версии 4.0.14 (419, `UfanetGoogle`) уже позволил восстановить:
+Первоначальная задача этого документа частично закрыта другими live-тестами. На текущем проектном baseline уже **Confirmed**:
+
+- регистрация Ufanet FCM через `POST /api/v0/fcm/`;
+- headless FIS/GCM/MCS transport без Android/Google Play Services;
+- реальный `data.reason=sip`;
+- основные поля SIP data-message и связь push-времени с authoritative `call-history`;
+- Home Assistant notification flow поверх подтверждённого звонка.
+
+Поэтому Frida trace сейчас нужен прежде всего для повторной проверки новой версии официального клиента, исследования различий foreground/background или уточнения нового/изменившегося payload. Реальный `reason=key_add` нового физического ключа остаётся отдельным незакрытым live-gate и должен исследоваться privacy-safe средствами без публикации provider key identifiers.
+
+## Что известно из статического анализа 4.0.14
+
+Декомпилированный официальный Android-клиент версии 4.0.14 (419, `UfanetGoogle`) позволил восстановить:
 
 - регистрацию через `POST /api/v0/fcm/`;
 - `token_type=0` для FCM и `token_type=2` для HMS;
@@ -19,7 +31,7 @@
 <device-title>_<random UUID>
 ```
 
-Поэтому сравнивать его с `Settings.Secure.ANDROID_ID` больше не требуется.
+Поэтому сравнивать его с `Settings.Secure.ANDROID_ID` не требуется.
 
 ## Подготовка Frida
 
@@ -32,27 +44,23 @@ adb shell getprop ro.product.cpu.abi
 frida --version
 ```
 
-Для текущего тестового окружения уже определено:
+Для ранее использованного тестового окружения определялось:
 
 ```text
 ABI: x86_64
 Frida: 17.17.0
 ```
 
-Следовательно, нужен:
+Для такого окружения нужен соответствующий `frida-server-<version>-android-x86_64`. Не воспринимайте зафиксированную выше версию как требование для будущего теста: версия Frida client/server должна совпадать с реально установленной при повторной проверке.
 
-```text
-frida-server-17.17.0-android-x86_64
-```
-
-Текущий AVD пока не даёт `adb root`: `adb shell id` возвращает `uid=2000(shell)`. Для `frida-server` проще использовать отдельный x86_64 AVD на system image `Google APIs`/debuggable, а не production `Google Play`, либо применять Frida Gadget.
+Ранее используемый AVD не давал `adb root`: `adb shell id` возвращал `uid=2000(shell)`. Для `frida-server` проще использовать отдельный x86_64 AVD на system image `Google APIs`/debuggable, а не production `Google Play`, либо применять Frida Gadget.
 
 Когда root доступен:
 
 ```powershell
 adb root
 adb shell id
-adb push frida-server-17.17.0-android-x86_64 /data/local/tmp/frida-server
+adb push frida-server-<version>-android-x86_64 /data/local/tmp/frida-server
 adb shell chmod 755 /data/local/tmp/frida-server
 adb shell "/data/local/tmp/frida-server >/dev/null 2>&1 &"
 frida-ps -U
@@ -70,9 +78,9 @@ $packageName = $firebaseConfig.firebase.package_name
 frida -U -f $packageName -l tools\research\frida_ufanet_fcm.js
 ```
 
-Точные package/class identifiers официального клиента намеренно не приводятся в документации. Трассировщик ориентирован на соответствующие классы текущего клиента и дополнительно оставляет generic Firebase hooks как fallback.
+Точные package/class identifiers официального клиента намеренно не приводятся в документации. Трассировщик ориентирован на соответствующие классы исследованного клиента и дополнительно оставляет generic Firebase hooks как fallback. При новой версии приложения hooks могут потребовать повторной проверки.
 
-После загрузки ожидаем:
+Для baseline 4.0.14 ожидались сообщения вида:
 
 ```text
 [UFANET-FCM] hooked app NetworkHelper register/unregister
@@ -85,7 +93,7 @@ frida -U -f $packageName -l tools\research\frida_ufanet_fcm.js
 
 При обычном login/перезапуске приложение вызывает Firebase `getToken()` и затем регистрацию Ufanet.
 
-Трассировщик должен показать структуру, но скрыть чувствительные значения:
+Трассировщик должен показывать только безопасную структуру, скрывая чувствительные значения:
 
 ```text
 [UFANET-FCM] NetworkHelper.registerDevice(...)
@@ -98,9 +106,9 @@ frida -U -f $packageName -l tools\research\frida_ufanet_fcm.js
 [UFANET-FCM]   token_type = 0 (FCM)
 ```
 
-## Захват реального звонка
+## Повторный захват реального звонка
 
-Не открывая дверь, инициируйте один обычный входящий звонок на домофоне.
+Если требуется revalidation конкретной версии Android-клиента, не открывая дверь инициируйте один обычный входящий звонок на домофоне.
 
 Ищем блоки:
 
@@ -113,16 +121,16 @@ frida -U -f $packageName -l tools\research\frida_ufanet_fcm.js
 ...
 ```
 
-Скрипт намеренно редактирует SIP credentials и приватные идентификаторы. Нам прежде всего нужны **имена ключей**, reason/event selector и несекретные значения протокольного типа.
+Скрипт намеренно редактирует SIP credentials и приватные идентификаторы. Для повторной проверки полезно сравнить:
 
-Особенно важно выяснить:
-
-1. точный ключ, значение которого равно `sip`;
-2. полный набор ключей реального SIP data-message;
-3. приходит ли `RemoteMessage.notification` или сообщение data-only;
-4. присутствуют ли дополнительные call-state/event-type поля;
+1. остаётся ли selector `data.reason=sip`;
+2. не изменился ли набор protocol keys относительно уже Confirmed baseline;
+3. остаётся ли сообщение data-only или появляется `RemoteMessage.notification`;
+4. появились ли новые call-state/event-type поля;
 5. выполняется ли параллельно запрос к `call-history`;
-6. поведение в foreground/background.
+6. есть ли различия foreground/background.
+
+Не переводите новое поле в Confirmed только по одному decompiled/trace наблюдению, если его семантика не доказана.
 
 ## Сохранение вывода
 
@@ -139,9 +147,10 @@ frida -U -f $packageName -l tools\research\frida_ufanet_fcm.js | Tee-Object -Fil
 - SIP username/password/server;
 - contract/flat;
 - реального `device_id`;
+- provider physical-key identifiers;
 - частных адресов и иных account-specific данных.
 
-Текущая версия tracer уже редактирует эти поля автоматически, но ручная проверка перед публикацией всё равно обязательна.
+Текущая версия tracer редактирует известные чувствительные поля автоматически, но ручная проверка перед публикацией всё равно обязательна.
 
 ## Альтернативный путь без root: вытащить APK
 
@@ -161,4 +170,4 @@ adb pull <путь-из-pm-path> C:\Temp\ufanet-base.apk
 
 - Firebase resource values (`google_app_id`, sender id, project id и т. п.);
 - полный `AndroidManifest.xml`;
-- оригинальные `classes*.dex` для повторного decompile/smali и восстановления центрального `PushBase.processMessage()`.
+- оригинальные `classes*.dex` для повторного decompile/smali и проверки центрального push-dispatch flow.

@@ -359,9 +359,8 @@ async def async_get_device_diagnostics(
             "coordinator": _coordinator_state(coordinator),
         }
 
-    camera_number = (
-        str(skud["cctv_number"]) if skud.get("cctv_number") else None
-    )
+    skud_id = int(skud["id"])
+    camera_number = str(skud["cctv_number"]) if skud.get("cctv_number") else None
     camera = None
     camera_error_type = None
     if api is not None and camera_number:
@@ -370,7 +369,7 @@ async def async_get_device_diagnostics(
         except Exception as err:  # diagnostics must not fail on cloud outage
             camera_error_type = type(err).__name__
 
-    controller = controllers.get(int(skud["id"]))
+    controller = controllers.get(skud_id)
     controller_state = None
     if controller is not None:
         controller_state = {
@@ -394,13 +393,23 @@ async def async_get_device_diagnostics(
     if key_passage_coordinator is not None and isinstance(
         key_passage_coordinator.data, dict
     ):
-        key_passage_data = key_passage_coordinator.data.get(int(skud["id"]))
+        key_passage_data = key_passage_coordinator.data.get(skud_id)
+
+    supports_skud = getattr(key_passage_coordinator, "supports_skud", None)
+    if callable(supports_skud):
+        key_supported = bool(supports_skud(skud_id))
+        capability_known = bool(
+            getattr(key_passage_coordinator, "capability_known", False)
+        )
+    else:
+        key_supported = isinstance(key_passage_data, dict)
+        capability_known = key_supported
 
     analytics_data = None
     if analytics_coordinator is not None and isinstance(
         analytics_coordinator.data, dict
     ):
-        analytics_data = analytics_coordinator.data.get(int(skud["id"]))
+        analytics_data = analytics_coordinator.data.get(skud_id)
 
     return {
         "loaded": True,
@@ -409,7 +418,7 @@ async def async_get_device_diagnostics(
             "mode": runtime.get("call_update_mode"),
             "fcm": _fcm_state(runtime),
         },
-        "last_call_image": _last_call_image_state(runtime, int(skud["id"])),
+        "last_call_image": _last_call_image_state(runtime, skud_id),
         "intercom": _safe_skud(skud),
         "camera": _safe_camera(camera),
         "camera_fetch_error_type": camera_error_type,
@@ -421,11 +430,28 @@ async def async_get_device_diagnostics(
         },
         "key_passages": {
             **_coordinator_state(key_passage_coordinator),
-            "supported": isinstance(key_passage_data, dict),
+            "capability_known": capability_known,
+            "supported": key_supported,
+            "capability_error_type": getattr(
+                key_passage_coordinator, "last_capability_error_type", None
+            ),
+            "inventory_error_type": getattr(
+                key_passage_coordinator, "last_inventory_error_type", None
+            ),
+            "history_error_type": getattr(
+                key_passage_coordinator, "last_history_error_type", None
+            ),
+            "history_failure_count": int(
+                getattr(key_passage_coordinator, "history_failure_count", 0) or 0
+            ),
             "registered_key_count": (
                 int(key_passage_data.get("key_count") or 0)
                 if isinstance(key_passage_data, dict)
                 else 0
+            ),
+            "history_healthy": bool(
+                isinstance(key_passage_data, dict)
+                and key_passage_data.get("history_healthy", True)
             ),
             "history_present": bool(
                 isinstance(key_passage_data, dict)

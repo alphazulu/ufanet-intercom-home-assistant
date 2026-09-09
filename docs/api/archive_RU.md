@@ -2,6 +2,10 @@
 
 [English version](archive.md)
 
+> Combined validation-ветка уведомлений/физических ключей не меняет API
+> видеоархива или его evidence status. Этот раздел повторно проверен при
+> обновлении документации; существующие Confirmed/Observed claims сохраняются.
+
 ## Диапазоны доступной записи
 
 **Статус: Confirmed**

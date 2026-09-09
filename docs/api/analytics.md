@@ -6,6 +6,11 @@ This page records the read-only UCAMS camera-analytics contract observed in the
 official Android client, the parts verified against the live UCAMS service, and
 the privacy-safe production behavior implemented by Ufanet Intercom v0.28.0.
 
+> The current combined notification/physical-key validation branch does not change
+> the `motion_alarm` contract, its evidence status, or production model. This page
+> was re-audited during the documentation refresh and preserves the existing
+> confirmed details without expanding its claims.
+
 ## Camera capability metadata
 
 **Status: Confirmed for `motion_alarm`; Observed for `perimeter_security`**
