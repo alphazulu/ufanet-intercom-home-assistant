@@ -43,6 +43,7 @@ class UcamsPrivateCamera(TypedDict):
     streams_count: int | None
     analytics: tuple[str, ...]
     dvr_hours: int | None
+    permission: int | None
     is_fav: bool | None
     is_public: bool | None
 
@@ -113,6 +114,7 @@ def parse_private_camera_page(
                 "streams_count": _optional_nonnegative_int(item.get("streams_count")),
                 "analytics": analytics,
                 "dvr_hours": dvr_hours,
+                "permission": _optional_nonnegative_int(item.get("permission")),
                 "is_fav": _optional_bool(item.get("is_fav")),
                 "is_public": _optional_bool(item.get("is_public")),
             }
@@ -207,7 +209,12 @@ class UfanetPrivateCameraCoordinator(
                 camera["number"] not in intercom_numbers for camera in cameras
             ),
             "archive_camera_count": sum(
-                (camera.get("dvr_hours") or 0) > 0 for camera in cameras
+                (camera.get("dvr_hours") or 0) > 0
+                and (
+                    camera.get("permission") is None
+                    or int(camera["permission"]) <= 20
+                )
+                for camera in cameras
             ),
             "analytics_camera_count": sum(bool(camera.get("analytics")) for camera in cameras),
             "motion_alarm_camera_count": sum(

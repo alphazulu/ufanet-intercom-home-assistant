@@ -20,6 +20,7 @@ from .key_enrollment import (
     KEY_ENROLLMENT_WINDOW_SECONDS,
     async_start_physical_key_enrollment,
 )
+from .private_entities import async_setup_private_button_entities
 
 
 def _known_key_capable_ids(key_coordinator: Any) -> set[int]:
@@ -39,9 +40,6 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up intercom buttons."""
-    # Account-level authorization/FCM actions are registered once in a real
-    # Home Assistant runtime. Isolated entity unit tests intentionally use a
-    # minimal hass stub with no service registry.
     if getattr(hass, "services", None) is not None:
         async_setup_authorized_device_services(hass)
 
@@ -68,8 +66,6 @@ async def async_setup_entry(
                     )
                 )
         else:
-            # The Android app/API uses door=1 for the primary relay even when
-            # the relays array is empty (validated with a real intercom).
             entities.append(UfanetOpenDoorButton(coordinator, api, skud, 1, None))
 
     controllers: dict[int, UfanetArchiveController] = runtime["archive_controllers"]
@@ -87,9 +83,6 @@ async def async_setup_entry(
 
     async_add_entities(entities)
 
-    # Capability discovery is independent from passage history. Add enrollment
-    # buttons from the positive capability set and also after a later recovery,
-    # so a transient startup failure cannot remove the feature for the session.
     key_passage_coordinator = runtime.get("key_passage_coordinator")
     added_key_ids: set[int] = set()
 
@@ -120,6 +113,13 @@ async def async_setup_entry(
             key_passage_coordinator.async_add_listener(_add_key_enrollment_buttons)
         )
 
+    await async_setup_private_button_entities(
+        hass,
+        entry,
+        async_add_entities,
+        runtime,
+    )
+
 
 class UfanetOpenDoorButton(ButtonEntity):
     """Momentary button that opens an intercom/SKUD relay."""
@@ -148,19 +148,16 @@ class UfanetOpenDoorButton(ButtonEntity):
 
     @property
     def available(self) -> bool:
-        """Return availability based on coordinator state and current device flags."""
         if not self.coordinator.last_update_success:
             return False
         skud = self.coordinator.data.get(self.skud_id)
         return bool(skud and not skud.get("disable_button") and not skud.get("is_blocked"))
 
     async def async_added_to_hass(self) -> None:
-        """Subscribe to coordinator updates."""
         await super().async_added_to_hass()
         self.async_on_remove(self.coordinator.async_add_listener(self.async_write_ha_state))
 
     async def async_press(self) -> None:
-        """Open the configured door/relay."""
         try:
             await self.api.async_open_door(self.skud_id, self.door)
         except UfanetApiError as err:
@@ -188,7 +185,6 @@ class UfanetPhysicalKeyEnrollmentButton(ButtonEntity):
 
     @property
     def available(self) -> bool:
-        """Return whether the target intercom is currently usable."""
         if not self.coordinator.last_update_success:
             return False
         skud = self.coordinator.data.get(self.skud_id)
@@ -196,16 +192,13 @@ class UfanetPhysicalKeyEnrollmentButton(ButtonEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, int]:
-        """Expose the enrollment window documented by the Android application."""
         return {"enrollment_window_seconds": KEY_ENROLLMENT_WINDOW_SECONDS}
 
     async def async_added_to_hass(self) -> None:
-        """Subscribe to coordinator updates."""
         await super().async_added_to_hass()
         self.async_on_remove(self.coordinator.async_add_listener(self.async_write_ha_state))
 
     async def async_press(self) -> None:
-        """Start the server-side physical-key enrollment window."""
         try:
             await async_start_physical_key_enrollment(self.api, self.skud_id)
         except UfanetApiError as err:

@@ -38,6 +38,7 @@ def test_private_camera_page_drops_tokens_domains_and_unknown_fields() -> None:
                     "streams_count": 1,
                     "analytics": ["motion_alarm", "motion_alarm"],
                     "tariff": {"name": "Archive", "dvr_hours": 120},
+                    "permission": 10,
                     "is_fav": False,
                     "is_public": False,
                     "token_l": "SECRET-LIVE",
@@ -59,6 +60,7 @@ def test_private_camera_page_drops_tokens_domains_and_unknown_fields() -> None:
             "streams_count": 1,
             "analytics": ("motion_alarm",),
             "dvr_hours": 120,
+            "permission": 10,
             "is_fav": False,
             "is_public": False,
         }
@@ -80,6 +82,7 @@ async def test_private_camera_inventory_uses_official_pagination_and_deduplicate
                     "analytics": ["motion_alarm"],
                     "streams_count": 1,
                     "tariff": {"dvr_hours": 120},
+                    "permission": 10,
                 }
             ],
             next_page=2,
@@ -92,6 +95,7 @@ async def test_private_camera_inventory_uses_official_pagination_and_deduplicate
                     "analytics": ["motion_alarm"],
                     "streams_count": 1,
                     "tariff": {"dvr_hours": 120},
+                    "permission": 10,
                 },
                 {
                     "number": "CAM-B",
@@ -99,6 +103,7 @@ async def test_private_camera_inventory_uses_official_pagination_and_deduplicate
                     "analytics": [],
                     "streams_count": 1,
                     "tariff": {"dvr_hours": 0},
+                    "permission": 30,
                 },
             ]
         ),
@@ -108,6 +113,7 @@ async def test_private_camera_inventory_uses_official_pagination_and_deduplicate
 
     assert [camera["number"] for camera in cameras] == ["CAM-A", "CAM-B"]
     assert cameras[0]["title"] == "A refreshed"
+    assert cameras[0]["permission"] == 10
     assert api._async_ucams_json.await_count == 2
     api._async_ucams_json.assert_any_await(
         "POST",
