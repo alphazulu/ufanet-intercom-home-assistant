@@ -113,12 +113,13 @@ async def async_setup_entry(
             key_passage_coordinator.async_add_listener(_add_key_enrollment_buttons)
         )
 
-    await async_setup_private_button_entities(
-        hass,
-        entry,
-        async_add_entities,
-        runtime,
-    )
+    if runtime.get("entry") is not None:
+        await async_setup_private_button_entities(
+            hass,
+            entry,
+            async_add_entities,
+            runtime,
+        )
 
 
 class UfanetOpenDoorButton(ButtonEntity):
