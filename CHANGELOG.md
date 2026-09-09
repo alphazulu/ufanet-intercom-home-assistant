@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (validation for 0.31.0)
+## 0.31.0
 
 - Added a native Home Assistant doorbell EventEntity for confirmed Ufanet calls and an importable Companion notification blueprint with immediate text delivery, private `/api/image_proxy/` image replacement, stable per-intercom notification tags, configurable image wait/action timeout and privacy-safe call metadata.
 - Added guarded actionable notification controls: **Open door** uses a unique Home Assistant-local action ID, requires the selected button to belong to the same Ufanet device, repeats that membership check immediately before `button.press`, expires after timeout, and is disabled for manual blueprint runs; **View camera** can open the selected same-device live `camera.*` entity directly through Home Assistant More Info.
@@ -24,7 +24,7 @@
 - Kept the Android-observed physical-key delete contract documented but unimplemented. Delete remains explicitly destructive and outside the current release scope.
 - Updated EN/RU user documentation, API verification matrix, physical-key reference, publishing guidance and draft release notes to record the live-confirmed enrollment success path, real `reason=key_add`, no-key timeout behavior, closed hard functional gate, and synchronized 0.31.0 RC version/cache-bust state.
 - Added draft `docs/releases/0.31.0-draft.md`; it is preparation material only and does not authorize merge, tag, or publication.
-- The 0.31.0 release candidate has no remaining hard functional blocker under the approved scope, but the PR remains draft/unmerged and merge, tag, GitHub Release, and publication still require separate explicit approvals.
+- Final 0.31.0 release preparation completed after the approved live-validation gates, privacy audit, and exact-head CI checks passed.
 
 ## 0.30.0
 
