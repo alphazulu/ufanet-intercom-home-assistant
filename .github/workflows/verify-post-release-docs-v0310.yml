@@ -1,0 +1,162 @@
+name: Verify synchronized v0.31.0 documentation
+
+on:
+  push:
+    branches:
+      - codex/post-release-audit-v0.31.0-verify
+    paths:
+      - .github/workflows/verify-post-release-docs-v0310.yml
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/post-release-audit-v0.31.0
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Audit current documentation state
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import re
+          import subprocess
+          from pathlib import Path
+          from urllib.parse import unquote
+
+          root = Path.cwd()
+          tracked = [Path(p) for p in subprocess.check_output(["git", "ls-files", "-z"]).decode().split("\0") if p]
+
+          current_docs = [Path("README.md"), Path("README_RU.md"), Path("PUBLISHING.md"), Path("CHANGELOG.md"), Path("docs/notifications.md"), Path("docs/notifications_RU.md"), Path("tools/research/FCM_HEADLESS_RU.md")]
+          current_docs += [p for p in tracked if p.parent == Path("docs/api") and p.suffix == ".md" and "_live_" not in p.name]
+
+          stale_patterns = [
+              "Current validation / 0.31.0 release candidate",
+              "Текущая validation-разработка / release candidate 0.31.0",
+              "draft/open/unmerged",
+              "published release remains v0.30.0",
+              "опубликованный релиз остаётся v0.30.0",
+              "real new-key side effect remains pending live validation",
+              "реальный new-key side effect пока ожидает live-проверки",
+              "real `key_add` path remains **Observed/pending live validation**",
+              "реальный `key_add` остаётся **Observed / pending live validation**",
+              "Observed in the Android client; live validation pending",
+              "Observed в Android-клиенте; live-проверка ожидается",
+              "Required key-add live validation",
+              "Обязательная live-проверка `key_add`",
+              "overall 0.31.0 validation branch is still **not release-ready**",
+              "вся ветка 0.31.0 всё ещё **не готова к релизу**",
+              "planned next minor version is **0.31.0**",
+          ]
+
+          stale = []
+          for rel in sorted(set(current_docs)):
+              if not (root / rel).exists():
+                  continue
+              for lineno, line in enumerate((root / rel).read_text(encoding="utf-8").splitlines(), 1):
+                  if any(p.lower() in line.lower() for p in stale_patterns):
+                      stale.append((str(rel), lineno, line.strip()))
+          for path, line, text in stale:
+              print(f"STALE {path}:{line}: {text}")
+          print(f"CURRENT_DOC_STALE_COUNT={len(stale)}")
+          if stale:
+              raise SystemExit("current documentation still contains stale 0.31.0 release-state wording")
+
+          history_checks = {
+              "docs/releases/0.31.0-draft.md": ["Historical pre-release draft", "v0.31.0", "published on 2026-09-09", "Publication outcome"],
+              "docs/releases/0.31.0-pre-release-audit.md": ["Historical pre-release snapshot", "v0.31.0", "published on 2026-09-09", "Publication outcome"],
+          }
+          for rel, needles in history_checks.items():
+              text = (root / rel).read_text(encoding="utf-8")
+              missing = [n for n in needles if n not in text]
+              print(f"HISTORICAL {rel}: {'OK' if not missing else 'MISSING ' + ', '.join(missing)}")
+              if missing:
+                  raise SystemExit(f"historical release document not clearly marked: {rel}")
+
+          link_re = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
+          broken = []
+          checked = 0
+          for rel in tracked:
+              if rel.suffix.lower() != ".md":
+                  continue
+              text = (root / rel).read_text(encoding="utf-8")
+              for raw in link_re.findall(text):
+                  target = raw.strip().split()[0].strip("<>")
+                  if not target or target.startswith(("http://", "https://", "mailto:", "#")):
+                      continue
+                  target = unquote(target.split("#", 1)[0].split("?", 1)[0])
+                  if not target or target.startswith("/"):
+                      continue
+                  checked += 1
+                  resolved = (root / rel.parent / target).resolve()
+                  try:
+                      resolved.relative_to(root.resolve())
+                  except ValueError:
+                      broken.append((str(rel), raw, "escapes repository"))
+                      continue
+                  if not resolved.exists():
+                      broken.append((str(rel), raw, "missing"))
+          for item in broken:
+              print(f"BROKEN_LINK {item[0]} -> {item[1]} ({item[2]})")
+          print(f"LOCAL_LINKS_CHECKED={checked}")
+          print(f"BROKEN_LINK_COUNT={len(broken)}")
+          if broken:
+              raise SystemExit("broken local Markdown links found")
+
+          manifest = json.loads((root / "custom_components/ufanet_intercom/manifest.json").read_text(encoding="utf-8"))
+          version = manifest["version"]
+          const_text = (root / "custom_components/ufanet_intercom/const.py").read_text(encoding="utf-8")
+          card_text = (root / "custom_components/ufanet_intercom/frontend/ufanet-archive-card.js").read_text(encoding="utf-8")
+          const_version = re.search(r'^INTEGRATION_VERSION = "([^"]+)"', const_text, re.M).group(1)
+          card_version = re.search(r'^const CARD_VERSION = "([^"]+)"', card_text, re.M).group(1)
+          if {version, const_version, card_version} != {"0.31.0"}:
+              raise SystemExit(f"core version mismatch: manifest={version}, const={const_version}, card={card_version}")
+
+          cache_sources = {
+              "integration resources": (root / "custom_components/ufanet_intercom/__init__.py").read_text(encoding="utf-8"),
+              "authorized devices resource": (root / "custom_components/ufanet_intercom/authorized_devices.py").read_text(encoding="utf-8"),
+              "README": (root / "README.md").read_text(encoding="utf-8"),
+              "README_RU": (root / "README_RU.md").read_text(encoding="utf-8"),
+          }
+          for label, text in cache_sources.items():
+              if f"?v={version}" not in text:
+                  raise SystemExit(f"missing {version} cache-bust in {label}")
+              print(f"VERSION_CACHE {label}: OK")
+          print(f"VERSION={version}; VERSION_CONSISTENCY=OK")
+
+          status = (root / "docs/api/STATUS.md").read_text(encoding="utf-8")
+          fcm = (root / "docs/api/fcm.md").read_text(encoding="utf-8")
+          fcm_ru = (root / "docs/api/fcm_RU.md").read_text(encoding="utf-8")
+          for label, text in (("STATUS", status), ("FCM_EN", fcm), ("FCM_RU", fcm_ru)):
+              if "key_add" not in text or "Confirmed" not in text:
+                  raise SystemExit(f"{label} does not reflect confirmed key_add success path")
+              print(f"KEY_ADD_STATUS {label}: OK")
+
+          print("POST_RELEASE_DOC_AUDIT=PASS")
+          PY
+
+      - name: Run strict repository release check
+        run: python scripts/release_check.py --strict-hacs
+
+      - name: Dispatch standard CI on exact audit branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run tests.yml --repo "$GITHUB_REPOSITORY" --ref codex/post-release-audit-v0.31.0
+          gh workflow run validate.yml --repo "$GITHUB_REPOSITORY" --ref codex/post-release-audit-v0.31.0
+          gh workflow run release-check.yml --repo "$GITHUB_REPOSITORY" --ref codex/post-release-audit-v0.31.0
