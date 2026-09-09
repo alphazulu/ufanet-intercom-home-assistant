@@ -81,7 +81,7 @@ Recorder-backed attributes или automation payload.
 metadata звонка и признаки `has_preview` / `has_archive`; токенизированные media URL
 остаются runtime-данными.
 
-Validation-ветка также использует то же подтверждённое событие в Companion
+Текущая интеграция также использует то же подтверждённое событие в Companion
 notification blueprint. Картинка берётся из приватной HA ImageEntity через
 `/api/image_proxy/`, а action открытия двери вызывает выбранную Home Assistant
 button entity, а не вставляет provider endpoint/credential в notification payload.

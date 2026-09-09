@@ -2,7 +2,7 @@
 
 [Русская версия](auth_RU.md)
 
-> The combined validation branch does not change the basic Ufanet/UCAMS login chain.
+> The v0.31.0 release does not change the basic Ufanet/UCAMS login chain.
 > It does add live-confirmed evidence about per-device authorization revocation and
 > the authorization side effect of FCM unregister.
 

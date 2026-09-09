@@ -2,7 +2,7 @@
 
 [Русская версия](archive_RU.md)
 
-> The combined notification/physical-key validation branch does not change the
+> The v0.31.0 release does not change the
 > archive API or its evidence status. This page was re-audited during the
 > documentation refresh; the existing Confirmed/Observed claims remain unchanged.
 

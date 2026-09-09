@@ -30,7 +30,7 @@
    - история звонков;
    - гостевой и совместный доступ;
    - регистрация FCM и управление безопасностью авторизованных сессий;
-   - Confirmed capability/непустой inventory/history физических ключей, selected-key фильтрация истории и rename, плюс validation-only enrollment/real FCM completion.
+   - Confirmed capability/непустой inventory/history физических ключей, selected-key фильтрация истории и rename, плюс live-confirmed enrollment/real FCM completion.
 2. **Управляющий API UCAMS** — `https://cloud.ucams.ru`
    - обмен JWT Ufanet на bearer-токен UCAMS;
    - получение метаданных камеры, live/archive токенов и медиасервера;
@@ -71,7 +71,7 @@ UCAMS bearer token
 - [Аналитические события камер UCAMS](analytics_RU.md)
 - [Видеоархив](archive_RU.md)
 - [Звонки и история](calls_RU.md)
-- [Физические ключи и журнал проходов](keys_RU.md) — Confirmed непустой inventory/history, приватный `external_id` selector истории и controlled rename; validation-only enrollment/real FCM completion остаётся release gate. Проверенные provider identifiers не выдаются за номер, нанесённый на физический ключ.
+- [Физические ключи и журнал проходов](keys_RU.md) — Confirmed непустой inventory/history, приватный `external_id` selector истории и controlled rename; live-confirmed enrollment/real FCM completion остаётся release gate. Проверенные provider identifiers не выдаются за номер, нанесённый на физический ключ.
 - [FCM / push-уведомления](fcm_RU.md)
 - [Гостевой и совместный доступ](guests_RU.md)
 - [Наблюдаемые модели данных](models_RU.md)

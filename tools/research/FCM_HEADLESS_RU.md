@@ -86,7 +86,7 @@ Headless Windows/Python flow подтверждён реальным `reason=sip
 
 Polling остаётся safety path: до подтверждения здорового MCS используется обычный polling, при исправном FCM сохраняется 300-секундный контрольный опрос, а после disconnect обычный polling автоматически возвращается.
 
-Текущая combined validation-ветка дополнительно распознаёт Android-observed `reason=key_add`, немедленно refresh physical-key inventory и создаёт privacy-minimized `ufanet_intercom_key_enrollment`. Сам реальный `key_add` от нового незарегистрированного ключа ещё не live-подтверждён и остаётся hard validation gate; provider `key_id`, title/body и raw push наружу не публикуются.
+Текущая интеграция распознаёт `reason=key_add`, немедленно refresh physical-key inventory и создаёт privacy-minimized `ufanet_intercom_key_enrollment`. 9 сентября 2026 года реальный `key_add` от действительно нового ключа был live-подтверждён через headless FCM; provider `key_id`, title/body и raw push наружу по-прежнему не публикуются. Отдельный no-key timeout не дал completion push, поэтому не наблюдавшиеся provider-specific error semantics не додумываются.
 
 Конкретная Firebase configuration официального приложения не является частью исходного кода интеграции: пользователь импортирует/извлекает её локально.
 

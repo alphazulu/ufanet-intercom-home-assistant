@@ -82,7 +82,7 @@ The public `ufanet_intercom_call` event and doorbell EventEntity deliberately om
 `has_preview` / `has_archive` flags while tokenized media URLs remain private
 runtime data.
 
-The validation branch also feeds the same confirmed event into the Companion
+The current integration also feeds the same confirmed event into the Companion
 notification blueprint. Images come from the private HA ImageEntity through
 `/api/image_proxy/`, and the door action invokes the selected Home Assistant button
 entity rather than embedding a provider endpoint/credential in the notification.

@@ -52,7 +52,7 @@ A direct live comparison on 2026-09-07 showed that the number printed on the tes
 
 The sensor `keys` attribute intentionally remains minimal and contains only `name` and normalized UTC `created_at`.
 
-Validation management surfaces expose a local opaque `key_ref` rather than any provider identifier. `list_physical_keys` returns only `key_ref`, `name`, and `created_at`; the previously experimental public `number` field was removed after the live comparison disproved that interpretation.
+Home Assistant management surfaces expose a local opaque `key_ref` rather than any provider identifier. `list_physical_keys` returns only `key_ref`, `name`, and `created_at`; the previously experimental public `number` field was removed after the live comparison disproved that interpretation.
 
 Both provider `id` and `external_id` remain private runtime data. They are excluded from diagnostics, logs, events, public support bundles and repository examples.
 

@@ -4,7 +4,7 @@
 
 UCAMS is the video platform used by the tested Ufanet intercom account.
 
-> The combined notification/physical-key validation branch does not change the
+> The v0.31.0 release does not change the
 > UCAMS authentication/live/archive-token contract. This page was re-audited
 > during the documentation refresh and keeps the existing evidence statuses.
 
