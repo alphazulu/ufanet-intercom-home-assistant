@@ -85,7 +85,7 @@ keys:
 
 ## Список для Lovelace и операций управления
 
-Validation-ветка предоставляет response-service:
+Текущая интеграция предоставляет response-service:
 
 ```text
 ufanet_intercom.list_physical_keys
@@ -152,7 +152,7 @@ POST /api/v4/key/edit/
 
 с внутренним provider identifier и новым именем. **Confirmed для проверенного success path.** Controlled live-тест в Home Assistant подтвердил, что выбранный физический ключ действительно получает новое имя на стороне provider.
 
-Validation-ветка реализует этот контракт через response-service:
+Текущая интеграция реализует этот контракт через response-service:
 
 ```text
 ufanet_intercom.rename_physical_key
@@ -182,7 +182,7 @@ Live-тест показал, что первый немедленный read-ba
 
 ## Lovelace-вкладка КЛЮЧИ
 
-Validation-ветка автоматически загружает packaged physical-key extensions и добавляет вкладку **КЛЮЧИ** к существующей карточке.
+Текущая интеграция автоматически загружает packaged physical-key extensions и добавляет вкладку **КЛЮЧИ** к существующей карточке.
 
 Строка физического ключа показывает только:
 
@@ -200,7 +200,7 @@ Provider identifiers и опровергнутый кандидат на физ�
 
 ## История проходов конкретного ключа
 
-Validation-ветка предоставляет response-service:
+Текущая интеграция предоставляет response-service:
 
 ```text
 ufanet_intercom.get_physical_key_passages

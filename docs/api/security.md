@@ -35,7 +35,7 @@ Applications should:
 - never use the endpoint for health checking;
 - distinguish viewing video from controlling access.
 
-The validation-branch Companion **Open door** action follows the same boundary: it is exposed only for a real call, requires an explicit tap, uses a unique local action ID, validates that the button belongs to the same Home Assistant device both when the notification is built and immediately before `button.press`, and is removed after command dispatch or timeout. A manual blueprint run cannot open the door.
+The v0.31.0 Companion **Open door** action follows the same boundary: it is exposed only for a real call, requires an explicit tap, uses a unique local action ID, validates that the button belongs to the same Home Assistant device both when the notification is built and immediately before `button.press`, and is removed after command dispatch or timeout. A manual blueprint run cannot open the door.
 
 The unavailable negative test with a second Ufanet device was explicitly waived after a targeted security/code review. That waiver applies only to the missing live test, not to the cross-device safety invariant or any of the same-device execution guards. iOS action delivery remains not live-tested.
 

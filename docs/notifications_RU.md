@@ -72,7 +72,7 @@ Door action ограничен timeout. После timeout или успешно
 
 Ручной запуск не имеет real event trigger, поэтому физическая кнопка открытия не отображается. Автоматического открытия двери нет — требуется явный tap пользователя.
 
-## Live-проверка validation-ветки
+## Live-проверка для v0.31.0
 
 На реальной установке Home Assistant с Android Companion App подтверждены:
 
@@ -113,7 +113,7 @@ Waiver действует в обычной trust model Home Assistant, где �
 
 Все Android notification release gates теперь либо live-confirmed, либо закрыты явно задокументированным waiver выше. У notification functionality больше нет собственного hard release blocker.
 
-Вся ветка 0.31.0 всё ещё **не готова к релизу**, потому что остаётся live-validation нового физического ключа: `auto_collect/enable` → новый незарегистрированный ключ → настоящий `reason=key_add` → inventory/event/error semantics.
+Этот notification path опубликован в v0.31.0. Бывший release gate физического ключа (`auto_collect/enable` → новый ключ → настоящий `reason=key_add`) был закрыт end-to-end live-проверкой до публикации.
 
 ## Диагностика
 

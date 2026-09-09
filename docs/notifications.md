@@ -80,7 +80,7 @@ A manual automation run has no real `trigger.event`. The blueprint therefore fal
 
 This is intentional: `ufanet_intercom_call` publishes only sanitized call metadata plus `has_preview` / `has_archive`; temporary provider media URLs remain private runtime data.
 
-## Live validation on the combined validation branch
+## Live validation for v0.31.0
 
 The following has been confirmed on a real Home Assistant installation with the Android Companion app:
 
@@ -122,7 +122,7 @@ This waiver uses the normal trusted-Home-Assistant-administrator threat model. I
 
 All notification release gates for the Android path are now either live-confirmed or explicitly waived with the review above. Notification functionality therefore has no remaining hard release blocker of its own.
 
-The overall 0.31.0 validation branch is still **not release-ready** because the new physical-key enrollment / real `reason=key_add` flow remains pending.
+This notification path shipped in v0.31.0. The former physical-key enrollment / real `reason=key_add` release gate was closed by end-to-end live validation before publication.
 
 ## Troubleshooting
 

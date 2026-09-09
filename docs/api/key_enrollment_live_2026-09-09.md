@@ -4,7 +4,7 @@
 
 ## Scope
 
-This document records the first end-to-end live validation of the physical-key enrollment path implemented on the 0.31.0 validation branch.
+This document records the first end-to-end live validation of the physical-key enrollment path implemented for v0.31.0 before publication.
 
 ## Successful enrollment
 

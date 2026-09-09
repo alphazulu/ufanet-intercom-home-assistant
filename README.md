@@ -25,11 +25,9 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 - Options Flow and privacy-conscious Home Assistant diagnostics.
 - Unified Lovelace card: `custom:ufanet-intercom-card`.
 
-## Current validation / 0.31.0 release candidate
+## Current release: v0.31.0
 
-The `codex/combined-validation` branch now carries the approved **0.31.0 release-candidate state**. The former physical-key enrollment blocker is closed by live evidence. The PR remains **draft/open/unmerged**: RC preparation does not authorize merge, tag, GitHub Release, or publication.
-
-The release-facing integration/card/resource version on this RC branch is `0.31.0`. The currently published GitHub/HACS release remains **v0.30.0** until separate publication approval is given.
+Version **v0.31.0** was published on 2026-09-09 after the release candidate was merged and the final release state passed Tests, HACS/Hassfest and the repository release self-check. The `v0.31.0` tag points to that published `main` state.
 
 Live-confirmed release evidence includes:
 
@@ -38,12 +36,12 @@ Live-confirmed release evidence includes:
 - timeout, post-open replacement and second-call supersession without stale door actions;
 - privacy-safe authorized-device management and the separately warned advanced FCM unregister path, including target refresh-chain behavior;
 - physical-key capability, non-empty inventory, selected-key passage history and backend-verified rename;
-- a genuinely unregistered physical key enrolled through `POST /api/v4/key/skud/<id>/auto_collect/enable/` during the real 60-second window;
+- end-to-end enrollment of a genuinely unregistered physical key during the real 60-second `auto_collect/enable` window;
 - real headless-FCM `reason=key_add` completion with the tested success rule (`key_status == 0` plus a parseable `key_id`), followed by healthy registered-key inventory;
 - a separate no-key 60-second timeout in which no additional `reason=key_add` completion push was observed;
 - repeated Lovelace reload/switch tests without reproducing the former **Configuration error**.
 
-There are **no remaining hard functional blockers under the approved 0.31.0 scope**. iOS actionable-notification delivery is not live-tested and is not claimed as Confirmed; physical-key deletion is deliberately unimplemented/out of scope; provider-specific enrollment failure payloads that were not observed are not inferred. Sanitized enrollment evidence is in `docs/api/key_enrollment_live_2026-09-09.md` and the release disposition is tracked in `docs/releases/0.31.0-pre-release-audit.md`.
+There are no remaining hard functional blockers under the published 0.31.0 scope. iOS actionable-notification delivery is not live-tested and is not claimed as Confirmed; physical-key deletion is deliberately unimplemented/out of scope; provider-specific enrollment failure payloads that were not observed are not inferred. Sanitized enrollment evidence is in `docs/api/key_enrollment_live_2026-09-09.md`; the former pre-release audit is retained as a historical snapshot in `docs/releases/0.31.0-pre-release-audit.md`.
 
 ## Unofficial API documentation
 
@@ -89,13 +87,13 @@ promoted to Confirmed from decompiled-client evidence or green CI alone.
 
 ## Lovelace card
 
-Add the main resource as a JavaScript module. On this 0.31.0 RC branch the matching cache-bust URL is:
+Add the main resource as a JavaScript module. For v0.31.0 the matching cache-bust URL is:
 
 ```text
 /ufanet_intercom/ufanet-archive-card.js?v=0.31.0
 ```
 
-The `?v=` value must match the installed integration/card version. The currently published release remains v0.30.0 until separate merge/tag/GitHub Release approval.
+The `?v=` value must match the installed integration/card version.
 
 Minimal card:
 
@@ -105,7 +103,7 @@ entity: camera.YOUR_UFANET_CAMERA
 default_tab: live
 ```
 
-The validation card contains six tabs:
+The card contains six tabs:
 
 - **LIVE** — video, door control, latest call and jump-to-call recording.
 - **АРХИВ** — timeline, call/motion markers, MP4 export and export media library.
@@ -114,7 +112,7 @@ The validation card contains six tabs:
 - **KEYS / КЛЮЧИ** — fresh physical-key inventory, selected-key passage history, explicit 60-second new-key enrollment and rename through opaque `key_ref`; provider IDs and a guessed printed-key number are not exposed, and key deletion is absent.
 - **ДИАГНОСТИКА** — token-free runtime health, polling, FCM authorization state, UCAMS/archive status and autosave state.
 
-The KEYS tab and the validation authorized-device behavior are provided by packaged frontend extensions. The integration registers/loads them automatically and the extensions wait for `custom:ufanet-intercom-card`, so no separate manual Resource entries are required. The existing main card resource remains configured as before.
+The KEYS tab and the authorized-device behavior are provided by packaged frontend extensions. The integration registers/loads them automatically and the extensions wait for `custom:ufanet-intercom-card`, so no separate manual Resource entries are required. The existing main card resource remains configured as before.
 
 ## Options
 
@@ -151,13 +149,13 @@ The blueprint sends text immediately, then replaces the same stable-tag notifica
 
 **View camera** opens the selected live camera through Home Assistant More Info using `more-info-entity-id`; if the selection is missing/mismatched, navigation falls back to the configured dashboard URI. Because one Ufanet device can expose live and archive cameras, select the live entity explicitly.
 
-Android has been live-tested through the complete current release-validation action lifecycle, including second-call supersession and post-open replacement. The only unperformed notification case is a negative test requiring a second Ufanet device; that live test was explicitly waived after the documented targeted security review, without waiving the same-device/cross-device runtime guards. The payload uses the shared Android/iOS Companion action schema, but iOS action delivery has not been live-tested and is not claimed as such. See [docs/notifications.md](docs/notifications.md).
+Android has been live-tested through the complete v0.31.0 validation action lifecycle, including second-call supersession and post-open replacement. The only unperformed notification case is a negative test requiring a second Ufanet device; that live test was explicitly waived after the documented targeted security review, without waiving the same-device/cross-device runtime guards. The payload uses the shared Android/iOS Companion action schema, but iOS action delivery has not been live-tested and is not claimed as such. See [docs/notifications.md](docs/notifications.md).
 
 ## Physical keys and passage events
 
 For every intercom advertising key-recording support, the integration creates:
 
-- **Physical keys** — numeric count; the validation branch also exposes read-only `keys` rows containing only `name` and UTC `created_at`;
+- **Physical keys** — numeric count plus read-only `keys` rows containing only `name` and UTC `created_at`;
 - **Last key passage** — latest known passage timestamp;
 - **Physical key passage** EventEntity and matching visual device trigger.
 
@@ -174,9 +172,9 @@ Read-only key and passage behavior is live-confirmed on a non-empty account:
 
 For management, `ufanet_intercom.list_physical_keys` returns only an opaque `key_ref`, `name`, and `created_at`. Both provider `id` and `external_id` remain private. No printed-number field is exposed because live testing disproved that interpretation.
 
-The validation branch also adds **Add physical key** (`mdi:key-plus`) only for supported intercoms. It mirrors the Android-observed 60-second `auto_collect/enable` flow. A successful button request means only that enrollment mode was armed; the new key still has to be presented to the reader within 60 seconds. The real new-key side effect remains pending live validation.
+The integration exposes **Add physical key** (`mdi:key-plus`) only for supported intercoms. It mirrors the Android-observed 60-second `auto_collect/enable` flow. A successful button request means only that enrollment mode was armed; the new key still has to be presented to the reader within 60 seconds. End-to-end live testing confirmed that a genuinely unregistered key can then be registered successfully through this flow.
 
-The FCM listener recognizes the Android-observed `reason=key_add` completion path. It refreshes the key inventory immediately and emits the account-level, privacy-minimized `ufanet_intercom_key_enrollment` event. Private provider identifiers, raw message text and push payload are not published. The real `key_add` path remains **Observed/pending live validation**.
+The FCM listener recognizes `reason=key_add`, refreshes the key inventory immediately and emits the account-level, privacy-minimized `ufanet_intercom_key_enrollment` event. The tested success path is **Confirmed** by a real new-key enrollment and headless-FCM completion. Private provider identifiers, raw message text and push payload are not published; unobserved provider-specific error payloads are not inferred.
 
 `ufanet_intercom.rename_physical_key` accepts only `key_ref` and a new name. It refreshes inventory before mutation, resolves the ref only inside the selected intercom, and sends the provider edit request once. Controlled live testing confirmed that `/api/v4/key/edit/` really changes the selected key name. Because Ufanet inventory is eventually consistent, the service performs bounded read-only refresh retries and reports success only after the requested name is observed; this automatic verification path was also live-tested successfully. The integration does not automatically retry the state-changing POST.
 

@@ -92,7 +92,7 @@ Authorization: JWT <UFANET_ACCESS_JWT>
 
 > **Внимание:** endpoint выполняет реальное физическое действие. Нельзя использовать его как ping/health-check, фоновую проверку или безопасный пример против действующего устройства. Приложение должно требовать явного намерения пользователя открыть дверь.
 
-Validation-ветка Companion notifications не передаёт этот provider endpoint в
+Текущая интеграция Companion notifications не передаёт этот provider endpoint в
 push. Action **«Открыть дверь»** вызывает выбранную Home Assistant button entity и
 дополнительно проверяет, что она принадлежит тому же HA device, что и выбранный
 домофон. Подробности: [../notifications_RU.md](../notifications_RU.md).

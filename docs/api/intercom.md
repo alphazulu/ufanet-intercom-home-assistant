@@ -68,7 +68,7 @@ Content-Type: application/json
 **Status: Confirmed for capability discovery.**
 
 Only intercoms actually returned with `has_key_recording_support=true` receive the
-validation-branch **Add physical key** button and key/passage polling. The enrollment
+v0.31.0 **Add physical key** button and key/passage polling. The enrollment
 and `reason=key_add` wire contracts are documented separately in [keys.md](keys.md)
 and remain below Confirmed until a new physical key is tested.
 
@@ -91,7 +91,7 @@ Observed successful response:
 
 > **Warning:** this endpoint performs a real physical action. Do not call it as a connectivity probe, health check, background retry test, or documentation example against a live device. Require explicit user intent in applications.
 
-The validation-branch Companion notification does not place this provider endpoint
+The v0.31.0 Companion notification does not place this provider endpoint
 inside the push. **Open door** invokes the selected Home Assistant button entity and
 also verifies that it belongs to the same HA device as the selected intercom. See
 [../notifications.md](../notifications.md).
