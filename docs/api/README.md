@@ -28,10 +28,10 @@ The integration currently uses three API layers:
    - contract authentication and token refresh;
    - intercom/SKUD discovery and door control;
    - call history;
-   - physical keys: confirmed capability/non-empty list/history, selected-key passage filtering and rename, plus validation-only enrollment/real FCM completion;
+   - physical keys: confirmed capability/non-empty list/history, selected-key passage filtering and rename, plus live-confirmed enrollment/real FCM completion;
    - guest/shared-access management;
    - FCM registration and authorized-session security management;
-   - Confirmed `reason=sip` as the low-latency call signal and Observed `reason=key_add` as physical-key enrollment completion.
+   - Confirmed `reason=sip` as the low-latency call signal and Confirmed `reason=key_add` for the tested physical-key enrollment success path.
 2. **UCAMS control API** — `https://cloud.ucams.ru`
    - exchanges the Ufanet JWT for a UCAMS bearer token;
    - returns camera metadata, live/archive tokens and media server information;
@@ -72,7 +72,7 @@ Important distinction:
 - [UCAMS camera analytics](analytics.md)
 - [Archive](archive.md)
 - [Call events/history](calls.md)
-- [Physical keys and passage history](keys.md) — confirmed non-empty inventory/history, private `external_id` history selection and controlled rename; validation-only enrollment/real FCM completion remains the release gate. The tested provider identifiers are not presented as the printed physical-key number.
+- [Physical keys and passage history](keys.md) — confirmed non-empty inventory/history, private `external_id` history selection and controlled rename; live-confirmed enrollment/real FCM completion remains the release gate. The tested provider identifiers are not presented as the printed physical-key number.
 - [FCM / push notifications](fcm.md)
 - [Guest and shared access](guests.md)
 - [Observed data models](models.md)
@@ -85,7 +85,7 @@ Important distinction:
 - [curl examples](examples/curl.md) — safe/read-only copy-paste examples, including analytics capability discovery and `motion_alarm` reporting.
 - [Python read-only example](examples/python.md) — authentication/discovery/UCAMS flow with privacy-safe analytics handling guidance.
 
-State-changing examples (door opening, physical-key enrollment, key rename/delete, guest creation/revocation, FCM session logout) are intentionally kept on the relevant reference pages rather than in the copy/paste examples collection. Physical-key rename is live-confirmed for the tested success path; enrollment/real `reason=key_add` and delete remain unconfirmed or out of scope as documented on the key reference page.
+State-changing examples (door opening, physical-key enrollment, key rename/delete, guest creation/revocation, FCM session logout) are intentionally kept on the relevant reference pages rather than in the copy/paste examples collection. Physical-key rename is live-confirmed for the tested success path; enrollment/real `reason=key_add` is live-confirmed for the tested success path, while delete remains unimplemented/out of scope as documented on the key reference page.
 
 ## Contributing new API findings
 

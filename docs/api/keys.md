@@ -21,7 +21,7 @@ A direct physical comparison was also completed on 2026-09-07. The number printe
 
 - `external_id` is **Confirmed** as a backend per-key identifier used for passage-history filtering;
 - `external_id` is **not** the number printed on the tested physical key;
-- the previously experimental public `number` field was removed from the validation branch rather than shipping a misleading interpretation.
+- the previously experimental public `number` field was removed before v0.31.0 publication rather than shipping a misleading interpretation.
 
 New-key enrollment and the real `reason=key_add` completion are now **Confirmed for the tested success path**: a genuinely unregistered key was physically registered during the 60-second Home Assistant enrollment window and real completion pushes were received. A separate no-key timeout produced no completion push; unobserved provider-specific error payloads are not inferred. Physical-key rename remains **Confirmed** for the tested success path.
 
@@ -85,7 +85,7 @@ Rows are filtered by `devices`, sorted newest first, and contain no provider ide
 
 ## List surface used by Lovelace and management actions
 
-The validation branch exposes:
+The current integration exposes:
 
 ```text
 ufanet_intercom.list_physical_keys
@@ -152,7 +152,7 @@ POST /api/v4/key/edit/
 
 with the internal provider identifier plus the requested name. **Confirmed for the tested success path.** A controlled Home Assistant live test verified that the selected physical key's name actually changes on the provider side.
 
-The validation branch exposes:
+The current integration exposes:
 
 ```text
 ufanet_intercom.rename_physical_key
@@ -182,7 +182,7 @@ The internal provider ID is never accepted or returned by the service. If the PO
 
 ## Lovelace KEYS tab
 
-The validation branch automatically loads the packaged physical-key extensions and adds **KEYS / КЛЮЧИ** to the existing card.
+The current integration automatically loads the packaged physical-key extensions and adds **KEYS / КЛЮЧИ** to the existing card.
 
 Each physical-key row shows only:
 
@@ -196,11 +196,11 @@ Provider IDs and the disproven physical-key-number candidate are not rendered. O
 
 Selecting a key row loads the **Passage history** section below the key list for that selected key.
 
-The non-empty list, selected-key passage history, backend-verified rename, repeated dashboard switching, normal reloads, and hard refreshes have all been live-tested on the validation branch without reproducing the former Lovelace **Configuration error**.
+The non-empty list, selected-key passage history, backend-verified rename, repeated dashboard switching, normal reloads, and hard refreshes have all been live-tested on the current integration without reproducing the former Lovelace **Configuration error**.
 
 ## Per-key passage-history service
 
-The validation branch exposes:
+The current integration exposes:
 
 ```text
 ufanet_intercom.get_physical_key_passages
@@ -272,7 +272,7 @@ The first successful coordinator poll establishes a baseline and does not replay
 
 The Android client also contains a destructive delete request for a selected physical key. **Observed.** Deletion is **not implemented** in the current runtime and remains outside release scope until separately designed, guarded, and live-tested.
 
-## Home Assistant model on the validation branch
+## Home Assistant model
 
 Current validation functionality includes:
 
@@ -287,7 +287,7 @@ Current validation functionality includes:
 - `list_physical_keys` with only `key_ref`, `name`, `created_at`;
 - live-confirmed `rename_physical_key` with fresh resolution, one provider write and bounded post-write read-only verification;
 - `get_physical_key_passages` with per-key filtering through private `external_id`;
-- validation-branch **KEYS** Lovelace tab with selected-key passage history, live-confirmed rename and no delete action.
+- v0.31.0 **KEYS** Lovelace tab with selected-key passage history, live-confirmed rename and no delete action.
 
 Diagnostics exclude key names, provider identifiers, passage timestamps, and full history.
 

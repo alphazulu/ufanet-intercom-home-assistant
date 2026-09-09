@@ -18,7 +18,7 @@
 
 Headless FCM transport и путь `reason=sip` имеют статус **Confirmed**.
 
-Официальный Android-клиент также содержит completion flow регистрации физического ключа с `data.reason=key_add`, `key_status` и `key_id`. Этот контракт пока имеет статус **Observed** по коду клиента и остаётся обязательным live-gate до end-to-end регистрации нового незарегистрированного ключа.
+Официальный Android-клиент также содержит completion flow регистрации физического ключа с `data.reason=key_add`, `key_status` и `key_id`. 9 сентября 2026 года этот success path был проверен end-to-end с действительно новым ключом и реальным headless-FCM completion, поэтому `reason=key_add` имеет статус **Confirmed для проверенного success path**.
 
 8 сентября 2026 года controlled probes дополнительно подтвердили, что device-registration endpoints связаны с состоянием авторизации: и штатный `logout_device`, и прямой FCM unregister удалили проверенную строку устройства и инвалидировали refresh JWT target, тогда как уже выданный access JWT временно продолжал работать.
 
@@ -26,7 +26,7 @@ Headless FCM transport и путь `reason=sip` имеют статус **Confir
 
 Начиная с версии 0.20.0 в настройках интеграции доступны `polling` и экспериментальный `fcm`. FCM регистрирует приватную virtual installation, слушает `data.reason=sip` и сразу запрашивает обновление `call-history` через существующий call coordinator. Polling остаётся включённым с минимальным интервалом 300 секунд, чтобы пропущенный push или разрыв MCS-соединения не отключил события звонков незаметно.
 
-Текущая validation-ветка дополнительно распознаёт `data.reason=key_add`. Этот путь не меняет проверенный SIP/call flow: он классифицирует результат регистрации ключа, немедленно обновляет physical-key coordinator и отправляет privacy-minimized событие Home Assistant `ufanet_intercom_key_enrollment`. Provider key ID и raw notification text не публикуются.
+Текущая интеграция распознаёт `data.reason=key_add`. Этот путь не меняет проверенный SIP/call flow: он классифицирует результат регистрации ключа, немедленно обновляет physical-key coordinator и отправляет privacy-minimized событие Home Assistant `ufanet_intercom_key_enrollment`. Provider key ID и raw notification text не публикуются.
 
 По умолчанию JSON читается из `ufanet_intercom/firebase_config.json` внутри каталога конфигурации Home Assistant. В ConfigEntry сохраняется только этот относительный путь. Firebase-значения и runtime FCM credentials остаются в локальных config/storage Home Assistant и исключены из диагностики.
 
@@ -213,7 +213,7 @@ Controlled live-тест подтвердил cross-session effect без FCM у
 
 ## Home Assistant services управления устройствами
 
-Validation-ветка разделяет обычный отзыв авторизации и advanced FCM cleanup:
+Текущая интеграция разделяет обычный отзыв авторизации и advanced FCM cleanup:
 
 ```text
 list_authorized_devices
@@ -300,11 +300,11 @@ Android, Frida и Google Play Services не нужны для получения
 
 ## FCM completion регистрации физического ключа
 
-**Observed в Android-клиенте; live-проверка ожидается**
+**Confirmed для проверенного success path**
 
 Клиент содержит completion path с `data.reason = key_add`. Наблюдаемая success-логика использует `key_status` и `key_id`: успех требует `key_status == 0` и корректного parseable `key_id`; в наблюдаемом payload нет `skud_id`.
 
-Validation-ветка обрабатывает сообщение без provider identifiers:
+Интеграция обрабатывает сообщение без provider identifiers:
 
 ```text
 FCM reason=key_add
@@ -368,16 +368,19 @@ Push — low-latency wake-up/completion signal. `call-history` остаётся 
 
 Windows/Python PoC после каждого SIP push проверяет `call-history` на offsets `0, 0.25, 0.5, 1, 2, 5` seconds. В четырёх последовательных live-тестах 29 августа 2026 года совпадающая запись каждый раз находилась первым запросом. Запрос завершался через 0,446–0,916 секунды после push (медиана 0,613 секунды), разница timestamp push/history составляла 0–1 секунду. Интеграция всё равно выполняет короткие повторные refresh для network jitter и более медленной публикации.
 
-## Обязательная live-проверка `key_add`
+## Live-проверка completion физического ключа
 
-До допуска physical-key блока в релиз новым незарегистрированным ключом необходимо подтвердить:
+9 сентября 2026 года physical-key completion path подтверждён end-to-end:
 
-1. реальный completion push приходит через headless listener;
-2. wire-схема соответствует наблюдаемому контракту `reason=key_add`, `key_status`, `key_id`;
-3. немедленный refresh coordinator проходит успешно и ключ появляется в read-only inventory;
-4. `ufanet_intercom_key_enrollment` возвращает правильный result без provider ID и message text.
+1. Home Assistant включил реальное 60-секундное окно enrollment через `auto_collect/enable`;
+2. действительно новый ключ был приложен и зарегистрирован;
+3. активный headless listener получил настоящие `reason=key_add` completion pushes;
+4. проверенный success соответствовал `key_status == 0` и parseable `key_id`;
+5. немедленный refresh key inventory остался healthy, зарегистрированный ключ присутствовал.
 
-До этого `key_add` остаётся **Observed**, а не **Confirmed**.
+В отдельном no-key тесте полное 60-секундное окно истекло без дополнительного `reason=key_add` completion push. HTTP 400, `key_status != 0` и отдельный FCM error completion в этом случае не наблюдались, поэтому provider-specific error semantics остаются нехарактеризованными и не додумываются.
+
+Обезличенное подтверждение находится в `key_enrollment_live_2026-09-09.md`.
 
 ## Безопасность
 

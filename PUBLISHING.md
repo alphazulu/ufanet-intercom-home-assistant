@@ -31,7 +31,7 @@ The release self-check requires the same version in **all** release-facing locat
 
 The release gate also parses **every packaged frontend JavaScript file** with `node --check` when Node.js is available and verifies `_callResponseService(...)` references from all frontend files against `services.yaml`. The base-card class method-reference check remains scoped to the base card because packaged extensions intentionally monkey-patch the prototype.
 
-This broader check is important for 0.31.0: validation introduced packaged KEYS/history and authorized-device extensions, so a stale extension cache-bust must fail release preparation rather than silently shipping an older browser resource.
+This broader check was introduced for 0.31.0 because that release added packaged KEYS/history and authorized-device extensions; a stale extension cache-bust must fail release preparation rather than silently shipping an older browser resource.
 
 When a release adds or confirms private API behavior, update the detailed EN/RU API page, the EN/RU verification matrix, relevant data-model/example pages, user-facing feature documentation and CHANGELOG in the same release work. Do not upgrade an evidence label to **Confirmed** without a live test.
 
@@ -47,23 +47,13 @@ For state-changing features, distinguish three separate checks:
 
 Do not treat (1) or (2) alone as proof of (3). When the integration has a post-write read-back verification path, successful read-back is part of the release evidence rather than an optional diagnostic.
 
-## Current 0.31.0 preparation state
+## Published 0.31.0 baseline
 
-The combined validation branch is now in **0.31.0 release-candidate preparation**, not release authorization. All hard functional gates under the approved scope are closed by live evidence.
+Version **v0.31.0** was published on 2026-09-09 after the release candidate passed the required live-validation gates, privacy/documentation review and exact-head CI. The published scope includes actionable Android call notifications, authorized-device/advanced-FCM management, physical-key inventory/history/rename, and live-confirmed physical-key enrollment with real `reason=key_add` completion.
 
-Live-confirmed release-critical areas include:
+The release retained the documented boundaries: iOS actionable notification delivery is not claimed as live-confirmed; physical-key deletion is outside the 0.31.0 scope; unobserved provider-specific enrollment failure payloads are not inferred. Existing release tags remain immutable.
 
-- actionable Android call notification, physical **Open door**, same-device **View camera**, timeout/post-open replacement, second-call supersession and metadata checks;
-- targeted authorized-device revoke and separately warned direct FCM unregister behavior, with refresh-chain effects tested and Home Assistant-owned registrations protected;
-- physical-key capability, inventory, per-key passage history, privacy-safe opaque refs and backend-verified rename;
-- end-to-end enrollment of a genuinely unregistered physical key through the real 60-second `auto_collect/enable` window;
-- real headless-FCM `reason=key_add` completion matching the tested success rule;
-- a separate no-key timeout with no additional completion push;
-- frontend resource/load regression checks.
-
-Provider IDs/tokens/raw pushes remain private. Physical-key deletion is still outside 0.31.0 scope. iOS actionable notification delivery remains not live-tested and is not claimed as Confirmed. Unobserved provider-specific enrollment failure payloads are not inferred.
-
-The RC synchronization must set manifest, `INTEGRATION_VERSION`, base-card `CARD_VERSION`, all packaged frontend cache-busts, and EN/RU README RC resource versions to **0.31.0** together. Merge, tag and GitHub Release remain separate actions requiring explicit approval.
+This baseline is historical context only. Future releases must repeat the same evidence, version-synchronization and explicit-approval process for their own target version and exact release SHA.
 
 ## Live-validation gate
 
@@ -80,7 +70,7 @@ The Android-observed delete-key endpoint remains outside release scope unless it
 
 ## Release
 
-The planned next minor version is **0.31.0**, subject to final confirmation at release time. Use a SemVer tag matching `manifest.json`, for example `v0.31.0`, and publish a GitHub Release rather than only creating a tag. An Unreleased planning heading or draft release notes are not authorization to publish.
+For every release, use a SemVer tag matching `manifest.json` (for example `v0.31.1` for a future patch release) and publish a GitHub Release rather than only creating a tag. The current published baseline is **v0.31.0**. An Unreleased planning heading or draft release notes are not authorization to publish.
 
 Before tagging, verify that:
 

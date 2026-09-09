@@ -2,7 +2,7 @@
 
 [English version](auth.md)
 
-> Combined validation-ветка не меняет базовую цепочку входа Ufanet/UCAMS. При этом
+> Релиз v0.31.0 не меняет базовую цепочку входа Ufanet/UCAMS. При этом
 > live-тесты добавили подтверждённые сведения об отзыве авторизации конкретного
 > устройства и о побочном authorization-эффекте FCM unregister.
 

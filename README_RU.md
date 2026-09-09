@@ -25,25 +25,23 @@
 - Options Flow и диагностика Home Assistant с учётом конфиденциальности.
 - Единая Lovelace-карточка: `custom:ufanet-intercom-card`.
 
-## Текущая validation-разработка / release candidate 0.31.0
+## Текущий релиз: v0.31.0
 
-Ветка `codex/combined-validation` теперь содержит утверждённое состояние **release candidate 0.31.0**. Бывший blocker регистрации физического ключа закрыт live evidence. PR по-прежнему остаётся **draft/open/unmerged**: подготовка RC не является разрешением на merge, tag, GitHub Release или публикацию.
+Версия **v0.31.0** опубликована 9 сентября 2026 года после merge release candidate и успешных Tests, HACS/Hassfest и repository release self-check на финальном release state. Тег `v0.31.0` указывает на это опубликованное состояние `main`.
 
-Release-facing версия интеграции, карточки и ресурсов на этой RC-ветке — `0.31.0`. Текущий опубликованный GitHub/HACS релиз остаётся **v0.30.0** до отдельного разрешения на публикацию.
+Для релиза live-подтверждены:
 
-Live-подтверждено для текущего release scope:
+- Android actionable notifications на реальных звонках Ufanet;
+- защищённое **«Открыть дверь»** с фактическим открытием настроенной двери и **«Открыть камеру»** для выбранной same-device камеры;
+- timeout, post-open replacement и supersession вторым звонком без устаревших door actions;
+- privacy-safe управление авторизованными устройствами и отдельно предупреждённый advanced FCM unregister, включая проверенное влияние на refresh-chain target;
+- capability, непустой inventory, selected-key история и backend-verified rename физических ключей;
+- end-to-end регистрация действительно нового физического ключа в реальном 60-секундном окне `auto_collect/enable`;
+- настоящий headless-FCM `reason=key_add` с подтверждённым success rule (`key_status == 0` и parseable `key_id`) и последующим корректным inventory;
+- отдельный 60-секундный no-key timeout без дополнительного `reason=key_add` completion push;
+- повторные Lovelace reload/switch проверки без воспроизведения прежней **Configuration error**.
 
-- Android actionable notifications для реальных звонков Ufanet;
-- защищённый action **«Открыть дверь»** физически открывает настроенную дверь, а **«Открыть камеру»** открывает выбранную same-device live-камеру;
-- timeout, замена после открытия и второй звонок не оставляют stale door action;
-- privacy-safe управление authorized devices и отдельно предупреждаемый advanced FCM unregister, включая проверенное поведение refresh-chain target;
-- capability, непустой inventory, история выбранного физического ключа и backend-verified rename;
-- реально незарегистрированный физический ключ зарегистрирован через `POST /api/v4/key/skud/<id>/auto_collect/enable/` в рабочем 60-секундном окне;
-- headless FCM получил реальный completion `reason=key_add`; проверенный success path соответствует `key_status == 0` и корректному `key_id`, после чего inventory зарегистрированных ключей остался здоровым;
-- отдельный 60-секундный тест без приложения ключа не дал дополнительного completion `reason=key_add`;
-- повторные переключения/reload Lovelace не воспроизводят прежнюю **«Ошибка конфигурации»**.
-
-**Hard functional blockers в утверждённом scope 0.31.0 больше нет.** iOS actionable notifications не live-проверены и не объявляются Confirmed; удаление физических ключей намеренно не реализовано и находится вне scope; ненаблюдавшиеся provider-specific enrollment failure payloads не выводятся по догадке. Обезличенное evidence регистрации находится в `docs/api/key_enrollment_live_2026-09-09.md`, release disposition — в `docs/releases/0.31.0-pre-release-audit.md`.
+В опубликованном scope 0.31.0 не осталось hard functional blockers. iOS actionable-notification delivery не проверялся live и не заявляется Confirmed; удаление физического ключа намеренно не реализовано и остаётся вне scope; не наблюдавшиеся provider-specific enrollment error payloads не додумываются. Обезличенное подтверждение enrollment находится в `docs/api/key_enrollment_live_2026-09-09.md`; прежний pre-release audit сохранён как исторический snapshot в `docs/releases/0.31.0-pre-release-audit.md`.
 
 ## Неофициальная документация API
 
@@ -86,13 +84,13 @@ Live-подтверждено для текущего release scope:
 
 ## Lovelace-карточка
 
-На этой RC-ветке 0.31.0 URL основного ресурса с соответствующим cache-bust:
+Для v0.31.0 URL основного ресурса с соответствующим cache-bust:
 
 ```text
 /ufanet_intercom/ufanet-archive-card.js?v=0.31.0
 ```
 
-`?v=` должен совпадать с реально установленной версией интеграции/карточки. Текущий опубликованный релиз остаётся v0.30.0 до отдельного разрешения на merge/tag/GitHub Release.
+`?v=` должен совпадать с реально установленной версией интеграции/карточки.
 
 Минимальная конфигурация:
 
@@ -102,7 +100,7 @@ entity: camera.YOUR_UFANET_CAMERA
 default_tab: live
 ```
 
-В validation-ветке карточка содержит шесть вкладок:
+Карточка содержит шесть вкладок:
 
 - **LIVE** — видео, управление дверью, последний звонок и переход к записи звонка.
 - **АРХИВ** — таймлайн, метки звонков/движения, экспорт MP4 и медиатека экспортов.
@@ -111,7 +109,7 @@ default_tab: live
 - **КЛЮЧИ** — свежий inventory, история выбранного ключа, запуск 60-секундной регистрации и переименование через opaque `key_ref`; provider identifiers и предполагаемый физический номер не выводятся, удаление ключей отсутствует.
 - **ДИАГНОСТИКА** — token-free runtime health, polling, FCM authorization, UCAMS/archive и autosave.
 
-Вкладка **КЛЮЧИ** и validation-логика управления устройствами реализованы packaged frontend extensions. Интеграция сама регистрирует/загружает их; extensions ждут `custom:ufanet-intercom-card`, поэтому отдельно добавлять их в Lovelace Resources не требуется. Основной ресурс карточки остаётся настроен как раньше.
+Вкладка **КЛЮЧИ** и логика управления устройствами реализованы packaged frontend extensions. Интеграция сама регистрирует/загружает их; extensions ждут `custom:ufanet-intercom-card`, поэтому отдельно добавлять их в Lovelace Resources не требуется. Основной ресурс карточки остаётся настроен как раньше.
 
 ## Настройки
 
@@ -152,7 +150,7 @@ Android live-проверен по полному текущему release-valid
 
 Для каждого домофона с `has_key_recording_support` создаются:
 
-- **«Физические ключи»** — числовое количество; validation-ветка также публикует read-only `keys` только с `name` и UTC `created_at`;
+- **«Физические ключи»** — числовое количество и read-only `keys` только с `name` и UTC `created_at`;
 - **«Последний проход по ключу»** — timestamp последнего прохода;
 - EventEntity **«Проход по физическому ключу»** и соответствующий device trigger.
 
@@ -169,9 +167,9 @@ Read-only key/history flow live-подтверждён на непустом а�
 
 Для управления `ufanet_intercom.list_physical_keys` возвращает только opaque `key_ref`, `name` и `created_at`. И provider `id`, и `external_id` остаются внутренними. Поле физического номера не публикуется, поскольку live-тест опроверг эту интерпретацию.
 
-Validation-ветка добавляет **«Добавить физический ключ»** (`mdi:key-plus`) только для поддерживаемых домофонов. Кнопка повторяет Android-observed 60-секундный `auto_collect/enable` flow. Успешный HTTP означает только включение enrollment mode; новый ключ нужно физически приложить к считывателю в течение 60 секунд. Реальный new-key side effect пока ожидает live-проверки.
+Интеграция предоставляет **«Добавить физический ключ»** (`mdi:key-plus`) только для поддерживаемых домофонов. Кнопка повторяет Android-observed 60-секундный `auto_collect/enable` flow. Успешный HTTP означает только включение enrollment mode; новый ключ нужно физически приложить к считывателю в течение 60 секунд. End-to-end live-тест подтвердил успешную регистрацию действительно нового ключа через этот flow.
 
-FCM listener распознаёт Android-observed completion `reason=key_add`, немедленно обновляет key inventory и отправляет account-level privacy-minimized событие `ufanet_intercom_key_enrollment`. Private provider identifiers, raw message text и push payload не публикуются. Реальный `key_add` остаётся **Observed / pending live validation**.
+FCM listener распознаёт `reason=key_add`, немедленно обновляет key inventory и отправляет account-level privacy-minimized событие `ufanet_intercom_key_enrollment`. Проверенный success path имеет статус **Confirmed** после реальной регистрации нового ключа и headless-FCM completion. Private provider identifiers, raw message text и push payload не публикуются; не наблюдавшиеся provider-specific error payloads не додумываются.
 
 `ufanet_intercom.rename_physical_key` принимает только `key_ref` и новое имя. Перед изменением перечитывается свежий inventory, ref разрешается только внутри выбранного домофона, а provider edit request отправляется один раз. Controlled live-тест подтвердил, что `/api/v4/key/edit/` действительно меняет имя выбранного ключа. Так как inventory Ufanet eventual-consistent, сервис выполняет ограниченные read-only refresh retries и возвращает success только после наблюдения нового имени; этот automatic verification path также live-проверен. State-changing POST автоматически не повторяется.
 

@@ -4,7 +4,7 @@
 
 UCAMS — видеоплатформа, которую использует протестированный аккаунт Ufanet.
 
-> Combined validation-ветка уведомлений/физических ключей не меняет UCAMS
+> Релиз v0.31.0 не меняет UCAMS
 > authentication/live/archive-token contract. Раздел повторно проверен при
 > обновлении документации, существующие evidence statuses сохраняются.
 
