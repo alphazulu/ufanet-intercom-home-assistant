@@ -160,3 +160,5 @@ jobs:
           gh workflow run tests.yml --repo "$GITHUB_REPOSITORY" --ref codex/post-release-audit-v0.31.0
           gh workflow run validate.yml --repo "$GITHUB_REPOSITORY" --ref codex/post-release-audit-v0.31.0
           gh workflow run release-check.yml --repo "$GITHUB_REPOSITORY" --ref codex/post-release-audit-v0.31.0
+
+# Re-run against cleaned one-commit audit head.
