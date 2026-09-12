@@ -13,6 +13,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .archive import UfanetArchiveController
 from .const import DOMAIN
 from .entity import device_info
+from .private_entities import async_setup_private_number_entities
 
 
 async def async_setup_entry(
@@ -33,6 +34,12 @@ async def async_setup_entry(
         entities.append(UfanetArchiveDuration(controller, skud))
         entities.append(UfanetArchiveStep(controller, skud))
     async_add_entities(entities)
+    await async_setup_private_number_entities(
+        hass,
+        entry,
+        async_add_entities,
+        runtime,
+    )
 
 
 class _UfanetArchiveNumber(NumberEntity):

@@ -53,6 +53,7 @@ from .key_coordinator import UfanetKeyPassageCoordinator
 from .key_inventory import UfanetApi
 from .key_management import async_setup_key_services
 from .options import effective_options
+from .private_services import async_setup_private_camera_services
 from .services import async_setup_services
 
 _LOGGER = logging.getLogger(__name__)
@@ -67,6 +68,9 @@ _PHYSICAL_KEYS_CARD_MODULE_URL = f"{_PHYSICAL_KEYS_CARD_URL}?v=0.31.0"
 _KEY_HISTORY_CARD_PATH = _FRONTEND_DIR / "ufanet-key-history-card.js"
 _KEY_HISTORY_CARD_URL = "/ufanet_intercom/ufanet-key-history-card.js"
 _KEY_HISTORY_CARD_MODULE_URL = f"{_KEY_HISTORY_CARD_URL}?v=0.31.0"
+_PRIVATE_CAMERA_CARD_PATH = _FRONTEND_DIR / "ufanet-private-camera-card.js"
+_PRIVATE_CAMERA_CARD_URL = "/ufanet_intercom/ufanet-private-camera-card.js"
+_PRIVATE_CAMERA_CARD_MODULE_URL = f"{_PRIVATE_CAMERA_CARD_URL}?v=0.31.0"
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -165,6 +169,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     # Keep hass.data[DOMAIN] reserved for config-entry runtime dictionaries.
     # Service handlers retain this Store instance through their closures.
     async_setup_services(hass, guest_invite_store)
+    async_setup_private_camera_services(hass)
     async_setup_key_services(hass)
 
     archive_card_exists = await hass.async_add_executor_job(
@@ -178,6 +183,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     key_history_card_exists = await hass.async_add_executor_job(
         _path_is_file,
         _KEY_HISTORY_CARD_PATH,
+    )
+    private_camera_card_exists = await hass.async_add_executor_job(
+        _path_is_file,
+        _PRIVATE_CAMERA_CARD_PATH,
     )
 
     if archive_card_exists:
@@ -201,6 +210,14 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 StaticPathConfig(
                     _KEY_HISTORY_CARD_URL,
                     str(_KEY_HISTORY_CARD_PATH),
+                    False,
+                )
+            )
+        if private_camera_card_exists:
+            static_paths.append(
+                StaticPathConfig(
+                    _PRIVATE_CAMERA_CARD_URL,
+                    str(_PRIVATE_CAMERA_CARD_PATH),
                     False,
                 )
             )
@@ -239,6 +256,19 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 _KEY_HISTORY_CARD_PATH,
             )
 
+        if private_camera_card_exists:
+            private_camera_registered = await _async_ensure_lovelace_module(
+                hass,
+                _PRIVATE_CAMERA_CARD_MODULE_URL,
+            )
+            if not private_camera_registered:
+                frontend.add_extra_js_url(hass, _PRIVATE_CAMERA_CARD_MODULE_URL)
+        else:
+            _LOGGER.warning(
+                "Ufanet standalone-camera card extension was not found at %s",
+                _PRIVATE_CAMERA_CARD_PATH,
+            )
+
         _LOGGER.info("Ufanet archive card resource URL: %s", _ARCHIVE_CARD_MODULE_URL)
         if physical_keys_card_exists:
             _LOGGER.info(
@@ -249,6 +279,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             _LOGGER.info(
                 "Ufanet key-history card extension URL: %s",
                 _KEY_HISTORY_CARD_MODULE_URL,
+            )
+        if private_camera_card_exists:
+            _LOGGER.info(
+                "Ufanet standalone-camera card extension URL: %s",
+                _PRIVATE_CAMERA_CARD_MODULE_URL,
             )
     else:
         _LOGGER.warning(

@@ -13,6 +13,8 @@ from custom_components.ufanet_intercom import (
     _KEY_HISTORY_CARD_PATH,
     _PHYSICAL_KEYS_CARD_MODULE_URL,
     _PHYSICAL_KEYS_CARD_PATH,
+    _PRIVATE_CAMERA_CARD_MODULE_URL,
+    _PRIVATE_CAMERA_CARD_PATH,
     _async_ensure_lovelace_module,
     _path_is_file,
     async_setup,
@@ -66,6 +68,9 @@ async def test_packaged_card_check_runs_in_executor_and_falls_back_without_lovel
         ),
         patch("custom_components.ufanet_intercom.async_setup_services") as setup_services,
         patch(
+            "custom_components.ufanet_intercom.async_setup_private_camera_services"
+        ) as setup_private_services,
+        patch(
             "custom_components.ufanet_intercom.async_setup_key_services"
         ) as setup_key_services,
         patch.object(ha_frontend, "add_extra_js_url") as add_extra_js_url,
@@ -73,24 +78,28 @@ async def test_packaged_card_check_runs_in_executor_and_falls_back_without_lovel
         assert await async_setup(hass, {}) is True
 
     setup_services.assert_called_once_with(hass, store)
+    setup_private_services.assert_called_once_with(hass)
     setup_key_services.assert_called_once_with(hass)
     assert hass.async_add_executor_job.await_args_list == [
         call(_path_is_file, _ARCHIVE_CARD_PATH),
         call(_path_is_file, _PHYSICAL_KEYS_CARD_PATH),
         call(_path_is_file, _KEY_HISTORY_CARD_PATH),
+        call(_path_is_file, _PRIVATE_CAMERA_CARD_PATH),
     ]
     hass.http.async_register_static_paths.assert_awaited_once()
 
     static_paths = hass.http.async_register_static_paths.await_args.args[0]
-    assert len(static_paths) == 3
+    assert len(static_paths) == 4
     assert str(_ARCHIVE_CARD_PATH) in {item.path for item in static_paths}
     assert str(_PHYSICAL_KEYS_CARD_PATH) in {item.path for item in static_paths}
     assert str(_KEY_HISTORY_CARD_PATH) in {item.path for item in static_paths}
+    assert str(_PRIVATE_CAMERA_CARD_PATH) in {item.path for item in static_paths}
 
     assert add_extra_js_url.call_args_list == [
         call(hass, _ARCHIVE_CARD_MODULE_URL),
         call(hass, _PHYSICAL_KEYS_CARD_MODULE_URL),
         call(hass, _KEY_HISTORY_CARD_MODULE_URL),
+        call(hass, _PRIVATE_CAMERA_CARD_MODULE_URL),
     ]
 
 
@@ -114,6 +123,7 @@ async def test_storage_mode_registers_modules_before_dashboard_without_extra_js(
             return_value=store,
         ),
         patch("custom_components.ufanet_intercom.async_setup_services"),
+        patch("custom_components.ufanet_intercom.async_setup_private_camera_services"),
         patch("custom_components.ufanet_intercom.async_setup_key_services"),
         patch.object(ha_frontend, "add_extra_js_url") as add_extra_js_url,
     ):
@@ -124,11 +134,13 @@ async def test_storage_mode_registers_modules_before_dashboard_without_extra_js(
         {"res_type": "module", "url": _ARCHIVE_CARD_MODULE_URL},
         {"res_type": "module", "url": _PHYSICAL_KEYS_CARD_MODULE_URL},
         {"res_type": "module", "url": _KEY_HISTORY_CARD_MODULE_URL},
+        {"res_type": "module", "url": _PRIVATE_CAMERA_CARD_MODULE_URL},
     ]
     assert {item["url"] for item in resources.items} == {
         _ARCHIVE_CARD_MODULE_URL,
         _PHYSICAL_KEYS_CARD_MODULE_URL,
         _KEY_HISTORY_CARD_MODULE_URL,
+        _PRIVATE_CAMERA_CARD_MODULE_URL,
     }
     add_extra_js_url.assert_not_called()
 

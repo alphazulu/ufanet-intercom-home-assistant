@@ -19,6 +19,7 @@ from .const import (
 from .coordinator import UfanetCallCoordinator, UfanetCoordinator
 from .entity import device_info
 from .key_coordinator import UfanetKeyPassageCoordinator
+from .private_entities import async_setup_private_event_entities
 
 
 def _known_key_capable_ids(coordinator: Any) -> set[int]:
@@ -76,37 +77,42 @@ async def async_setup_entry(
     if callable(passage_listener):
         entry.async_on_unload(passage_listener(_add_supported_passage_entities))
 
-    if analytics_coordinator is None:
-        return
-    added_motion_ids: set[int] = set()
+    if analytics_coordinator is not None:
+        added_motion_ids: set[int] = set()
 
-    @callback
-    def _add_supported_motion_entities() -> None:
-        """Add newly discovered motion entities after coordinator recovery."""
-        data = analytics_coordinator.data
-        if not isinstance(data, dict):
-            return
-        new_ids = [
-            skud_id
-            for skud_id in data
-            if skud_id in coordinator.data and skud_id not in added_motion_ids
-        ]
-        if not new_ids:
-            return
-        added_motion_ids.update(new_ids)
-        async_add_entities(
-            [
-                UfanetMotionAnalyticsEvent(
-                    analytics_coordinator,
-                    coordinator.data[skud_id],
-                )
-                for skud_id in new_ids
+        @callback
+        def _add_supported_motion_entities() -> None:
+            data = analytics_coordinator.data
+            if not isinstance(data, dict):
+                return
+            new_ids = [
+                skud_id
+                for skud_id in data
+                if skud_id in coordinator.data and skud_id not in added_motion_ids
             ]
+            if not new_ids:
+                return
+            added_motion_ids.update(new_ids)
+            async_add_entities(
+                [
+                    UfanetMotionAnalyticsEvent(
+                        analytics_coordinator,
+                        coordinator.data[skud_id],
+                    )
+                    for skud_id in new_ids
+                ]
+            )
+
+        _add_supported_motion_entities()
+        entry.async_on_unload(
+            analytics_coordinator.async_add_listener(_add_supported_motion_entities)
         )
 
-    _add_supported_motion_entities()
-    entry.async_on_unload(
-        analytics_coordinator.async_add_listener(_add_supported_motion_entities)
+    await async_setup_private_event_entities(
+        hass,
+        entry,
+        async_add_entities,
+        runtime,
     )
 
 
@@ -131,11 +137,9 @@ class UfanetIncomingCallEvent(EventEntity):
 
     @property
     def available(self) -> bool:
-        """Return whether call-history updates are healthy."""
         return self.coordinator.last_update_success
 
     async def async_added_to_hass(self) -> None:
-        """Subscribe to privacy-safe incoming-call events."""
         await super().async_added_to_hass()
         self.async_on_remove(
             self.hass.bus.async_listen(EVENT_INTERCOM_CALL, self._async_handle_call)
@@ -143,7 +147,6 @@ class UfanetIncomingCallEvent(EventEntity):
 
     @callback
     def _async_handle_call(self, event: Event) -> None:
-        """Publish a standard ring event for this intercom only."""
         if event.data.get("skud_id") != self.skud_id:
             return
         attributes = {
@@ -183,7 +186,6 @@ class UfanetKeyPassageEvent(EventEntity):
 
     @property
     def available(self) -> bool:
-        """Return whether passage history is healthy for this intercom."""
         state = self.coordinator.data.get(self.skud_id)
         supports_skud = getattr(self.coordinator, "supports_skud", None)
         supported = (
@@ -199,7 +201,6 @@ class UfanetKeyPassageEvent(EventEntity):
         )
 
     async def async_added_to_hass(self) -> None:
-        """Subscribe to sanitized key-passage events."""
         await super().async_added_to_hass()
         self.async_on_remove(
             self.hass.bus.async_listen(EVENT_KEY_PASSAGE, self._async_handle_passage)
@@ -207,7 +208,6 @@ class UfanetKeyPassageEvent(EventEntity):
 
     @callback
     def _async_handle_passage(self, event: Event) -> None:
-        """Update the entity for a passage belonging to this intercom only."""
         if event.data.get("skud_id") != self.skud_id:
             return
         attributes = {
@@ -239,7 +239,6 @@ class UfanetMotionAnalyticsEvent(EventEntity):
 
     @property
     def available(self) -> bool:
-        """Return whether motion polling is healthy for this intercom."""
         return (
             self.coordinator.last_update_success
             and isinstance(self.coordinator.data, dict)
@@ -247,7 +246,6 @@ class UfanetMotionAnalyticsEvent(EventEntity):
         )
 
     async def async_added_to_hass(self) -> None:
-        """Subscribe to coarse motion events only."""
         await super().async_added_to_hass()
         self.async_on_remove(
             self.hass.bus.async_listen(

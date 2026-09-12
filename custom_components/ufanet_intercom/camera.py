@@ -16,6 +16,7 @@ from .archive import UfanetArchiveController
 from .const import DOMAIN
 from .coordinator import UfanetCoordinator
 from .entity import device_info
+from .private_entities import async_setup_private_camera_entities
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,6 +43,12 @@ async def async_setup_entry(
             entities.append(UfanetArchiveCamera(coordinator, controller, skud))
 
     async_add_entities(entities)
+    await async_setup_private_camera_entities(
+        hass,
+        entry,
+        async_add_entities,
+        runtime,
+    )
 
 
 class UfanetIntercomCamera(Camera):
@@ -71,12 +78,18 @@ class UfanetIntercomCamera(Camera):
         if not self.coordinator.last_update_success:
             return False
         skud = self.coordinator.data.get(self.skud_id)
-        return bool(skud and skud.get("cctv_number") == self.camera_number and not skud.get("is_blocked"))
+        return bool(
+            skud
+            and skud.get("cctv_number") == self.camera_number
+            and not skud.get("is_blocked")
+        )
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to coordinator updates."""
         await super().async_added_to_hass()
-        self.async_on_remove(self.coordinator.async_add_listener(self.async_write_ha_state))
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
 
     async def async_camera_image(
         self,
@@ -89,17 +102,27 @@ class UfanetIntercomCamera(Camera):
             small = bool(width is not None and width <= 600)
             return await self.api.async_get_snapshot(self.camera_number, small=small)
         except UfanetApiError as err:
-            _LOGGER.warning("Unable to fetch Ufanet snapshot for %s: %s", self.camera_number, err)
+            _LOGGER.warning(
+                "Unable to fetch Ufanet snapshot for %s: %s",
+                self.camera_number,
+                err,
+            )
             return None
 
     async def stream_source(self) -> str | None:
         """Return a fresh HLS live-stream URL usable by Home Assistant stream/ffmpeg."""
         try:
-            return await self.api.async_get_hls_url(self.camera_number, stream_number=1)
+            return await self.api.async_get_hls_url(
+                self.camera_number,
+                stream_number=1,
+            )
         except UfanetApiError as err:
-            _LOGGER.warning("Unable to obtain Ufanet HLS stream for %s: %s", self.camera_number, err)
+            _LOGGER.warning(
+                "Unable to obtain Ufanet HLS stream for %s: %s",
+                self.camera_number,
+                err,
+            )
             return None
-
 
 
 class UfanetArchiveCamera(Camera):

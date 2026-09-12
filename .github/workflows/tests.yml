@@ -48,9 +48,10 @@ jobs:
           node --check custom_components/ufanet_intercom/frontend/ufanet-archive-card.js
           node --check custom_components/ufanet_intercom/frontend/ufanet-physical-keys-card.js
           node --check custom_components/ufanet_intercom/frontend/ufanet-key-history-card.js
+          node --check custom_components/ufanet_intercom/frontend/ufanet-private-camera-card.js
           node --check custom_components/ufanet_intercom/frontend/ufanet-authorized-devices-card.js
 
-      - name: Run pytest with coverage
+      - name: Run pytest with protected coverage threshold
         shell: bash
         run: |
           set -o pipefail
@@ -68,6 +69,17 @@ jobs:
             --cov-fail-under=85 \
             2>&1 | tee pytest-output.txt
 
+      - name: Audit full integration coverage
+        shell: bash
+        run: |
+          set -o pipefail
+          pytest -q \
+            --cov=custom_components.ufanet_intercom \
+            --cov-report=term-missing \
+            --cov-report=xml:full-coverage.xml \
+            --cov-fail-under=0 \
+            2>&1 | tee full-coverage-output.txt
+
       - name: Upload pytest diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -76,5 +88,7 @@ jobs:
           path: |
             pytest-output.txt
             pytest-results.xml
+            full-coverage-output.txt
+            full-coverage.xml
           if-no-files-found: warn
           retention-days: 14
