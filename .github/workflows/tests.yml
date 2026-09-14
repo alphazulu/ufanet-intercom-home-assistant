@@ -77,8 +77,43 @@ jobs:
             --cov=custom_components.ufanet_intercom \
             --cov-report=term-missing \
             --cov-report=xml:full-coverage.xml \
-            --cov-fail-under=0 \
+            --cov-report=json:full-coverage.json \
+            --cov-fail-under=79 \
             2>&1 | tee full-coverage-output.txt
+
+      - name: Enforce standalone camera coverage floor
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          minimum = 85.0
+          modules = (
+              "button.py",
+              "camera.py",
+              "datetime.py",
+              "number.py",
+              "private_cameras.py",
+              "private_entities.py",
+              "private_runtime.py",
+              "private_services.py",
+          )
+          report = json.loads(Path("full-coverage.json").read_text(encoding="utf-8"))
+          coverage = {
+              Path(filename).name: details["summary"]["percent_covered"]
+              for filename, details in report["files"].items()
+          }
+          failed = {
+              module: coverage.get(module, 0.0)
+              for module in modules
+              if coverage.get(module, 0.0) < minimum
+          }
+          for module in modules:
+              print(f"{module}: {coverage.get(module, 0.0):.2f}%")
+          if failed:
+              raise SystemExit(f"Standalone coverage below {minimum:.0f}%: {failed}")
+          PY
 
       - name: Upload pytest diagnostics
         if: always()
@@ -90,5 +125,6 @@ jobs:
             pytest-results.xml
             full-coverage-output.txt
             full-coverage.xml
+            full-coverage.json
           if-no-files-found: warn
           retention-days: 14

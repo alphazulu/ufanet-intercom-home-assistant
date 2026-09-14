@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from custom_components.ufanet_intercom.api import UfanetResponseError
+from custom_components.ufanet_intercom.api import (
+    UfanetApiError,
+    UfanetAuthError,
+    UfanetResponseError,
+)
 from custom_components.ufanet_intercom.private_cameras import (
     PRIVATE_CAMERA_FIELDS,
     PRIVATE_CAMERA_PAGE_SIZE,
+    UfanetPrivateCameraCoordinator,
     async_get_private_cameras,
     parse_private_camera_page,
 )
@@ -158,3 +165,78 @@ def test_private_camera_page_rejects_invalid_analytics_shape() -> None:
                 ]
             )
         )
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ([], "response"),
+        ({"results": [], "page": []}, "pagination"),
+        (_page([None]), "item"),
+        (_page([{"number": True}]), "number"),
+        (_page([{"number": "  "}]), "number"),
+        (_page([], next_page=True), "next page"),
+    ],
+)
+def test_private_camera_page_rejects_malformed_provider_data(payload, message) -> None:
+    with pytest.raises(UfanetResponseError, match=message):
+        parse_private_camera_page(payload)
+
+
+@pytest.mark.asyncio
+async def test_private_camera_inventory_rejects_page_limit() -> None:
+    api = AsyncMock()
+    api._async_ucams_json.side_effect = [
+        _page([], next_page=2),
+        _page([], next_page=3),
+    ]
+    with pytest.raises(UfanetResponseError, match="pagination limit"):
+        await async_get_private_cameras(api, max_pages=2)
+
+
+@pytest.mark.asyncio
+async def test_private_camera_coordinator_translates_errors_and_summarizes(hass) -> None:
+    api = MagicMock()
+    coordinator = UfanetPrivateCameraCoordinator(hass, api, scan_interval_seconds=30)
+    cameras = [
+        {
+            "number": "A",
+            "analytics": ("motion_alarm",),
+            "dvr_hours": 120,
+            "permission": 10,
+        },
+        {
+            "number": "B",
+            "analytics": (),
+            "dvr_hours": 0,
+            "permission": 30,
+        },
+    ]
+    with patch(
+        "custom_components.ufanet_intercom.private_cameras.async_get_private_cameras",
+        AsyncMock(return_value=cameras),
+    ):
+        assert await coordinator._async_update_data() == {"A": cameras[0], "B": cameras[1]}
+
+    coordinator.data = {"A": cameras[0], "B": cameras[1]}
+    assert coordinator.diagnostic_summary({"A"}) == {
+        "camera_count": 2,
+        "intercom_camera_count": 1,
+        "standalone_camera_count": 1,
+        "archive_camera_count": 1,
+        "analytics_camera_count": 1,
+        "motion_alarm_camera_count": 1,
+    }
+
+    with patch(
+        "custom_components.ufanet_intercom.private_cameras.async_get_private_cameras",
+        AsyncMock(side_effect=UfanetAuthError("expired")),
+    ):
+        with pytest.raises(ConfigEntryAuthFailed):
+            await coordinator._async_update_data()
+    with patch(
+        "custom_components.ufanet_intercom.private_cameras.async_get_private_cameras",
+        AsyncMock(side_effect=UfanetApiError("offline")),
+    ):
+        with pytest.raises(UpdateFailed, match="inventory update failed"):
+            await coordinator._async_update_data()
