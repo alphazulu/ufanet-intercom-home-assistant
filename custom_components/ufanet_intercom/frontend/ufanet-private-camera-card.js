@@ -80,7 +80,7 @@
         this._standaloneCamera = standalone;
         if (standalone) this._applyStandaloneCameraUi();
         return standalone;
-      } catch (_err) {
+      } catch {
         return this._standaloneCamera === true;
       }
     };

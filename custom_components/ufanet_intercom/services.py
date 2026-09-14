@@ -674,7 +674,6 @@ def async_setup_services(
                 zone = dt_util.get_default_time_zone()
 
             day_start = datetime.combine(requested_date, time.min, tzinfo=zone)
-            day_end = day_start + timedelta(days=1)
             day_start_utc = day_start.astimezone(timezone.utc)
 
             # The APK uses page_size=25. Keep the confirmed size and paginate
