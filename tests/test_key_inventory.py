@@ -72,11 +72,11 @@ async def test_live_passage_parser_accepts_numeric_string_key_like_android_gson(
         }
     )
 
-    result = await api.async_get_key_passage_history(154273)
+    result = await api.async_get_key_passage_history(424242)
 
     api._async_ufanet_json.assert_awaited_once_with(  # type: ignore[attr-defined]
         "POST",
-        "/api/v4/key/skud/154273/key/pass_history/",
+        "/api/v4/key/skud/424242/key/pass_history/",
         json_body={"page": 0, "page_size": 25},
     )
     assert [item["key_id"] for item in result["results"]] == [7898795, 7898796]
@@ -97,7 +97,7 @@ async def test_live_passage_parser_rejects_non_numeric_string_key(api: UfanetApi
     )
 
     with pytest.raises(UfanetResponseError, match="invalid fields"):
-        await api.async_get_key_passage_history(154273)
+        await api.async_get_key_passage_history(424242)
 
 
 @pytest.mark.asyncio

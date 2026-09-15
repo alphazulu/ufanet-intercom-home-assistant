@@ -321,13 +321,13 @@ async def test_call_history_rejects_unknown_shape(api: UfanetApi) -> None:
 async def test_temporary_guest_create_uses_minutes_as_string(api: UfanetApi) -> None:
     api._async_ufanet_json = AsyncMock(return_value={"link": "https://guest.invalid/key"})  # type: ignore[method-assign]
 
-    result = await api.async_create_temporary_guest_link(154273, 180)
+    result = await api.async_create_temporary_guest_link(424242, 180)
 
     assert result["link"].endswith("/key")
     api._async_ufanet_json.assert_awaited_once_with(  # type: ignore[attr-defined]
         "POST",
         "/api/v1/skuds/skud_share_open/",
-        json_body={"time": "180", "id": 154273},
+        json_body={"time": "180", "id": 424242},
     )
 
 

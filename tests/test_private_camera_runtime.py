@@ -38,12 +38,12 @@ def _camera(
 
 
 def test_private_camera_ref_is_stable_and_does_not_expose_provider_number() -> None:
-    first = private_camera_ref("1765960069FWI918")
-    second = private_camera_ref("1765960069FWI918")
+    first = private_camera_ref("TEST-CAMERA-001")
+    second = private_camera_ref("TEST-CAMERA-001")
 
     assert first == second
     assert first.startswith("ucams_camera_")
-    assert "1765960069FWI918" not in first
+    assert "TEST-CAMERA-001" not in first
 
 
 def test_private_camera_inventory_capabilities_are_minimal() -> None:

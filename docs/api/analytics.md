@@ -138,6 +138,11 @@ Motion entity discovery is recoverable: if UCAMS analytics is unavailable during
 initial setup, a later successful capability refresh can add the **Motion detected**
 entity without reloading the ConfigEntry.
 
+Standalone cameras advertising `motion_alarm` use an isolated coordinator and
+private cursor store. Their EventEntity and archive timeline publish the same
+minimal timestamp-only event data, while provider camera identifiers remain
+internal. This path was live-validated on 2026-09-15.
+
 The analytics coordinator normally polls at low frequency (60 seconds). It is an
 event source for automation, not an instantaneous security-alarm transport.
 

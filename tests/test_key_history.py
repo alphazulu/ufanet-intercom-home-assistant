@@ -19,7 +19,7 @@ from custom_components.ufanet_intercom.key_history import (
 )
 from custom_components.ufanet_intercom.key_management import physical_key_ref
 
-SKUD_ID = 154273
+SKUD_ID = 424242
 KEY_ID = 41
 EXTERNAL_ID = "7898795"
 

@@ -139,6 +139,11 @@ EventEntity публикует только `occurred_at`. Внутреннее 
 недоступна при первоначальном setup, последующий успешный capability refresh
 может добавить сущность без reload ConfigEntry.
 
+Отдельные камеры с `motion_alarm` используют изолированный coordinator и
+приватное cursor storage. Их EventEntity и архивный timeline публикуют те же
+минимальные данные только со временем события, а provider camera identifiers
+остаются внутри интеграции. Этот путь live-проверен 15 сентября 2026 года.
+
 Analytics coordinator работает с низкой частотой опроса — обычно раз в 60
 секунд. Это источник событий для автоматизаций, а не мгновенный security-alarm
 transport.

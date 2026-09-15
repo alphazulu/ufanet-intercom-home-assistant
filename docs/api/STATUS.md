@@ -31,6 +31,7 @@ This table is a compact index of what has actually been tested by the project. T
 | Passages | `filters.key=<external_id>` | **Confirmed** | Privacy-safe live probe and Home Assistant selected-key flow returned the passages associated with the real registered key; subsequent history updates continued to correlate to that same physical key. |
 | Door | `GET /api/v0/skud/shared/<id>/open/?door=1` | **Confirmed** | Physical side effect; successful `{"result":true}` |
 | UCAMS | `POST /api/v0/cameras/this/` | **Confirmed** | Camera/server/token metadata; `analytics` capability metadata also live-confirmed |
+| UCAMS | `POST /api/v0/cameras/my/` | **Confirmed** | Paginated account inventory with intercom and standalone cameras; production normalization discards tokens/domains and exposes only opaque HA references |
 | Analytics | `analytics` in camera metadata: `motion_alarm` | **Confirmed** | Live-tested camera advertises motion analytics; used by production v0.28.0 |
 | Analytics | `analytics` in camera metadata: `perimeter_security` | **Observed** | Android capability exists; not advertised by the tested tariff and not used by production runtime |
 | Analytics | `POST /api/v0/analytics/motion_alarm/report/` | **Confirmed** | HTTP 200; envelope `count/page/results`; result fields `id/date/length`; `date` is authoritative and `id` is a private opaque cursor |

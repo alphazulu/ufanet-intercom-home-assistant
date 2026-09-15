@@ -65,6 +65,24 @@ The exact response nesting is intentionally not presented as a complete stable s
 
 Production analytics capability discovery does not need the full media metadata request above. Ufanet Intercom v0.28.0 uses a separate minimal `cameras/this/` request containing only `number` and `analytics`. See [UCAMS camera analytics](analytics.md) for the confirmed `motion_alarm` report contract and its privacy boundary.
 
+## Account-wide private-camera inventory
+
+**Status: Confirmed**
+
+The official application's video-surveillance section obtains the account-wide camera inventory with:
+
+```http
+POST https://cloud.ucams.ru/api/v0/cameras/my/
+Authorization: Bearer <UCAMS_JWT>
+Content-Type: application/json
+```
+
+The tested response was paginated and contained both the camera attached to the intercom and standalone cameras. Production requests only the fields needed for identity, display, archive/motion capability and pagination. It deduplicates pages, excludes cameras currently attached to an intercom and discards media tokens, server domains and unknown fields during normalization.
+
+Standalone devices use a deterministic opaque Home Assistant reference derived from the provider camera number. The provider number is used only inside authenticated UCAMS calls and is not returned by public services, entity attributes, events or diagnostics.
+
+On 2026-09-15 the draft Home Assistant path was live-validated through discovery, live HLS, JPEG snapshots, archive navigation, motion timeline/events, MP4 export/library operations and a full Home Assistant restart without reported issues. This validates the integration behavior on the tested account; it does not make the private API a guaranteed public contract.
+
 ## Live HLS
 
 **Status: Confirmed**

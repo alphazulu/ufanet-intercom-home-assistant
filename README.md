@@ -11,6 +11,7 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 - UI setup with Ufanet contract/login and password.
 - Door opening through Home Assistant `button` entities.
 - Live UCAMS camera stream and snapshots.
+- Account-wide discovery of standalone UCAMS cameras as separate privacy-safe Home Assistant devices.
 - Native archive browsing with recording ranges, timeline zoom/pan, call markers, and read-only motion-event markers.
 - Intercom call history, `ufanet_intercom_call`, native **Incoming call** / **Last call image** entities, a doorbell EventEntity and visual device trigger.
 - Companion notification blueprint with immediate text delivery, private HA image replacement, optional guarded **Open door** action and direct **View camera** navigation.
@@ -113,6 +114,14 @@ The card contains six tabs:
 - **ДИАГНОСТИКА** — token-free runtime health, polling, FCM authorization state, UCAMS/archive status and autosave state.
 
 The KEYS tab and the authorized-device behavior are provided by packaged frontend extensions. The integration registers/loads them automatically and the extensions wait for `custom:ufanet-intercom-card`, so no separate manual Resource entries are required. The existing main card resource remains configured as before.
+
+### Standalone UCAMS cameras (draft PR #17)
+
+When the account exposes UCAMS cameras that are not attached to an intercom, the integration creates separate Home Assistant devices for them. The same `custom:ufanet-intercom-card` configuration can point to a standalone live-camera entity. The card then keeps only the **LIVE** and **ARCHIVE** surfaces and removes door, call, guest, authorized-device, physical-key and intercom-diagnostics controls.
+
+The standalone-camera path includes live HLS, JPEG snapshots, archive position/navigation, motion events and timeline markers, and manual MP4 export/library management. Home Assistant sees only a stable opaque camera reference; provider camera numbers, media tokens, server domains and raw analytics rows remain internal.
+
+The current draft branch was live-validated on 2026-09-15: discovery without duplicating the intercom camera, live video, snapshots, archive seeking and controls, motion handling/timeline, MP4 export/library operations, Lovelace refreshes and persistence after a full Home Assistant restart all completed without reported issues. This evidence applies to the tested account and is not part of the published v0.31.0 release yet.
 
 ## Options
 
