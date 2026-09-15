@@ -38,11 +38,11 @@ def _skud(skud_id: int = 7, *, blocked: bool = False) -> dict:
 async def test_enrollment_helper_uses_native_auto_collect_endpoint() -> None:
     api = SimpleNamespace(_async_ufanet_json=AsyncMock(return_value={"status": "ok"}))
 
-    await async_start_physical_key_enrollment(api, 154273)
+    await async_start_physical_key_enrollment(api, 424242)
 
     api._async_ufanet_json.assert_awaited_once_with(
         "POST",
-        "/api/v4/key/skud/154273/auto_collect/enable/",
+        "/api/v4/key/skud/424242/auto_collect/enable/",
     )
 
 

@@ -293,7 +293,7 @@ class UfanetArchiveCard extends HTMLElement {
           device_id: this._deviceId,
         }
       );
-    } catch (_err) {
+    } catch {
       // Keep all existing card defaults/YAML values if the backend is older
       // or the settings action is temporarily unavailable.
       this._integrationSettings = null;
@@ -456,7 +456,7 @@ class UfanetArchiveCard extends HTMLElement {
       if (lastCallImage?.entity_id) {
         this._lastCallImageEntityId = lastCallImage.entity_id;
       }
-    } catch (_err) {
+    } catch {
       // Fall back below.
     }
 
@@ -693,7 +693,7 @@ class UfanetArchiveCard extends HTMLElement {
           service_data: { entity_id: entities },
         });
       }
-    } catch (_err) {
+    } catch {
       // Recreating the live card below is still useful if update_entity is not
       // supported by a particular entity.
     }
@@ -1089,7 +1089,7 @@ class UfanetArchiveCard extends HTMLElement {
         dateStyle: "short",
         timeStyle: "medium",
       }).format(new Date(value))}`;
-    } catch (_err) {
+    } catch {
       return `до ${value}`;
     }
   }
@@ -1149,7 +1149,7 @@ class UfanetArchiveCard extends HTMLElement {
                 timeStyle: "medium",
               }).format(new Date(item.created_at))}`
             );
-          } catch (_err) {
+          } catch {
             details.push(`создано ${item.created_at}`);
           }
         }
@@ -1336,7 +1336,7 @@ class UfanetArchiveCard extends HTMLElement {
         this._setGuestStatus("Ссылка скопирована в буфер обмена", "ok");
         return;
       }
-    } catch (_err) {
+    } catch {
       // Fallback below.
     }
 
@@ -1348,7 +1348,7 @@ class UfanetArchiveCard extends HTMLElement {
         document.execCommand("copy");
         this._setGuestStatus("Ссылка скопирована", "ok");
         return;
-      } catch (_err) {
+      } catch {
         // Fall through.
       }
     }
@@ -1394,7 +1394,7 @@ class UfanetArchiveCard extends HTMLElement {
             camera_view: "live",
           });
         }
-      } catch (_err) {
+      } catch {
         // Fall through to whenDefined below.
       }
     }
@@ -1568,7 +1568,7 @@ class UfanetArchiveCard extends HTMLElement {
         this._motionEventsError = false;
         this._renderTimeline(dateText);
       }
-    } catch (_err) {
+    } catch {
       const selectedDate = this.shadowRoot.getElementById("date")?.value;
       if (selectedDate === dateText) {
         this._motionEvents = [];
@@ -2066,7 +2066,7 @@ class UfanetArchiveCard extends HTMLElement {
               timeStyle: "short",
             }).format(new Date(item.modified_at))}`
           );
-        } catch (_err) {
+        } catch {
           // Ignore formatting failure.
         }
       }
@@ -2215,7 +2215,7 @@ class UfanetArchiveCard extends HTMLElement {
         timeStyle: "medium",
       }).format(new Date(epochMs));
       return `${exact} • ${this._formatRelativeEpoch(epochMs / 1000)}`;
-    } catch (_err) {
+    } catch {
       return String(value || "время неизвестно");
     }
   }
@@ -2757,7 +2757,7 @@ class UfanetArchiveCard extends HTMLElement {
     try {
       await navigator.clipboard.writeText(text);
       this._setStatus("Диагностика скопирована в буфер обмена", "ok");
-    } catch (_err) {
+    } catch {
       this._setStatus("Не удалось скопировать диагностику", "error");
     }
   }
@@ -2772,7 +2772,7 @@ class UfanetArchiveCard extends HTMLElement {
         this._setStatus("Защищённый URL MP4 скопирован", "ok");
         return;
       }
-    } catch (_err) {
+    } catch {
       // Fall back to selecting the visible link below.
     }
 
@@ -3198,7 +3198,7 @@ class UfanetArchiveCard extends HTMLElement {
       drag.moved = true;
       try {
         track.setPointerCapture(event.pointerId);
-      } catch (_err) {
+      } catch {
         // Pointer capture is an enhancement; panning still works without it.
       }
       track.dataset.dragging = "true";
@@ -3234,7 +3234,7 @@ class UfanetArchiveCard extends HTMLElement {
           if (track.hasPointerCapture(drag.pointerId)) {
             track.releasePointerCapture(drag.pointerId);
           }
-        } catch (_err) {
+        } catch {
           // Ignore unsupported/expired capture.
         }
       }

@@ -62,7 +62,7 @@ async def test_audit_uses_read_only_contract_and_never_prints_private_values(
                         "page_info": {"page": 1},
                         "intercoms": [
                             {
-                                "id": 154273,
+                                "id": 424242,
                                 "address": "Private address",
                                 "has_key_recording_support": True,
                             }
@@ -80,7 +80,7 @@ async def test_audit_uses_read_only_contract_and_never_prints_private_values(
                                 "external_id": "private-external-id",
                                 "name": "Private key name",
                                 "create_date": 1720000000,
-                                "devices": ["154273"],
+                                "devices": ["424242"],
                             }
                         ]
                     }
@@ -118,7 +118,7 @@ async def test_audit_uses_read_only_contract_and_never_prints_private_values(
         "https://example.test/api/v4/skud/features/",
         "https://example.test/api/v0/intercoms/",
         "https://example.test/api/v4/key/list/",
-        "https://example.test/api/v4/key/skud/154273/key/pass_history/",
+        "https://example.test/api/v4/key/skud/424242/key/pass_history/",
     ]
     assert session.calls[1][2]["json"] == {
         "page": 1,
@@ -135,7 +135,7 @@ async def test_audit_uses_read_only_contract_and_never_prints_private_values(
     output = capsys.readouterr().out
     for private_value in (
         "private-access-token",
-        "154273",
+        "424242",
         "Private address",
         "private-external-id",
         "Private key name",

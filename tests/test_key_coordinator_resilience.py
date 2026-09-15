@@ -10,7 +10,7 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 from custom_components.ufanet_intercom.api import UfanetResponseError
 from custom_components.ufanet_intercom.key_coordinator import UfanetKeyPassageCoordinator
 
-SKUD_ID = 154273
+SKUD_ID = 424242
 
 
 @pytest.mark.asyncio

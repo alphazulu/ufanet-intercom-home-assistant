@@ -13,6 +13,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .archive import UfanetArchiveController
 from .const import DOMAIN
 from .entity import device_info
+from .private_entities import async_setup_private_datetime_entities
 
 
 async def async_setup_entry(
@@ -29,6 +30,12 @@ async def async_setup_entry(
         UfanetArchiveDateTime(controller, coordinator.data[skud_id])
         for skud_id, controller in controllers.items()
         if skud_id in coordinator.data
+    )
+    await async_setup_private_datetime_entities(
+        hass,
+        entry,
+        async_add_entities,
+        runtime,
     )
 
 

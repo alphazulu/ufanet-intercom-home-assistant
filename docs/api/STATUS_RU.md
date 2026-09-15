@@ -31,6 +31,7 @@
 | Проходы | `filters.key=<external_id>` | **Confirmed** | Privacy-safe live-probe и Home Assistant flow выбранного ключа вернули проходы реального зарегистрированного ключа; последующие обновления истории продолжили относиться к тому же физическому ключу. |
 | Дверь | `GET /api/v0/skud/shared/<id>/open/?door=1` | **Confirmed** | Физическое действие; успешный `{"result":true}` |
 | UCAMS | `POST /api/v0/cameras/this/` | **Confirmed** | Метаданные камеры/сервера/токенов; metadata capability `analytics` также live-подтверждена |
+| UCAMS | `POST /api/v0/cameras/my/` | **Confirmed** | Пагинированный inventory камер аккаунта, включая домофонную и отдельные; production отбрасывает tokens/domains и публикует только opaque HA references |
 | Аналитика | `analytics` в metadata камеры: `motion_alarm` | **Confirmed** | Проверенная live-камера объявляет аналитику движения; используется production v0.28.0 |
 | Аналитика | `analytics` в metadata камеры: `perimeter_security` | **Observed** | Capability есть в Android-клиенте, но проверенный тариф её не объявляет; production runtime её не использует |
 | Аналитика | `POST /api/v0/analytics/motion_alarm/report/` | **Confirmed** | HTTP 200; envelope `count/page/results`; поля события `id/date/length`; `date` авторитетен, `id` используется только как приватный opaque cursor |

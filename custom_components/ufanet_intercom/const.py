@@ -32,7 +32,6 @@ ANALYTICS_SCAN_INTERVAL_SECONDS = 60
 
 CALL_UPDATE_MODE_POLLING = "polling"
 CALL_UPDATE_MODE_FCM = "fcm"
-DEFAULT_CALL_UPDATE_MODE = CALL_UPDATE_MODE_POLLING
 DEFAULT_FCM_CONFIG_PATH = "ufanet_intercom/firebase_config.json"
 FCM_FALLBACK_SCAN_INTERVAL_SECONDS = 300
 
@@ -44,17 +43,6 @@ TRIGGER_KEY_PASSAGE = "key_passage"
 TRIGGER_MOTION_ANALYTICS = "motion_detected"
 INCOMING_CALL_STATE_SECONDS = 30
 KEY_PASSAGE_SCAN_INTERVAL_SECONDS = 60
-
-PLATFORMS = [
-    "binary_sensor",
-    "button",
-    "camera",
-    "datetime",
-    "event",
-    "image",
-    "number",
-    "sensor",
-]
 
 SERVICE_GET_SETTINGS = "get_settings"
 SERVICE_GET_RUNTIME_STATUS = "get_runtime_status"

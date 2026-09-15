@@ -3,7 +3,6 @@
 
   const CARD_TAG = "ufanet-intercom-card";
   const EXTENSION_MARK = Symbol.for("ufanet_intercom.physical_key_history_card");
-  const HISTORY_PAGE_SIZE = 25;
 
   function formatPassageAt(value) {
     const timestamp = Date.parse(String(value || ""));
@@ -13,7 +12,7 @@
         dateStyle: "medium",
         timeStyle: "medium",
       }).format(new Date(timestamp));
-    } catch (_err) {
+    } catch {
       return String(value || "время неизвестно");
     }
   }

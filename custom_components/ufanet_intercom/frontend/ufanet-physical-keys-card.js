@@ -15,7 +15,7 @@
         dateStyle: "medium",
         timeStyle: "short",
       }).format(new Date(timestamp));
-    } catch (_err) {
+    } catch {
       return String(value || "дата неизвестна");
     }
   }
@@ -86,7 +86,7 @@
             String(item?.unique_id || "").endsWith("_add_physical_key")
         );
         this._physicalKeyEnrollmentEntityId = enrollment?.entity_id || null;
-      } catch (_err) {
+      } catch {
         this._physicalKeyEnrollmentEntityId = null;
       }
 

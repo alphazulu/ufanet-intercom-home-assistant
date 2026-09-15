@@ -65,6 +65,24 @@ Content-Type: application/json
 
 Для production capability discovery аналитики полный media-metadata запрос выше не требуется. Ufanet Intercom v0.28.0 использует отдельный минимальный `cameras/this/` только с `number` и `analytics`. Подтверждённый контракт отчёта `motion_alarm` и privacy boundary описаны на странице [аналитики камер UCAMS](analytics_RU.md).
 
+## Общий inventory приватных камер аккаунта
+
+**Статус: Confirmed**
+
+Раздел видеонаблюдения официального приложения получает общий список камер аккаунта запросом:
+
+```http
+POST https://cloud.ucams.ru/api/v0/cameras/my/
+Authorization: Bearer <UCAMS_JWT>
+Content-Type: application/json
+```
+
+Проверенный ответ использовал пагинацию и содержал как камеру домофона, так и отдельные камеры. Production запрашивает только поля, необходимые для identity, отображения, archive/motion capabilities и пагинации. Страницы дедуплицируются, камеры, в данный момент привязанные к домофону, исключаются, а media tokens, server domains и неизвестные поля отбрасываются при нормализации.
+
+Для отдельного устройства формируется детерминированная opaque-ссылка Home Assistant на основе provider camera number. Сам номер используется только внутри авторизованных запросов UCAMS и не возвращается публичными сервисами, attributes сущностей, событиями или диагностикой.
+
+15 сентября 2026 года draft-путь Home Assistant был live-проверен: discovery, live HLS, JPEG-снимки, навигация по архиву, motion timeline/events, MP4 export/library и полный рестарт Home Assistant прошли без замечаний. Это подтверждает работу интеграции на протестированном аккаунте, но не превращает закрытый API в гарантированный публичный контракт.
+
 ## Live HLS
 
 **Статус: Confirmed**
