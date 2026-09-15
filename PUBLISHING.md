@@ -25,13 +25,14 @@ The release self-check requires the same version in **all** release-facing locat
 - main archive-card cache-bust in `__init__.py`;
 - physical-keys extension cache-bust in `__init__.py`;
 - key-history extension cache-bust in `__init__.py`;
+- standalone private-camera extension cache-bust in `__init__.py`;
 - authorized-devices extension cache-bust in `authorized_devices.py`;
 - the Lovelace resource URL documented in `README.md`;
 - the Lovelace resource URL documented in `README_RU.md`.
 
 The release gate also parses **every packaged frontend JavaScript file** with `node --check` when Node.js is available and verifies `_callResponseService(...)` references from all frontend files against `services.yaml`. The base-card class method-reference check remains scoped to the base card because packaged extensions intentionally monkey-patch the prototype.
 
-This broader check was introduced for 0.31.0 because that release added packaged KEYS/history and authorized-device extensions; a stale extension cache-bust must fail release preparation rather than silently shipping an older browser resource.
+This broader check was introduced for 0.31.0 because that release added packaged KEYS/history and authorized-device extensions. It now also covers the standalone private-camera extension added for 0.32.0; a stale extension cache-bust must fail release preparation rather than silently shipping an older browser resource.
 
 When a release adds or confirms private API behavior, update the detailed EN/RU API page, the EN/RU verification matrix, relevant data-model/example pages, user-facing feature documentation and CHANGELOG in the same release work. Do not upgrade an evidence label to **Confirmed** without a live test.
 
@@ -54,6 +55,12 @@ Version **v0.31.0** was published on 2026-09-09 after the release candidate pass
 The release retained the documented boundaries: iOS actionable notification delivery is not claimed as live-confirmed; physical-key deletion is outside the 0.31.0 scope; unobserved provider-specific enrollment failure payloads are not inferred. Existing release tags remain immutable.
 
 This baseline is historical context only. Future releases must repeat the same evidence, version-synchronization and explicit-approval process for their own target version and exact release SHA.
+
+## v0.32.0 release candidate
+
+The current candidate packages the standalone UCAMS camera work merged through PR #17: account-wide discovery, privacy-safe devices, live/snapshot entities, archive controls and services, motion events/timeline markers, MP4 export/library management and capability-driven Lovelace UI. The complete path, including a full Home Assistant restart, was live-validated on 2026-09-15 without reported issues.
+
+Release preparation does not authorize tagging or publication. Tests, both coverage gates, the standalone-module coverage floor, HACS/Hassfest and the release self-check must succeed on the exact candidate SHA before separate publication approval.
 
 ## Live-validation gate
 

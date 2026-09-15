@@ -22,19 +22,12 @@ python -m pip install -r requirements_test.txt
 pytest -vv
 ```
 
-Coverage is collected in CI for the API client and config flow. The suite covers authentication/token handling, API contracts, archive/media behavior, guest/FCM safety flows, notification actions, physical-key privacy/enrollment/inventory/history/rename validation behavior, frontend resource loading, and configuration-flow error mapping.
+CI enforces both a protected critical-module coverage threshold and an audit of the complete integration package. Standalone-camera modules also have their own coverage floor. The suite covers authentication/token handling, API contracts, archive/media behavior, guest/FCM safety flows, notification actions, physical-key privacy/enrollment/inventory/history/rename validation behavior, standalone-camera lifecycle/services/entities, frontend resource loading, and configuration-flow error mapping.
 
 ## Validation-only development / release preparation
 
-The active combined validation PR intentionally keeps the published version at `0.30.0` while documentation and draft 0.31.0 release notes are prepared. Do not merge/tag/release or bump release-facing versions until the remaining hard live gates are complete or explicitly reviewed/waived and the user separately approves release preparation on the exact candidate.
+The published baseline is v0.31.0. The current v0.32.0 candidate contains the standalone UCAMS camera work merged through PR #17 and live-validated on 2026-09-15. Release-facing versions may be synchronized only on an explicitly approved release-preparation branch.
 
-Current evidence handoff:
+Documentation preparation and a green candidate PR are not publication authorization. Before every release, inspect **Tests**, both coverage gates, the standalone-module coverage floor, **HACS and Hassfest validation**, and **Release self-check** on the exact candidate SHA. Merge, tag and GitHub Release remain separately approved actions.
 
-- Android notification validation is complete for the planned candidate; the unavailable second-Ufanet-device negative live test is explicitly waived after targeted security review, while the cross-device safety invariant remains mandatory;
-- physical-key capability, non-empty inventory/history, selected-key filtering and the negative printed-number result are live-confirmed;
-- physical-key rename is live-confirmed, including eventual-consistent provider read-back and automatic bounded read-only verification retries after one provider write;
-- the remaining hard functional blocker is new-key enrollment: real `auto_collect/enable`, physical registration, real `reason=key_add`, FCM-triggered inventory/event refresh and live enrollment error semantics;
-- physical-key delete remains unimplemented and outside the current release scope;
-- iOS notification actions remain not live-tested.
-
-Documentation preparation is not release authorization. Read the active PR handoff/checklist before continuing work from a new branch or conversation, and inspect **Tests**, **HACS and Hassfest validation**, and **Release self-check** after every final branch change.
+Historical scope boundaries remain in force unless a later change explicitly addresses them: physical-key deletion is unimplemented, iOS notification actions are not live-confirmed, provider-specific payload behavior is not inferred, and private provider identifiers must not be introduced into public fixtures or output.

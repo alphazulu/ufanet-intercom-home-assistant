@@ -34,8 +34,8 @@ The integration currently uses three API layers:
    - Confirmed `reason=sip` as the low-latency call signal and Confirmed `reason=key_add` for the tested physical-key enrollment success path.
 2. **UCAMS control API** — `https://cloud.ucams.ru`
    - exchanges the Ufanet JWT for a UCAMS bearer token;
-   - returns camera metadata, live/archive tokens and media server information;
-   - advertises camera analytics capabilities and provides the confirmed read-only `motion_alarm` report used by v0.28.0.
+   - returns camera metadata, account-wide paginated camera inventory, live/archive tokens and media server information;
+   - advertises camera analytics capabilities and provides the confirmed read-only `motion_alarm` report used for intercom and standalone cameras.
 3. **UCAMS media servers** — hostnames returned by the UCAMS API
    - live HLS;
    - archive ranges and archive HLS;
@@ -72,7 +72,7 @@ Important distinction:
 - [UCAMS camera analytics](analytics.md)
 - [Archive](archive.md)
 - [Call events/history](calls.md)
-- [Physical keys and passage history](keys.md) — confirmed non-empty inventory/history, private `external_id` history selection and controlled rename; live-confirmed enrollment/real FCM completion remains the release gate. The tested provider identifiers are not presented as the printed physical-key number.
+- [Physical keys and passage history](keys.md) — confirmed non-empty inventory/history, private `external_id` history selection, controlled rename and live-confirmed enrollment/real FCM completion. The tested provider identifiers are not presented as the printed physical-key number.
 - [FCM / push notifications](fcm.md)
 - [Guest and shared access](guests.md)
 - [Observed data models](models.md)

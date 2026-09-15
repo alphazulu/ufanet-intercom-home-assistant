@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.32.0
+
+- Added paginated account-wide UCAMS camera discovery through the official application's `POST /api/v0/cameras/my/` contract, with page-loop protection, deduplication and dynamic exclusion of cameras currently attached to an intercom.
+- Added separate Home Assistant devices and live camera entities for standalone UCAMS cameras, including HLS playback, JPEG snapshots, dynamic discovery and unavailable-state recovery without deleting entity-registry history.
+- Added standalone archive cameras, position/duration/step controls and previous/next/latest navigation buttons. Archive availability follows advertised DVR depth and the official-client permission threshold while retaining camera-level capability isolation.
+- Added privacy-safe standalone archive response services for ranges, playback URLs, manual MP4 export, export-library listing, deletion and cleanup. Provider camera identifiers are resolved only inside the backend from opaque Home Assistant device references.
+- Added isolated standalone `motion_alarm` coordination, private per-camera cursor storage, timestamp-only Motion EventEntity output and archive timeline markers without exposing provider event IDs, camera numbers, media, screenshots or raw analytics rows.
+- Extended `custom:ufanet-intercom-card` for standalone cameras. The camera-only UI keeps **LIVE** and **ARCHIVE** while suppressing door, call, guest, authorized-device, physical-key and intercom-diagnostics controls.
+- Live-validated the complete standalone path on Home Assistant: discovery without duplicating the intercom camera, live video, JPEG snapshots, archive seeking/navigation, motion handling/timeline, MP4 export/library operations, Lovelace refreshes and persistence after a full restart completed without reported issues.
+- Expanded regression coverage to 442 tests, added full-package and standalone-module coverage gates, and retained the protected critical-module threshold. The final feature head passed Tests, HACS/Hassfest and release self-check before merge.
+- Removed confirmed dead constants, locals, imports and frontend catch bindings; retained required Home Assistant callback parameters that static analyzers incorrectly classify as unused.
+- Replaced account-specific camera/SKUD values in the current public test tree with synthetic fixtures and documented the standalone UCAMS API/privacy boundary in EN/RU references.
+- Extended the release self-check to enforce the standalone private-camera frontend cache-bust together with every other release-facing version.
+
 ## 0.31.0
 
 - Added a native Home Assistant doorbell EventEntity for confirmed Ufanet calls and an importable Companion notification blueprint with immediate text delivery, private `/api/image_proxy/` image replacement, stable per-intercom notification tags, configurable image wait/action timeout and privacy-safe call metadata.

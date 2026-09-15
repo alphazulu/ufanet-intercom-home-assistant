@@ -61,16 +61,16 @@ _LOGGER = logging.getLogger(__name__)
 _FRONTEND_DIR = Path(__file__).parent / "frontend"
 _ARCHIVE_CARD_PATH = _FRONTEND_DIR / "ufanet-archive-card.js"
 _ARCHIVE_CARD_URL = "/ufanet_intercom/ufanet-archive-card.js"
-_ARCHIVE_CARD_MODULE_URL = f"{_ARCHIVE_CARD_URL}?v=0.31.0"
+_ARCHIVE_CARD_MODULE_URL = f"{_ARCHIVE_CARD_URL}?v=0.32.0"
 _PHYSICAL_KEYS_CARD_PATH = _FRONTEND_DIR / "ufanet-physical-keys-card.js"
 _PHYSICAL_KEYS_CARD_URL = "/ufanet_intercom/ufanet-physical-keys-card.js"
-_PHYSICAL_KEYS_CARD_MODULE_URL = f"{_PHYSICAL_KEYS_CARD_URL}?v=0.31.0"
+_PHYSICAL_KEYS_CARD_MODULE_URL = f"{_PHYSICAL_KEYS_CARD_URL}?v=0.32.0"
 _KEY_HISTORY_CARD_PATH = _FRONTEND_DIR / "ufanet-key-history-card.js"
 _KEY_HISTORY_CARD_URL = "/ufanet_intercom/ufanet-key-history-card.js"
-_KEY_HISTORY_CARD_MODULE_URL = f"{_KEY_HISTORY_CARD_URL}?v=0.31.0"
+_KEY_HISTORY_CARD_MODULE_URL = f"{_KEY_HISTORY_CARD_URL}?v=0.32.0"
 _PRIVATE_CAMERA_CARD_PATH = _FRONTEND_DIR / "ufanet-private-camera-card.js"
 _PRIVATE_CAMERA_CARD_URL = "/ufanet_intercom/ufanet-private-camera-card.js"
-_PRIVATE_CAMERA_CARD_MODULE_URL = f"{_PRIVATE_CAMERA_CARD_URL}?v=0.31.0"
+_PRIVATE_CAMERA_CARD_MODULE_URL = f"{_PRIVATE_CAMERA_CARD_URL}?v=0.32.0"
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
