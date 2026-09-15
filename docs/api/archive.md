@@ -2,9 +2,9 @@
 
 [Русская версия](archive_RU.md)
 
-> The v0.31.0 release does not change the
-> archive API or its evidence status. This page was re-audited during the
-> documentation refresh; the existing Confirmed/Observed claims remain unchanged.
+> The v0.32.0 candidate does not change the archive media-server contract or its
+> evidence status. It reuses the same Confirmed ranges/HLS behavior for
+> standalone cameras through privacy-safe Home Assistant services.
 
 ## Recording ranges
 

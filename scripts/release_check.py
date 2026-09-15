@@ -80,6 +80,11 @@ def check_versions() -> None:
         init_text,
         "key-history-card cache-bust version",
     )
+    private_camera_cache_version = extract(
+        r'_PRIVATE_CAMERA_CARD_MODULE_URL\s*=.*?\?v=([0-9A-Za-z._-]+)',
+        init_text,
+        "private-camera-card cache-bust version",
+    )
     authorized_devices_cache_version = extract(
         r'_AUTHORIZED_DEVICES_CARD_MODULE_URL\s*=.*?\?v=([0-9A-Za-z._-]+)',
         authorized_devices_text,
@@ -96,6 +101,7 @@ def check_versions() -> None:
         "archive_cache": archive_cache_version,
         "physical_keys_cache": physical_keys_cache_version,
         "key_history_cache": key_history_cache_version,
+        "private_camera_cache": private_camera_cache_version,
         "authorized_devices_cache": authorized_devices_cache_version,
         "readme": readme_version,
         "readme_ru": readme_ru_version,

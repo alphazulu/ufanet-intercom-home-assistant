@@ -33,8 +33,8 @@
    - Confirmed capability/непустой inventory/history физических ключей, selected-key фильтрация истории и rename, плюс live-confirmed enrollment/real FCM completion.
 2. **Управляющий API UCAMS** — `https://cloud.ucams.ru`
    - обмен JWT Ufanet на bearer-токен UCAMS;
-   - получение метаданных камеры, live/archive токенов и медиасервера;
-   - объявление analytics capabilities камеры и подтверждённый read-only отчёт `motion_alarm`.
+   - получение метаданных, пагинированного inventory всех камер аккаунта, live/archive токенов и медиасервера;
+   - объявление analytics capabilities и подтверждённый read-only отчёт `motion_alarm` для домофонных и отдельных камер.
 3. **Медиасерверы UCAMS** — домены, которые возвращает UCAMS API
    - live HLS;
    - диапазоны и HLS видеоархива;
@@ -71,7 +71,7 @@ UCAMS bearer token
 - [Аналитические события камер UCAMS](analytics_RU.md)
 - [Видеоархив](archive_RU.md)
 - [Звонки и история](calls_RU.md)
-- [Физические ключи и журнал проходов](keys_RU.md) — Confirmed непустой inventory/history, приватный `external_id` selector истории и controlled rename; live-confirmed enrollment/real FCM completion остаётся release gate. Проверенные provider identifiers не выдаются за номер, нанесённый на физический ключ.
+- [Физические ключи и журнал проходов](keys_RU.md) — Confirmed непустой inventory/history, приватный `external_id` selector истории, controlled rename и live-confirmed enrollment/real FCM completion. Проверенные provider identifiers не выдаются за номер, нанесённый на физический ключ.
 - [FCM / push-уведомления](fcm_RU.md)
 - [Гостевой и совместный доступ](guests_RU.md)
 - [Наблюдаемые модели данных](models_RU.md)
@@ -84,7 +84,7 @@ UCAMS bearer token
 - [Примеры curl](examples/curl.md) — только read-only примеры, включая capability discovery аналитики и отчёт `motion_alarm`.
 - [Read-only пример на Python](examples/python.md) — цепочка авторизации/discovery/UCAMS и рекомендации по privacy-safe обработке аналитики.
 
-State-changing примеры (открытие двери, enrollment/rename/delete физического ключа, создание/отзыв гостевого доступа, завершение FCM-сессии) намеренно не помещаются в каталог copy/paste read-only примеров. Rename физического ключа live-подтверждён для проверенного success path; enrollment/real `reason=key_add` и delete остаются неподтверждёнными или вне scope согласно подробной странице ключей.
+State-changing примеры (открытие двери, enrollment/rename/delete физического ключа, создание/отзыв гостевого доступа, завершение FCM-сессии) намеренно не помещаются в каталог copy/paste read-only примеров. Rename и enrollment/real `reason=key_add` физического ключа live-подтверждены для проверенных success paths; delete остаётся неподтверждённым и вне scope согласно подробной странице ключей.
 
 ## Как добавлять новые результаты тестов
 

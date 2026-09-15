@@ -2,9 +2,9 @@
 
 [English version](archive.md)
 
-> Релиз v0.31.0 не меняет API
-> видеоархива или его evidence status. Этот раздел повторно проверен при
-> обновлении документации; существующие Confirmed/Observed claims сохраняются.
+> Кандидат v0.32.0 не меняет контракт медиасервера архива или его evidence
+> status. Те же Confirmed ranges/HLS используются для отдельных камер через
+> privacy-safe сервисы Home Assistant.
 
 ## Диапазоны доступной записи
 

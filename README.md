@@ -26,9 +26,11 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 - Options Flow and privacy-conscious Home Assistant diagnostics.
 - Unified Lovelace card: `custom:ufanet-intercom-card`.
 
-## Current release: v0.31.0
+## Current release and v0.32.0 candidate
 
 Version **v0.31.0** was published on 2026-09-09 after the release candidate was merged and the final release state passed Tests, HACS/Hassfest and the repository release self-check. The `v0.31.0` tag points to that published `main` state.
+
+The current release-preparation branch is the **v0.32.0 candidate** containing the live-validated standalone UCAMS camera work merged through PR #17. The synchronized candidate version is not a tag or published release; publication still requires exact-head CI and separate explicit approval.
 
 Live-confirmed release evidence includes:
 
@@ -88,10 +90,10 @@ promoted to Confirmed from decompiled-client evidence or green CI alone.
 
 ## Lovelace card
 
-Add the main resource as a JavaScript module. For v0.31.0 the matching cache-bust URL is:
+Add the main resource as a JavaScript module. For the v0.32.0 candidate the matching cache-bust URL is:
 
 ```text
-/ufanet_intercom/ufanet-archive-card.js?v=0.31.0
+/ufanet_intercom/ufanet-archive-card.js?v=0.32.0
 ```
 
 The `?v=` value must match the installed integration/card version.
@@ -115,13 +117,13 @@ The card contains six tabs:
 
 The KEYS tab and the authorized-device behavior are provided by packaged frontend extensions. The integration registers/loads them automatically and the extensions wait for `custom:ufanet-intercom-card`, so no separate manual Resource entries are required. The existing main card resource remains configured as before.
 
-### Standalone UCAMS cameras (draft PR #17)
+### Standalone UCAMS cameras (v0.32.0 candidate)
 
 When the account exposes UCAMS cameras that are not attached to an intercom, the integration creates separate Home Assistant devices for them. The same `custom:ufanet-intercom-card` configuration can point to a standalone live-camera entity. The card then keeps only the **LIVE** and **ARCHIVE** surfaces and removes door, call, guest, authorized-device, physical-key and intercom-diagnostics controls.
 
 The standalone-camera path includes live HLS, JPEG snapshots, archive position/navigation, motion events and timeline markers, and manual MP4 export/library management. Home Assistant sees only a stable opaque camera reference; provider camera numbers, media tokens, server domains and raw analytics rows remain internal.
 
-The current draft branch was live-validated on 2026-09-15: discovery without duplicating the intercom camera, live video, snapshots, archive seeking and controls, motion handling/timeline, MP4 export/library operations, Lovelace refreshes and persistence after a full Home Assistant restart all completed without reported issues. This evidence applies to the tested account and is not part of the published v0.31.0 release yet.
+The PR #17 implementation was live-validated on 2026-09-15: discovery without duplicating the intercom camera, live video, snapshots, archive seeking and controls, motion handling/timeline, MP4 export/library operations, Lovelace refreshes and persistence after a full Home Assistant restart all completed without reported issues. This evidence applies to the tested account and is planned for v0.32.0; it is not part of the published v0.31.0 release.
 
 ## Options
 
