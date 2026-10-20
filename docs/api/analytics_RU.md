@@ -6,7 +6,7 @@
 официальном Android-клиенте, подтверждённые live-части этого контракта и
 privacy-safe production-поведение, реализованное в Ufanet Intercom v0.28.0.
 
-> Кандидат v0.32.0 сохраняет контракт `motion_alarm` и его evidence status, но
+> Релиз v0.32.0 сохраняет контракт `motion_alarm` и его evidence status, но
 > расширяет ту же privacy-minimized production model на отдельные камеры с
 > изолированным cursor storage.
 

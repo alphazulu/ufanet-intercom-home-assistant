@@ -26,7 +26,7 @@ CI enforces both a protected critical-module coverage threshold and an audit of 
 
 ## Validation-only development / release preparation
 
-The published baseline is v0.31.0. The current v0.32.0 candidate contains the standalone UCAMS camera work merged through PR #17 and live-validated on 2026-09-15. Release-facing versions may be synchronized only on an explicitly approved release-preparation branch.
+The published baseline is v0.32.0. The current v0.32.1 hotfix candidate addresses HACS review findings for non-blocking time-zone loading and administrator-only guest/shared-access services. Release-facing versions may be synchronized only on an explicitly approved release-preparation branch.
 
 Documentation preparation and a green candidate PR are not publication authorization. Before every release, inspect **Tests**, both coverage gates, the standalone-module coverage floor, **HACS and Hassfest validation**, and **Release self-check** on the exact candidate SHA. Merge, tag and GitHub Release remain separately approved actions.
 

@@ -226,7 +226,7 @@ get_last_call_preview_url:
 
 get_guest_access:
   name: Get guest access
-  description: Return active temporary guest links and users with shared access for the selected intercom.
+  description: Administrator only. Return active temporary guest links and users with shared access for the selected intercom.
   fields:
     device_id:
       name: Intercom
@@ -238,7 +238,7 @@ get_guest_access:
 
 create_guest_invite:
   name: Create guest invite
-  description: Create an invitation URL that another Ufanet user can accept to obtain access to this intercom.
+  description: Administrator only. Create an invitation URL that another Ufanet user can accept to obtain access to this intercom.
   fields:
     device_id:
       name: Intercom
@@ -250,7 +250,7 @@ create_guest_invite:
 
 forget_guest_invite:
   name: Forget generated guest invite
-  description: Remove one locally stored generated invitation from Home Assistant. This does not revoke the invitation on the Ufanet server.
+  description: Administrator only. Remove one locally stored generated invitation from Home Assistant. This does not revoke the invitation on the Ufanet server.
   fields:
     device_id:
       name: Intercom
@@ -268,7 +268,7 @@ forget_guest_invite:
 
 revoke_shared_access:
   name: Revoke shared access
-  description: Revoke one accepted guest/shared access grant after verifying that the access ID belongs to the selected Ufanet intercom.
+  description: Administrator only. Revoke one accepted guest/shared access grant after verifying that the access ID belongs to the selected Ufanet intercom.
   fields:
     device_id:
       name: Intercom
@@ -288,7 +288,7 @@ revoke_shared_access:
 
 create_temporary_guest_link:
   name: Create temporary guest link
-  description: Create a temporary web key for opening the selected Ufanet intercom. Duration is sent to Ufanet in minutes.
+  description: Administrator only. Create a temporary web key for opening the selected Ufanet intercom. Duration is sent to Ufanet in minutes.
   fields:
     device_id:
       name: Intercom
@@ -309,7 +309,7 @@ create_temporary_guest_link:
 
 revoke_temporary_guest_link:
   name: Revoke temporary guest link
-  description: Revoke one active temporary Ufanet web key after verifying that its token belongs to the selected intercom.
+  description: Administrator only. Revoke one active temporary Ufanet web key after verifying that its token belongs to the selected intercom.
   fields:
     device_id:
       name: Intercom

@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timezone, tzinfo
 from typing import Any
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import voluptuous as vol
 
@@ -14,8 +13,6 @@ from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, Supp
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
-from homeassistant.util import dt as dt_util
-
 from .analytics import (
     async_get_motion_capabilities,
     async_get_motion_timeline_events,
@@ -43,6 +40,7 @@ from .private_runtime import UfanetPrivateCameraRuntime
 from .services import (
     _archive_days,
     _async_archive_export_location,
+    _async_resolve_time_zone,
     _camera_export_prefix,
     _cleanup_export_files_sync,
     _delete_export_file_sync,
@@ -156,9 +154,10 @@ def _private_ranges_response(
     target_ref: str,
     camera: dict[str, Any],
     ranges: list[dict[str, int]],
+    timezone_name: str,
+    zone: tzinfo,
 ) -> dict[str, Any]:
     """Build the normal archive timeline shape without provider camera identifiers."""
-    timezone_name = str(camera.get("timezone") or "UTC")
     tariff = camera.get("tariff") if isinstance(camera.get("tariff"), dict) else {}
     formatted: list[dict[str, Any]] = []
     normalized: list[tuple[int, int]] = []
@@ -172,13 +171,13 @@ def _private_ranges_response(
                 "duration": duration,
                 "start_utc": datetime.fromtimestamp(start, tz=timezone.utc).isoformat(),
                 "end_utc": datetime.fromtimestamp(end, tz=timezone.utc).isoformat(),
-                "start_camera": _local_iso(start, timezone_name),
-                "end_camera": _local_iso(end, timezone_name),
+                "start_camera": _local_iso(start, zone),
+                "end_camera": _local_iso(end, zone),
             }
         )
         normalized.append((start, end))
 
-    days = _archive_days(normalized, timezone_name)
+    days = _archive_days(normalized, zone)
     earliest = min((start for start, _end in normalized), default=None)
     latest = max((end for _start, end in normalized), default=None)
     return {
@@ -191,10 +190,10 @@ def _private_ranges_response(
         "earliest": earliest,
         "latest": latest,
         "earliest_camera": (
-            _local_iso(earliest, timezone_name) if earliest is not None else None
+            _local_iso(earliest, zone) if earliest is not None else None
         ),
         "latest_camera": (
-            _local_iso(latest, timezone_name) if latest is not None else None
+            _local_iso(latest, zone) if latest is not None else None
         ),
         "first_date": days[0]["date"] if days else None,
         "last_date": days[-1]["date"] if days else None,
@@ -257,11 +256,16 @@ def async_setup_private_camera_services(hass: HomeAssistant) -> None:
             ranges = await api.async_get_archive_ranges(camera_number)
         except UfanetApiError:
             raise HomeAssistantError("Unable to load standalone Ufanet archive ranges") from None
+        timezone_name, zone = await _async_resolve_time_zone(
+            str(camera.get("timezone") or "UTC")
+        )
         return _private_ranges_response(
             call.data[ATTR_DEVICE_ID],
             target_ref,
             camera,
             ranges,
+            timezone_name,
+            zone,
         )
 
     async def async_get_url(call: ServiceCall) -> ServiceResponse:
@@ -276,14 +280,12 @@ def async_setup_private_camera_services(hass: HomeAssistant) -> None:
         duration = int(call.data["duration"])
         try:
             camera = await api.async_get_camera(camera_number)
-            timezone_name = str(camera.get("timezone") or hass.config.time_zone or "UTC")
+            timezone_name, local_zone = await _async_resolve_time_zone(
+                str(camera.get("timezone") or hass.config.time_zone or "UTC")
+            )
             start: datetime = call.data["start"]
             if start.tzinfo is None:
-                try:
-                    start_zone = ZoneInfo(timezone_name)
-                except ZoneInfoNotFoundError:
-                    start_zone = dt_util.get_default_time_zone()
-                start = start.replace(tzinfo=start_zone)
+                start = start.replace(tzinfo=local_zone)
             archive = await api.async_get_archive_url(
                 camera_number,
                 int(start.timestamp()),
@@ -303,7 +305,7 @@ def async_setup_private_camera_services(hass: HomeAssistant) -> None:
                 archive["start"],
                 tz=timezone.utc,
             ).isoformat(),
-            "start_camera": _local_iso(archive["start"], timezone_name),
+            "start_camera": _local_iso(archive["start"], local_zone),
             "duration": archive["duration"],
             "requested_duration": archive["requested_duration"],
             "range_from": archive["range_from"],
@@ -345,17 +347,14 @@ def async_setup_private_camera_services(hass: HomeAssistant) -> None:
             raise HomeAssistantError("Unable to load standalone motion capabilities") from None
 
         controller = manager.archive_controllers.get(target_ref)
-        timezone_name = str(
-            getattr(controller, "timezone_name", None)
-            or camera_item.get("timezone")
-            or hass.config.time_zone
-            or "UTC"
+        timezone_name, zone = await _async_resolve_time_zone(
+            str(
+                getattr(controller, "timezone_name", None)
+                or camera_item.get("timezone")
+                or hass.config.time_zone
+                or "UTC"
+            )
         )
-        try:
-            zone = ZoneInfo(timezone_name)
-        except ZoneInfoNotFoundError:
-            zone = dt_util.get_default_time_zone()
-            timezone_name = str(getattr(zone, "key", None) or "UTC")
 
         base_response: dict[str, Any] = {
             "device_id": call.data[ATTR_DEVICE_ID],
@@ -445,14 +444,12 @@ def async_setup_private_camera_services(hass: HomeAssistant) -> None:
 
         try:
             camera = await api.async_get_camera(camera_number)
-            timezone_name = str(camera.get("timezone") or hass.config.time_zone or "UTC")
+            timezone_name, local_zone = await _async_resolve_time_zone(
+                str(camera.get("timezone") or hass.config.time_zone or "UTC")
+            )
             start: datetime = call.data["start"]
             if start.tzinfo is None:
-                try:
-                    start_zone = ZoneInfo(timezone_name)
-                except ZoneInfoNotFoundError:
-                    start_zone = dt_util.get_default_time_zone()
-                start = start.replace(tzinfo=start_zone)
+                start = start.replace(tzinfo=local_zone)
             archive = await api.async_get_archive_url(
                 camera_number,
                 int(start.timestamp()),
@@ -464,10 +461,6 @@ def async_setup_private_camera_services(hass: HomeAssistant) -> None:
             raise HomeAssistantError("Unable to prepare standalone Ufanet archive export") from None
 
         media_key, export_dir = await _async_archive_export_location(hass)
-        try:
-            local_zone = ZoneInfo(timezone_name)
-        except ZoneInfoNotFoundError:
-            local_zone = dt_util.get_default_time_zone()
         local_start = datetime.fromtimestamp(
             int(archive["start"]),
             tz=timezone.utc,
@@ -564,7 +557,7 @@ def async_setup_private_camera_services(hass: HomeAssistant) -> None:
             "timezone": timezone_name,
             "start": start.isoformat(),
             "start_utc": datetime.fromtimestamp(archive["start"], tz=timezone.utc).isoformat(),
-            "start_camera": _local_iso(archive["start"], timezone_name),
+            "start_camera": _local_iso(archive["start"], local_zone),
             "duration": archive["duration"],
             "requested_duration": archive["requested_duration"],
             "range_from": archive["range_from"],

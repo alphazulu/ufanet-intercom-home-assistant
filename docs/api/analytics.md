@@ -6,7 +6,7 @@ This page records the read-only UCAMS camera-analytics contract observed in the
 official Android client, the parts verified against the live UCAMS service, and
 the privacy-safe production behavior implemented by Ufanet Intercom v0.28.0.
 
-> The v0.32.0 candidate keeps the `motion_alarm` contract and evidence status,
+> The v0.32.0 release keeps the `motion_alarm` contract and evidence status,
 > while extending the same privacy-minimized production model to standalone
 > cameras with isolated cursor storage.
 

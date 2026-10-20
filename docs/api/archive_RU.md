@@ -2,7 +2,7 @@
 
 [English version](archive.md)
 
-> Кандидат v0.32.0 не меняет контракт медиасервера архива или его evidence
+> Релиз v0.32.0 не меняет контракт медиасервера архива или его evidence
 > status. Те же Confirmed ranges/HLS используются для отдельных камер через
 > privacy-safe сервисы Home Assistant.
 

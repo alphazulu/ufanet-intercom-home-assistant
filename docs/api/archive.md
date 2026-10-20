@@ -2,7 +2,7 @@
 
 [Русская версия](archive_RU.md)
 
-> The v0.32.0 candidate does not change the archive media-server contract or its
+> The v0.32.0 release does not change the archive media-server contract or its
 > evidence status. It reuses the same Confirmed ranges/HLS behavior for
 > standalone cameras through privacy-safe Home Assistant services.
 

@@ -4,9 +4,14 @@
 
 Ufanet exposes two distinct access-sharing flows observed by this project: accepted/shared users and temporary guest links.
 
-> The v0.31.0 release does not change the
-> guest/shared-access contracts or their evidence status. This page was re-audited
-> during the documentation refresh and has no functional changes.
+> **Home Assistant security boundary:** all integration services that list,
+> create, forget or revoke guest/shared access require a Home Assistant
+> administrator. Guest URLs and tokens are bearer-style credentials and are
+> never available to ordinary Home Assistant users through these services.
+
+> The v0.32.1 candidate does not change the provider contracts or their evidence
+> status. It hardens the Home Assistant boundary by making every public
+> guest/shared-access service administrator-only.
 
 ## List temporary guest links
 
@@ -126,4 +131,4 @@ Content-Type: application/json
 
 ## Security model
 
-Guest and share tokens are bearer-style capabilities: possession can be enough to exercise the granted access. Treat them with the same care as temporary credentials.
+Guest and share tokens are bearer-style capabilities: possession can be enough to exercise the granted access. Treat them with the same care as temporary credentials. The administrator check is enforced by the backend and does not rely on the Lovelace card.

@@ -19,18 +19,18 @@ Custom Home Assistant integration for Ufanet / «Умный дом» intercoms u
 - Read-only UCAMS `motion_alarm` analytics with a **Motion detected** event entity, `ufanet_intercom_motion` event, visual device trigger and archive timeline markers.
 - Selectable call updates: polling by default or experimental low-latency FCM with safety polling.
 - Privacy-safe authorized-device management with canonical `logout_device` revocation, Home Assistant ownership protection, and a separate advanced FCM cleanup surface using opaque refs rather than raw provider IDs/tokens.
-- Temporary guest keys and accepted shared-access management.
+- Administrator-only temporary guest keys and accepted shared-access management.
 - Manual archive export to MP4 using `ffmpeg -c copy` into Home Assistant Media.
 - Persistent export media library with per-camera retention and size cleanup.
 - Optional automatic MP4 saving around new intercom calls.
 - Options Flow and privacy-conscious Home Assistant diagnostics.
 - Unified Lovelace card: `custom:ufanet-intercom-card`.
 
-## Current release and v0.32.0 candidate
+## Current release and v0.32.1 hotfix candidate
 
-Version **v0.31.0** was published on 2026-09-09 after the release candidate was merged and the final release state passed Tests, HACS/Hassfest and the repository release self-check. The `v0.31.0` tag points to that published `main` state.
+Version **v0.32.0** was published on 2026-09-15 after the standalone-camera release candidate was merged and the final release state passed Tests, HACS/Hassfest and the repository release self-check. The `v0.32.0` tag points to that published `main` state.
 
-The current release-preparation branch is the **v0.32.0 candidate** containing the live-validated standalone UCAMS camera work merged through PR #17. The synchronized candidate version is not a tag or published release; publication still requires exact-head CI and separate explicit approval.
+The current release-preparation branch is the **v0.32.1 hotfix candidate**. It addresses HACS review findings by resolving provider time zones through Home Assistant's asynchronous loader before archive/call/motion processing and requiring a Home Assistant administrator for every guest/shared-access response service. The synchronized candidate version is not a tag or published release; publication still requires exact-head CI, merge and separate explicit approval.
 
 Live-confirmed release evidence includes:
 
@@ -44,7 +44,7 @@ Live-confirmed release evidence includes:
 - a separate no-key 60-second timeout in which no additional `reason=key_add` completion push was observed;
 - repeated Lovelace reload/switch tests without reproducing the former **Configuration error**.
 
-There are no remaining hard functional blockers under the published 0.31.0 scope. iOS actionable-notification delivery is not live-tested and is not claimed as Confirmed; physical-key deletion is deliberately unimplemented/out of scope; provider-specific enrollment failure payloads that were not observed are not inferred. Sanitized enrollment evidence is in `docs/api/key_enrollment_live_2026-09-09.md`; the former pre-release audit is retained as a historical snapshot in `docs/releases/0.31.0-pre-release-audit.md`.
+There are no remaining hard functional blockers under the published 0.32.0 scope. iOS actionable-notification delivery is not live-tested and is not claimed as Confirmed; physical-key deletion is deliberately unimplemented/out of scope; provider-specific enrollment failure payloads that were not observed are not inferred. Sanitized enrollment evidence is in `docs/api/key_enrollment_live_2026-09-09.md`; former pre-release audits are retained as historical snapshots in `docs/releases/`.
 
 ## Unofficial API documentation
 
@@ -90,10 +90,10 @@ promoted to Confirmed from decompiled-client evidence or green CI alone.
 
 ## Lovelace card
 
-Add the main resource as a JavaScript module. For the v0.32.0 candidate the matching cache-bust URL is:
+Add the main resource as a JavaScript module. For the v0.32.1 hotfix candidate the matching cache-bust URL is:
 
 ```text
-/ufanet_intercom/ufanet-archive-card.js?v=0.32.0
+/ufanet_intercom/ufanet-archive-card.js?v=0.32.1
 ```
 
 The `?v=` value must match the installed integration/card version.
@@ -117,13 +117,13 @@ The card contains six tabs:
 
 The KEYS tab and the authorized-device behavior are provided by packaged frontend extensions. The integration registers/loads them automatically and the extensions wait for `custom:ufanet-intercom-card`, so no separate manual Resource entries are required. The existing main card resource remains configured as before.
 
-### Standalone UCAMS cameras (v0.32.0 candidate)
+### Standalone UCAMS cameras (since v0.32.0)
 
 When the account exposes UCAMS cameras that are not attached to an intercom, the integration creates separate Home Assistant devices for them. The same `custom:ufanet-intercom-card` configuration can point to a standalone live-camera entity. The card then keeps only the **LIVE** and **ARCHIVE** surfaces and removes door, call, guest, authorized-device, physical-key and intercom-diagnostics controls.
 
 The standalone-camera path includes live HLS, JPEG snapshots, archive position/navigation, motion events and timeline markers, and manual MP4 export/library management. Home Assistant sees only a stable opaque camera reference; provider camera numbers, media tokens, server domains and raw analytics rows remain internal.
 
-The PR #17 implementation was live-validated on 2026-09-15: discovery without duplicating the intercom camera, live video, snapshots, archive seeking and controls, motion handling/timeline, MP4 export/library operations, Lovelace refreshes and persistence after a full Home Assistant restart all completed without reported issues. This evidence applies to the tested account and is planned for v0.32.0; it is not part of the published v0.31.0 release.
+The PR #17 implementation was live-validated on 2026-09-15: discovery without duplicating the intercom camera, live video, snapshots, archive seeking and controls, motion handling/timeline, MP4 export/library operations, Lovelace refreshes and persistence after a full Home Assistant restart all completed without reported issues. This evidence applies to the tested account and shipped in v0.32.0.
 
 ## Options
 

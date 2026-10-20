@@ -48,17 +48,17 @@ For state-changing features, distinguish three separate checks:
 
 Do not treat (1) or (2) alone as proof of (3). When the integration has a post-write read-back verification path, successful read-back is part of the release evidence rather than an optional diagnostic.
 
-## Published 0.31.0 baseline
+## Published 0.32.0 baseline
 
-Version **v0.31.0** was published on 2026-09-09 after the release candidate passed the required live-validation gates, privacy/documentation review and exact-head CI. The published scope includes actionable Android call notifications, authorized-device/advanced-FCM management, physical-key inventory/history/rename, and live-confirmed physical-key enrollment with real `reason=key_add` completion.
+Version **v0.32.0** was published on 2026-09-15 after the release candidate passed the required live-validation gates, privacy/documentation review and exact-head CI. In addition to the v0.31.0 scope, it includes account-wide standalone UCAMS camera discovery, privacy-safe devices, live/snapshot entities, archive controls and services, motion events/timeline markers, MP4 export/library management and capability-driven Lovelace UI.
 
-The release retained the documented boundaries: iOS actionable notification delivery is not claimed as live-confirmed; physical-key deletion is outside the 0.31.0 scope; unobserved provider-specific enrollment failure payloads are not inferred. Existing release tags remain immutable.
+The release retained the documented boundaries: iOS actionable notification delivery is not claimed as live-confirmed; physical-key deletion is outside the published scope; unobserved provider-specific enrollment failure payloads are not inferred. Existing release tags remain immutable.
 
 This baseline is historical context only. Future releases must repeat the same evidence, version-synchronization and explicit-approval process for their own target version and exact release SHA.
 
-## v0.32.0 release candidate
+## v0.32.1 hotfix candidate
 
-The current candidate packages the standalone UCAMS camera work merged through PR #17: account-wide discovery, privacy-safe devices, live/snapshot entities, archive controls and services, motion events/timeline markers, MP4 export/library management and capability-driven Lovelace UI. The complete path, including a full Home Assistant restart, was live-validated on 2026-09-15 without reported issues.
+The current candidate addresses HACS review findings without changing the provider API contract: time zones are loaded asynchronously through Home Assistant before archive/call/motion conversion, and all guest/shared-access services are administrator-only. The backend permission test covers reading, creating, forgetting and revoking access credentials.
 
 Release preparation does not authorize tagging or publication. Tests, both coverage gates, the standalone-module coverage floor, HACS/Hassfest and the release self-check must succeed on the exact candidate SHA before separate publication approval.
 
@@ -77,7 +77,7 @@ The Android-observed delete-key endpoint remains outside release scope unless it
 
 ## Release
 
-For every release, use a SemVer tag matching `manifest.json` (for example `v0.31.1` for a future patch release) and publish a GitHub Release rather than only creating a tag. The current published baseline is **v0.31.0**. An Unreleased planning heading or draft release notes are not authorization to publish.
+For every release, use a SemVer tag matching `manifest.json` and publish a GitHub Release rather than only creating a tag. The current published baseline is **v0.32.0**. An Unreleased planning heading or draft release notes are not authorization to publish.
 
 Before tagging, verify that:
 
