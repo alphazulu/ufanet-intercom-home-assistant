@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.32.1
+
+- Replaced direct `zoneinfo.ZoneInfo` construction in asynchronous archive, call-history and motion service handlers with Home Assistant's non-blocking `dt_util.async_get_time_zone` loader. Resolved `tzinfo` objects are passed into synchronous response-formatting helpers, keeping time-zone database I/O off the event loop.
+- Restricted the complete guest/shared-access service surface to Home Assistant administrators. Listing guest access, creating or revoking temporary links, creating or forgetting invitations, and revoking accepted shared access now use Home Assistant's admin-service wrapper.
+- Added regression tests for asynchronous time-zone loading across archive ranges, playback URLs and call timelines, invalid-zone fallback, and non-admin rejection across all six guest/shared-access services. The complete suite now contains 453 tests.
+
 ## 0.32.0
 
 - Added paginated account-wide UCAMS camera discovery through the official application's `POST /api/v0/cameras/my/` contract, with page-loop protection, deduplication and dynamic exclusion of cameras currently attached to an intercom.

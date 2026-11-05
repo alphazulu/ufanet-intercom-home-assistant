@@ -19,6 +19,9 @@ from custom_components.ufanet_intercom.const import (
     CONF_EXPORT_AUTO_CLEANUP,
     DOMAIN,
     SERVICE_GET_ARCHIVE_DOWNLOAD_URL,
+    SERVICE_GET_ARCHIVE_RANGES,
+    SERVICE_GET_ARCHIVE_URL,
+    SERVICE_GET_CALL_EVENTS,
     SERVICE_GET_LAST_CALL_PREVIEW_URL,
     SERVICE_GET_RUNTIME_STATUS,
 )
@@ -65,6 +68,114 @@ def _install_runtime(hass, tmp_path: Path):
     }
     async_setup_services(hass, MagicMock())
     return device, api
+
+
+@pytest.mark.asyncio
+async def test_archive_ranges_resolve_time_zone_asynchronously(
+    hass,
+    tmp_path: Path,
+) -> None:
+    device, api = _install_runtime(hass, tmp_path)
+    api.async_get_camera = AsyncMock(
+        return_value={
+            "timezone": "UTC",
+            "tariff": {"name": "Archive", "dvr_hours": 120},
+        }
+    )
+    api.async_get_archive_ranges = AsyncMock(
+        return_value=[{"from": 1_777_000_000, "duration": 60}]
+    )
+    loader = AsyncMock(return_value=timezone.utc)
+
+    with patch(
+        "custom_components.ufanet_intercom.services.dt_util.async_get_time_zone",
+        loader,
+    ):
+        response = await hass.services.async_call(
+            DOMAIN,
+            SERVICE_GET_ARCHIVE_RANGES,
+            {"device_id": device.id},
+            blocking=True,
+            return_response=True,
+        )
+
+    loader.assert_awaited_once_with("UTC")
+    api.async_get_archive_ranges.assert_awaited_once_with("CAM/1")
+    assert response["timezone"] == "UTC"
+    assert response["count"] == 1
+    assert response["archive_name"] == "Archive"
+
+
+@pytest.mark.asyncio
+async def test_archive_url_resolves_naive_start_with_async_time_zone(
+    hass,
+    tmp_path: Path,
+) -> None:
+    device, api = _install_runtime(hass, tmp_path)
+    start = datetime(2026, 4, 5, 6, 7, 8)
+    start_timestamp = int(start.replace(tzinfo=timezone.utc).timestamp())
+    api.async_get_archive_url = AsyncMock(
+        return_value={
+            "url": "https://media.invalid/archive.m3u8?token=hidden",
+            "start": start_timestamp,
+            "duration": 60,
+            "requested_duration": 60,
+            "range_from": start_timestamp - 60,
+            "range_duration": 180,
+            "vendor": "UMS",
+            "token_expires_at": None,
+        }
+    )
+    loader = AsyncMock(return_value=timezone.utc)
+
+    with patch(
+        "custom_components.ufanet_intercom.services.dt_util.async_get_time_zone",
+        loader,
+    ):
+        response = await hass.services.async_call(
+            DOMAIN,
+            SERVICE_GET_ARCHIVE_URL,
+            {"device_id": device.id, "start": start, "duration": 60},
+            blocking=True,
+            return_response=True,
+        )
+
+    loader.assert_awaited_once_with("UTC")
+    api.async_get_archive_url.assert_awaited_once_with(
+        "CAM/1",
+        start_timestamp,
+        60,
+    )
+    assert response["start"] == "2026-04-05T06:07:08+00:00"
+    assert response["start_camera"] == "2026-04-05T06:07:08+00:00"
+
+
+@pytest.mark.asyncio
+async def test_call_events_resolve_time_zone_asynchronously(
+    hass,
+    tmp_path: Path,
+) -> None:
+    device, api = _install_runtime(hass, tmp_path)
+    api.async_get_call_history = AsyncMock(return_value=[])
+    loader = AsyncMock(return_value=timezone.utc)
+
+    with patch(
+        "custom_components.ufanet_intercom.services.dt_util.async_get_time_zone",
+        loader,
+    ):
+        response = await hass.services.async_call(
+            DOMAIN,
+            SERVICE_GET_CALL_EVENTS,
+            {"device_id": device.id, "date": "2026-04-05"},
+            blocking=True,
+            return_response=True,
+        )
+
+    loader.assert_awaited_once_with("UTC")
+    api.async_get_call_history.assert_awaited_once_with(page=1, page_size=25)
+    assert response["timezone"] == "UTC"
+    assert response["date"] == "2026-04-05"
+    assert response["events"] == []
 
 
 @pytest.mark.asyncio

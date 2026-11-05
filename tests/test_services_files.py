@@ -6,13 +6,15 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.exceptions import ServiceValidationError
+from homeassistant.util import dt as dt_util
 
 from custom_components.ufanet_intercom.services import (
     _archive_days,
+    _async_resolve_time_zone,
     _archive_export_location,
     _call_event_datetime,
     _camera_export_prefix,
@@ -272,7 +274,7 @@ def test_archive_days_merges_small_jitter_and_splits_midnight() -> None:
         (start + 12, start + 20),
     ]
 
-    days = _archive_days(ranges, "UTC")
+    days = _archive_days(ranges, timezone.utc)
 
     assert len(days) == 2
     assert days[0]["date"] == "2026-08-27"
@@ -281,3 +283,38 @@ def test_archive_days_merges_small_jitter_and_splits_midnight() -> None:
     assert days[1]["total_duration"] == 8
     assert _seconds_hms(86400) == "24:00:00"
     assert _seconds_hms(3661) == "01:01:01"
+
+
+@pytest.mark.asyncio
+async def test_time_zone_resolution_uses_home_assistant_async_loader(
+    monkeypatch,
+) -> None:
+    loader = AsyncMock(return_value=timezone.utc)
+    monkeypatch.setattr(
+        "custom_components.ufanet_intercom.services.dt_util.async_get_time_zone",
+        loader,
+    )
+
+    timezone_name, zone = await _async_resolve_time_zone("UTC")
+
+    loader.assert_awaited_once_with("UTC")
+    assert timezone_name == "UTC"
+    assert zone is timezone.utc
+
+
+@pytest.mark.asyncio
+async def test_time_zone_resolution_falls_back_to_home_assistant_default(
+    monkeypatch,
+) -> None:
+    loader = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        "custom_components.ufanet_intercom.services.dt_util.async_get_time_zone",
+        loader,
+    )
+    expected_zone = dt_util.get_default_time_zone()
+
+    timezone_name, zone = await _async_resolve_time_zone("Invalid/Zone")
+
+    loader.assert_awaited_once_with("Invalid/Zone")
+    assert timezone_name == str(getattr(expected_zone, "key", None) or "UTC")
+    assert zone is expected_zone

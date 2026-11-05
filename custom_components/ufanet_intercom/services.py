@@ -6,11 +6,10 @@ import asyncio
 import hashlib
 import re
 import time as time_module
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone, tzinfo
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import voluptuous as vol
 
@@ -19,6 +18,7 @@ from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, Supp
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.util import dt as dt_util
 
 from .analytics import (
@@ -248,6 +248,16 @@ REVOKE_TEMPORARY_GUEST_LINK_SCHEMA = vol.Schema(
         vol.Required("token"): cv.string,
     }
 )
+
+
+async def _async_resolve_time_zone(timezone_name: str) -> tuple[str, tzinfo]:
+    """Resolve a provider time zone without blocking the event loop."""
+    zone = await dt_util.async_get_time_zone(timezone_name)
+    if zone is not None:
+        return timezone_name, zone
+
+    zone = dt_util.get_default_time_zone()
+    return str(getattr(zone, "key", None) or "UTC"), zone
 
 
 def async_setup_services(
@@ -657,7 +667,17 @@ def async_setup_services(
         except UfanetApiError as err:
             raise HomeAssistantError(str(err)) from err
 
-        return _ranges_response(call.data[ATTR_DEVICE_ID], skud, camera, ranges)
+        timezone_name, zone = await _async_resolve_time_zone(
+            str(camera.get("timezone") or "UTC")
+        )
+        return _ranges_response(
+            call.data[ATTR_DEVICE_ID],
+            skud,
+            camera,
+            ranges,
+            timezone_name,
+            zone,
+        )
 
     async def async_get_call_events(call: ServiceCall) -> ServiceResponse:
         """Return call events for one intercom and one camera-local calendar day."""
@@ -667,11 +687,9 @@ def async_setup_services(
 
         try:
             camera = await api.async_get_camera(camera_number)
-            timezone_name = str(camera.get("timezone") or hass.config.time_zone or "UTC")
-            try:
-                zone = ZoneInfo(timezone_name)
-            except ZoneInfoNotFoundError:
-                zone = dt_util.get_default_time_zone()
+            timezone_name, zone = await _async_resolve_time_zone(
+                str(camera.get("timezone") or hass.config.time_zone or "UTC")
+            )
 
             day_start = datetime.combine(requested_date, time.min, tzinfo=zone)
             day_start_utc = day_start.astimezone(timezone.utc)
@@ -783,16 +801,13 @@ def async_setup_services(
 
         controllers = runtime.get("archive_controllers") or {}
         controller = controllers.get(skud_id)
-        timezone_name = str(
-            getattr(controller, "timezone_name", None)
-            or hass.config.time_zone
-            or "UTC"
+        timezone_name, zone = await _async_resolve_time_zone(
+            str(
+                getattr(controller, "timezone_name", None)
+                or hass.config.time_zone
+                or "UTC"
+            )
         )
-        try:
-            zone = ZoneInfo(timezone_name)
-        except ZoneInfoNotFoundError:
-            zone = dt_util.get_default_time_zone()
-            timezone_name = str(getattr(zone, "key", None) or "UTC")
 
         base_response: dict[str, Any] = {
             "device_id": call.data[ATTR_DEVICE_ID],
@@ -1233,14 +1248,12 @@ def async_setup_services(
 
         try:
             camera = await api.async_get_camera(camera_number)
-            timezone_name = str(camera.get("timezone") or hass.config.time_zone)
+            timezone_name, local_zone = await _async_resolve_time_zone(
+                str(camera.get("timezone") or hass.config.time_zone or "UTC")
+            )
             start: datetime = call.data["start"]
             if start.tzinfo is None:
-                try:
-                    start_zone = ZoneInfo(timezone_name)
-                except ZoneInfoNotFoundError:
-                    start_zone = dt_util.get_default_time_zone()
-                start = start.replace(tzinfo=start_zone)
+                start = start.replace(tzinfo=local_zone)
 
             start_ts = int(start.timestamp())
             archive = await api.async_get_archive_url(
@@ -1254,11 +1267,6 @@ def async_setup_services(
             raise HomeAssistantError(str(err)) from err
 
         media_key, export_dir = await _async_archive_export_location(hass)
-
-        try:
-            local_zone = ZoneInfo(timezone_name)
-        except ZoneInfoNotFoundError:
-            local_zone = dt_util.get_default_time_zone()
 
         local_start = datetime.fromtimestamp(
             int(archive["start"]),
@@ -1298,7 +1306,7 @@ def async_setup_services(
                         archive["start"],
                         tz=timezone.utc,
                     ).isoformat(),
-                    "start_camera": _local_iso(archive["start"], timezone_name),
+                    "start_camera": _local_iso(archive["start"], local_zone),
                     "duration": archive["duration"],
                     "requested_duration": archive["requested_duration"],
                     "range_from": archive["range_from"],
@@ -1466,7 +1474,7 @@ def async_setup_services(
                 archive["start"],
                 tz=timezone.utc,
             ).isoformat(),
-            "start_camera": _local_iso(archive["start"], timezone_name),
+            "start_camera": _local_iso(archive["start"], local_zone),
             "duration": archive["duration"],
             "requested_duration": archive["requested_duration"],
             "range_from": archive["range_from"],
@@ -1583,14 +1591,12 @@ def async_setup_services(
 
         try:
             camera = await api.async_get_camera(camera_number)
-            timezone_name = str(camera.get("timezone") or hass.config.time_zone)
+            timezone_name, local_zone = await _async_resolve_time_zone(
+                str(camera.get("timezone") or hass.config.time_zone or "UTC")
+            )
             start: datetime = call.data["start"]
             if start.tzinfo is None:
-                try:
-                    start_zone = ZoneInfo(timezone_name)
-                except ZoneInfoNotFoundError:
-                    start_zone = dt_util.get_default_time_zone()
-                start = start.replace(tzinfo=start_zone)
+                start = start.replace(tzinfo=local_zone)
             start_ts = int(start.timestamp())
             archive = await api.async_get_archive_url(
                 camera_number, start_ts, duration
@@ -1609,7 +1615,7 @@ def async_setup_services(
             "start_utc": datetime.fromtimestamp(
                 archive["start"], tz=timezone.utc
             ).isoformat(),
-            "start_camera": _local_iso(archive["start"], timezone_name),
+            "start_camera": _local_iso(archive["start"], local_zone),
             "duration": archive["duration"],
             "requested_duration": archive["requested_duration"],
             "range_from": archive["range_from"],
@@ -1721,42 +1727,48 @@ def async_setup_services(
         schema=GET_MOTION_EVENTS_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
-    hass.services.async_register(
+    async_register_admin_service(
+        hass,
         DOMAIN,
         SERVICE_GET_GUEST_ACCESS,
         async_get_guest_access,
         schema=GET_GUEST_ACCESS_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
-    hass.services.async_register(
+    async_register_admin_service(
+        hass,
         DOMAIN,
         SERVICE_CREATE_TEMPORARY_GUEST_LINK,
         async_create_temporary_guest_link,
         schema=CREATE_TEMPORARY_GUEST_LINK_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
-    hass.services.async_register(
+    async_register_admin_service(
+        hass,
         DOMAIN,
         SERVICE_REVOKE_TEMPORARY_GUEST_LINK,
         async_revoke_temporary_guest_link,
         schema=REVOKE_TEMPORARY_GUEST_LINK_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
-    hass.services.async_register(
+    async_register_admin_service(
+        hass,
         DOMAIN,
         SERVICE_CREATE_GUEST_INVITE,
         async_create_guest_invite,
         schema=CREATE_GUEST_INVITE_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
-    hass.services.async_register(
+    async_register_admin_service(
+        hass,
         DOMAIN,
         SERVICE_FORGET_GUEST_INVITE,
         async_forget_guest_invite,
         schema=FORGET_GUEST_INVITE_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
-    hass.services.async_register(
+    async_register_admin_service(
+        hass,
         DOMAIN,
         SERVICE_REVOKE_SHARED_ACCESS,
         async_revoke_shared_access,
@@ -2144,8 +2156,9 @@ def _ranges_response(
     skud: dict[str, Any],
     camera: dict[str, Any],
     ranges: list[dict[str, int]],
+    timezone_name: str,
+    zone: tzinfo,
 ) -> dict[str, Any]:
-    timezone_name = str(camera.get("timezone") or "UTC")
     tariff = camera.get("tariff") if isinstance(camera.get("tariff"), dict) else {}
     formatted = []
     normalized: list[tuple[int, int]] = []
@@ -2159,13 +2172,13 @@ def _ranges_response(
                 "duration": duration,
                 "start_utc": datetime.fromtimestamp(start, tz=timezone.utc).isoformat(),
                 "end_utc": datetime.fromtimestamp(end, tz=timezone.utc).isoformat(),
-                "start_camera": _local_iso(start, timezone_name),
-                "end_camera": _local_iso(end, timezone_name),
+                "start_camera": _local_iso(start, zone),
+                "end_camera": _local_iso(end, zone),
             }
         )
         normalized.append((start, end))
 
-    days = _archive_days(normalized, timezone_name)
+    days = _archive_days(normalized, zone)
     earliest = min((start for start, _end in normalized), default=None)
     latest = max((end for _start, end in normalized), default=None)
 
@@ -2179,8 +2192,8 @@ def _ranges_response(
         "count": len(formatted),
         "earliest": earliest,
         "latest": latest,
-        "earliest_camera": _local_iso(earliest, timezone_name) if earliest is not None else None,
-        "latest_camera": _local_iso(latest, timezone_name) if latest is not None else None,
+        "earliest_camera": _local_iso(earliest, zone) if earliest is not None else None,
+        "latest_camera": _local_iso(latest, zone) if latest is not None else None,
         "first_date": days[0]["date"] if days else None,
         "last_date": days[-1]["date"] if days else None,
         "days": days,
@@ -2190,7 +2203,7 @@ def _ranges_response(
 
 def _archive_days(
     ranges: list[tuple[int, int]],
-    timezone_name: str,
+    zone: tzinfo,
 ) -> list[dict[str, Any]]:
     """Split Unix archive ranges into camera-local calendar days.
 
@@ -2199,11 +2212,6 @@ def _archive_days(
     Tiny overlaps/gaps up to three seconds are merged because UCAMS ranges can
     contain boundary jitter of a few seconds.
     """
-    try:
-        zone = ZoneInfo(timezone_name)
-    except ZoneInfoNotFoundError:
-        zone = timezone.utc
-
     by_date: dict[str, list[dict[str, int]]] = {}
 
     for start, end in ranges:
@@ -2278,9 +2286,5 @@ def _seconds_hms(value: int) -> str:
     minutes, seconds = divmod(remainder, 60)
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
-def _local_iso(timestamp: int, timezone_name: str) -> str:
-    try:
-        zone = ZoneInfo(timezone_name)
-    except ZoneInfoNotFoundError:
-        zone = timezone.utc
+def _local_iso(timestamp: int, zone: tzinfo) -> str:
     return datetime.fromtimestamp(timestamp, tz=zone).isoformat()

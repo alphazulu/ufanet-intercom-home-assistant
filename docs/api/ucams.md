@@ -4,7 +4,7 @@
 
 UCAMS is the video platform used by the tested Ufanet intercom account.
 
-> The v0.32.0 candidate keeps the existing UCAMS authentication and media-token
+> The v0.32.0 release keeps the existing UCAMS authentication and media-token
 > contracts, and adds the live-confirmed account-wide standalone-camera path
 > documented below.
 
